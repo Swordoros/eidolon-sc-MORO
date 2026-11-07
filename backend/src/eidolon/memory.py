@@ -717,6 +717,8 @@ class Memories:
         user_id = conversation.user_id
         created_at = now.astimezone(UTC).isoformat()
         for memory in written:
+            strength, hold = TIERS.get(memory.tier, TIERS["medium"])
+            maintain_until = (now + hold).astimezone(UTC).isoformat()
             kept = db.execute(
                 "SELECT id, superseded_by IS NOT NULL FROM memories"
                 " WHERE user_id = ? AND text = ?",
@@ -725,8 +727,6 @@ class Memories:
             if kept is None:
                 # Its conversation may have been deleted since the turn (GLOSSARY.md
                 # 「历史对话」): the memory is kept all the same, saying where no longer.
-                strength, hold = TIERS.get(memory.tier, TIERS["medium"])
-                maintain_until = (now + hold).astimezone(UTC).isoformat()
                 cursor = db.execute(
                     "INSERT INTO memories"
                     " (user_id, source_character_id, conversation_id, text, created_at, scope,"
@@ -746,8 +746,12 @@ class Memories:
                 id, superseded = kept
                 if not superseded:
                     continue  # already remembered
+                # Revived: it holds again, refreshed as its tier says and with the emotion
+                # it was written with this turn.
                 db.execute(
-                    "UPDATE memories SET superseded_by = NULL WHERE id = ?", (id,)
+                    "UPDATE memories SET superseded_by = NULL, emotion = ?, strength = ?,"
+                    " maintain_until = ? WHERE id = ?",
+                    (memory.emotion, strength, maintain_until, id),
                 )
             # Only what still holds: a memory deleted or superseded since it was shown
             # is left as it is.

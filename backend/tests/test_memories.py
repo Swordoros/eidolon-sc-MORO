@@ -218,6 +218,25 @@ async def test_a_memory_is_written_with_its_emotion_and_tiers_strength(
     assert kept.kind == "short"
 
 
+async def test_a_revived_memory_is_refreshed_to_its_new_tier(
+    world: World, make_memories: MemoriesFactory
+):
+    replies = [
+        '{"memories": [{"text": "制作人喜欢猫", "tier": "strong"}]}',
+        superseding("制作人喜欢狗", "制作人喜欢猫"),
+        '{"memories": [{"text": "制作人喜欢猫", "tier": "weak"}]}',
+    ]
+    memories = make_memories(*replies)
+
+    await tell(memories, world, await world.conversation("mano"), "我喜欢猫")
+    await tell(memories, world, await world.conversation("mano"), "其实我喜欢狗")
+    await tell(memories, world, await world.conversation("mano"), "还是喜欢猫")
+
+    by_text = {m.text: m for m in await memories.entries(world.producer)}
+    assert by_text["制作人喜欢猫"].superseded_by is None  # holds again
+    assert by_text["制作人喜欢猫"].strength == 0.5  # refreshed as its new tier, weak
+
+
 async def test_one_users_memories_never_reach_another_user(
     world: World, make_memories: MemoriesFactory
 ):
