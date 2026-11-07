@@ -59,9 +59,9 @@ MAX_SEED = 4294967295 - 7
 TIME_LIMIT = 300
 """The longest a photo may take in all, in seconds, waiting its turn included."""
 GENERATION_TIMEOUT = httpx.Timeout(TIME_LIMIT, connect=10)
-GPT_TIME_LIMIT = 240
+GPT_TIME_LIMIT = TIME_LIMIT
 """The longest a moment's picture may take at GPT Image, in seconds, waiting its turn
-included, before NovelAI is tried instead."""
+included, before NovelAI is tried instead: synced with a photo's (`TIME_LIMIT`)."""
 GPT_GENERATION_TIMEOUT = httpx.Timeout(GPT_TIME_LIMIT, connect=10)
 
 Failure = Literal["timeout", "service_error", "bad_image"]
