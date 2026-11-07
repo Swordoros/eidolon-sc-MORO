@@ -1,0 +1,39 @@
+idols:
+  櫻木真乃  (reading=さくらぎまの) unit=illumination STARS
+  風野灯織  (reading=かざのひおり) unit=illumination STARS
+  八宮めぐる  (reading=はちみやめぐる) unit=illumination STARS
+  月岡恋鐘  (reading=つきおかこがね) unit=L'Antica
+  幽谷霧子  (reading=ゆうこくきりこ) unit=L'Antica
+  三峰結華  (reading=みつみねゆいか) unit=L'Antica
+  田中摩美々  (reading=たなかまみみ) unit=L'Antica
+  白瀬咲耶  (reading=しらせさくや) unit=L'Antica
+  小宮果穂  (reading=こみやかほ) unit=放課後クライマックスガールズ
+  園田智代子  (reading=そのだちよこ) unit=放課後クライマックスガールズ
+  西城樹里  (reading=さいじょうじゅり) unit=放課後クライマックスガールズ
+  杜野凛世  (reading=もりのりんぜ) unit=放課後クライマックスガールズ
+  有栖川夏葉  (reading=ありすがわなつは) unit=放課後クライマックスガールズ
+  桑山千雪  (reading=くわやまちゆき) unit=ALSTROEMERIA
+  大崎甘奈  (reading=おおさきあまな) unit=ALSTROEMERIA
+  大崎甜花  (reading=おおさきてんか) unit=ALSTROEMERIA
+  芹沢あさひ  (reading=せりざわあさひ) unit=Straylight
+  黛冬優子  (reading=まゆずみふゆこ) unit=Straylight
+  和泉愛依  (reading=いずみめい) unit=Straylight
+  浅倉透  (reading=あさくらとおる) unit=noctchill
+  樋口円香  (reading=ひぐちまどか) unit=noctchill
+  福丸小糸  (reading=ふくまるこいと) unit=noctchill
+  市川雛菜  (reading=いちかわひなな) unit=noctchill
+  七草にちか  (reading=ななくさにちか) unit=SHHis
+  緋田美琴  (reading=あけたみこと) unit=SHHis
+  斑鳩ルカ  (reading=いかるがるか) unit=CoMETIK
+  鈴木羽那  (reading=すずきはな) unit=CoMETIK
+  郁田はるき  (reading=いくたはるき) unit=CoMETIK
+
+units:
+  illumination STARS members=['櫻木真乃', '風野灯織', '八宮めぐる']
+  L'Antica members=['月岡恋鐘', '幽谷霧子', '三峰結華', '田中摩美々', '白瀬咲耶']
+  放課後クライマックスガールズ members=['小宮果穂', '園田智代子', '西城樹里', '杜野凛世', '有栖川夏葉']
+  ALSTROEMERIA members=['桑山千雪', '大崎甘奈', '大崎甜花']
+  Straylight members=['芹沢あさひ', '黛冬優子', '和泉愛依']
+  noctchill members=['浅倉透', '樋口円香', '福丸小糸', '市川雛菜']
+  SHHis members=['七草にちか', '緋田美琴']
+  CoMETIK members=['斑鳩ルカ', '鈴木羽那', '郁田はるき']

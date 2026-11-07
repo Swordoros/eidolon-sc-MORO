@@ -1,0 +1,16 @@
+top-level keys: as_of, office, units, idols, releases, songs, lives
+
+'as_of' -> str
+'office' -> dict
+  'name' -> str
+  'staff' -> list
+    [list of 2]
+      'name' -> str
+      'reading' -> str
+      'position' -> str
+'units' -> list
+  [list of 8]
+    'name' -> str
+    'reading' -> str
+    'members' -> list
+      [list of 3]

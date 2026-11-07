@@ -1,0 +1,3 @@
+extra names: shown_deltas=['P酱と卡特兰がいる。'] complete='P酱と卡特兰がいる。'
+short name: shown_deltas=['真乃和巡。'] complete='真乃和巡。'
+no name (short, should be 1 delta): shown_deltas=['嘿嘿，谢谢。'] complete='嘿嘿，谢谢。'
