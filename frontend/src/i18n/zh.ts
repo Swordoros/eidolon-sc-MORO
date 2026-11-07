@@ -2631,6 +2631,8 @@ export const zh = {
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
     superseded: "已被取代",
+    /** 强度挡位，按当前 strength 值取（GLOSSARY.md「记忆」）：越高记得越牢。 */
+    strengthTier: (strength: number) => (strength >= 0.7 ? "强" : strength >= 0.4 ? "中" : "弱"),
     /** 三类可见范围（GLOSSARY.md「记忆」）的名字，按 scope 取；`family` 时 unit 显示成「家庭」
      * （叶月没有组合，群组记忆是和妹妹日花共享）。 */
     scopeName: (scope: "private" | "unit" | "shared", family = false) =>

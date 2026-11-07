@@ -280,6 +280,10 @@ export type Memory = {
   /** 已被后来的记忆取代：角色不会再想起，删掉取代它的那条就恢复（ADR-0014）。 */
   superseded: boolean;
   scope: MemoryScope;
+  /** The feeling she had about it as she wrote it down (GLOSSARY.md「记忆」); null without one. */
+  emotion: string | null;
+  /** How strong the memory is now, 1 at its fullest, decaying over time. */
+  strength: number;
 };
 
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each

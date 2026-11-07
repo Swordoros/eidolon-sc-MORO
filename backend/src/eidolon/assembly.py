@@ -248,6 +248,7 @@ class Backend:
         self._sending = asyncio.create_task(self.trip_photos.keep_sending())
         self._planning = asyncio.create_task(self.schedule_writer.keep_writing())
         self._sweeping = asyncio.create_task(self.bar.keep_sweeping())
+        self._decaying = asyncio.create_task(self.memories.keep_decaying())
         self._tidying = asyncio.create_task(
             keep_tidy(self.usage.forget_old, self.activity.forget_old, self.moments.forget_old)
         )

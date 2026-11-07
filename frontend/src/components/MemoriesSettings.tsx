@@ -191,6 +191,8 @@ export function MemoriesSettings() {
                         <Badge variant={SCOPE_VARIANT[memory.scope]}>{t.scopeName(memory.scope, family)}</Badge>
                       </button>
                       {mark && <Badge variant="secondary">{mark}</Badge>}
+                      {memory.emotion && <Badge variant="outline">{memory.emotion}</Badge>}
+                      <Badge variant="outline">{t.strengthTier(memory.strength)}</Badge>
                       <span className="text-subtitle text-muted-foreground">
                         {t.toldTo(name)} · {t.date(created.getFullYear(), created.getMonth() + 1, created.getDate())}
                       </span>

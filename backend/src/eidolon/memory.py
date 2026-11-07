@@ -74,14 +74,28 @@ MAX_MOMENT = 120
 """How long what mattered to her in a turn may be, in characters; a longer one is cut."""
 CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
-MAX_FOUND = 3
-"""The most memories one turn's prompt carries, after reranking."""
+MAX_FOUND = 5
+"""The most memories one turn's prompt carries, after reranking and strength sorting."""
 LATELY = timedelta(days=14)
 """How long ago what she reaches out with as his news may have been written down."""
 MAX_LATEST = 5
 """The most of his news she reaches out with, besides what is found."""
 ANOTHER_IDOL = "事务所的另一位偶像"
 """Who a memory was told to, when that character has been removed from the configuration."""
+
+TIERS: dict[str, tuple[float, timedelta]] = {
+    "strong": (1.0, timedelta(hours=48)),
+    "medium": (0.7, timedelta(hours=24)),
+    "weak": (0.5, timedelta(hours=12)),
+}
+"""Each strength tier a memory may be written in (GLOSSARY.md「记忆」): its initial strength,
+and how long that strength holds before it starts decaying."""
+DECAY_FACTOR = 0.9
+"""How much of its strength a memory keeps each hour, once its maintenance is over."""
+FORGET_THRESHOLD = 0.1
+"""A strength at or below which a memory is no longer recalled."""
+DECAY_TICK = timedelta(hours=1)
+"""How often the memories' strength is decayed."""
 
 Scope = Literal["private", "unit", "shared"]
 """How widely a memory is shared (GLOSSARY.md「记忆」): the source character alone (`private`),
@@ -100,6 +114,10 @@ CREATE TABLE IF NOT EXISTS memories (
     text TEXT NOT NULL,
     created_at TEXT NOT NULL,
     superseded_by INTEGER,
+    emotion TEXT,
+    strength REAL NOT NULL DEFAULT 1,
+    maintain_until TEXT,
+    kind TEXT NOT NULL DEFAULT 'short',
     UNIQUE (user_id, text)
 );
 -- Deleting a conversation clears this from the memories written down in it.
@@ -134,6 +152,16 @@ class Memory:
     """The conversation it was told in; None if that is not known or no longer there."""
     scope: Scope = "shared"
     """How widely it is shared (GLOSSARY.md「记忆」); `shared` where the source has no unit."""
+    emotion: str | None = None
+    """The feeling she had about it as she wrote it down (GLOSSARY.md「记忆」); None without one."""
+    strength: float = 1.0
+    """How strong the memory is now, 1 at its fullest; decays each hour past its maintenance
+    (`maintain_until`), and below `FORGET_THRESHOLD` it is no longer recalled."""
+    maintain_until: str | None = None
+    """When its strength holds until, an ISO timestamp in UTC; None if it is past, or was
+    written before maintenance existed."""
+    kind: str = "short"
+    """short, mid or long: what a night's consolidation has made of it (GLOSSARY.md「记忆」)."""
 
 
 PackageKey = int | str
@@ -293,6 +321,20 @@ class Memories:
         self._clearings[user_id] = self._clearings.get(user_id, 0) + 1
         await self._settle(user_id)
 
+    async def decay(self) -> None:
+        """Weaken every memory whose maintenance is over, once (`DECAY_FACTOR`); a memory at
+        or below `FORGET_THRESHOLD` is no longer recalled (GLOSSARY.md「记忆」)."""
+        await self._db.write(_decay, self._clock().astimezone(UTC).isoformat())
+
+    async def keep_decaying(self) -> None:
+        """`decay` at every `DECAY_TICK`, until cancelled."""
+        while True:
+            await asyncio.sleep(DECAY_TICK.total_seconds())
+            try:
+                await self.decay()
+            except Exception:
+                log.exception("decaying memories failed")
+
     async def embed_missing(
         self,
         batch: int = REEMBED_BATCH,
@@ -390,8 +432,9 @@ class Memories:
         return _memories_prompt(found, character, timezone, _FOUND) if found else None
 
     async def _relevant(self, query_text: str, candidates: Sequence[Memory]) -> list[Memory]:
-        """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, most relevant
-        first; none if memory is off or reranking failed."""
+        """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, strongest
+        first; none if memory is off or reranking failed. Relevance filters (the reranker
+        drops what is off-topic), then strength orders what is left (GLOSSARY.md「记忆」)."""
         if (services := self._services) is None or not candidates:
             return []
         try:
@@ -402,7 +445,12 @@ class Memories:
             log.warning("finding memories failed; going on without them", exc_info=True)
             return []
         min_relevance = services.min_relevance()
-        return [candidates[i] for i, score in best if score >= min_relevance][:MAX_FOUND]
+        relevant = [
+            candidates[i] for i, score in best
+            if score >= min_relevance and candidates[i].strength >= FORGET_THRESHOLD
+        ]
+        relevant.sort(key=lambda m: m.strength, reverse=True)
+        return relevant[:MAX_FOUND]
 
     async def for_reaching_out(
         self,
@@ -627,7 +675,8 @@ class Memories:
         """What `kept` reads, read through `db`: for a data package too."""
         rows = db.execute(
             "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
-            " conversation_id, scope FROM memories WHERE user_id = ? ORDER BY id",
+            " conversation_id, scope, emotion, strength, maintain_until, kind"
+            " FROM memories WHERE user_id = ? ORDER BY id",
             (user_id,),
         ).fetchall()
         return [self._memory(*row) for row in rows]
@@ -642,12 +691,14 @@ class Memories:
     def _memory(
         self, id: int, user_id: str, source_character_id: str, text: str, created_at: str,
         superseded_by: int | None = None, conversation_id: str | None = None,
-        scope: Scope = "shared",
+        scope: Scope = "shared", emotion: str | None = None, strength: float = 1.0,
+        maintain_until: str | None = None, kind: str = "short",
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, (source.name_zh or source.name) if source else None, text,
-            created_at, superseded_by, conversation_id, scope,
+            created_at, superseded_by, conversation_id, scope, emotion, strength,
+            maintain_until, kind,
         )
 
     def _add(
@@ -674,18 +725,22 @@ class Memories:
             if kept is None:
                 # Its conversation may have been deleted since the turn (GLOSSARY.md
                 # 「历史对话」): the memory is kept all the same, saying where no longer.
+                strength, hold = TIERS.get(memory.tier, TIERS["medium"])
+                maintain_until = (now + hold).astimezone(UTC).isoformat()
                 cursor = db.execute(
                     "INSERT INTO memories"
-                    " (user_id, source_character_id, conversation_id, text, created_at, scope)"
-                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?)",
+                    " (user_id, source_character_id, conversation_id, text, created_at, scope,"
+                    " emotion, strength, maintain_until, kind)"
+                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?, 'short')",
                     (user_id, conversation.character_id, conversation.id, memory.text,
-                     created_at, memory.scope),
+                     created_at, memory.scope, memory.emotion, strength, maintain_until),
                 )
                 assert cursor.lastrowid is not None
                 id = cursor.lastrowid
                 added.append(self._memory(
                     id, user_id, conversation.character_id, memory.text, created_at,
-                    scope=memory.scope,
+                    scope=memory.scope, emotion=memory.emotion, strength=strength,
+                    maintain_until=maintain_until, kind="short",
                 ))
             else:
                 id, superseded = kept
@@ -741,6 +796,14 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE memories ADD COLUMN superseded_by INTEGER")
     if "scope" not in columns:  # kept from before scopes: all shared
         db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'shared'")
+    if "emotion" not in columns:  # kept from before emotions: none written
+        db.execute("ALTER TABLE memories ADD COLUMN emotion TEXT")
+    if "strength" not in columns:  # kept from before strengths: all fullest
+        db.execute("ALTER TABLE memories ADD COLUMN strength REAL NOT NULL DEFAULT 1")
+    if "maintain_until" not in columns:  # none kept a maintenance before
+        db.execute("ALTER TABLE memories ADD COLUMN maintain_until TEXT")
+    if "kind" not in columns:  # kept from before kinds: all short
+        db.execute("ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT 'short'")
 
 
 def _delete(db: sqlite3.Connection, user_id: str, memory_id: int) -> bool:
@@ -776,6 +839,15 @@ def _set_scope(db: sqlite3.Connection, user_id: str, memory_id: int, scope: Scop
 def _clear(db: sqlite3.Connection, user_id: str) -> None:
     db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
     db.execute("DELETE FROM memory_vectors WHERE user_id = ?", (user_id,))
+
+
+def _decay(db: sqlite3.Connection, now: str) -> None:
+    """Weaken the memories whose maintenance is over at `now`, once (`DECAY_FACTOR`)."""
+    db.execute(
+        "UPDATE memories SET strength = strength * ?"
+        " WHERE (maintain_until IS NULL OR maintain_until < ?) AND strength > ?",
+        (DECAY_FACTOR, now, FORGET_THRESHOLD),
+    )
 
 
 def _unembedded(
@@ -923,7 +995,13 @@ _INSTRUCTIONS = """\
 - shared（共享）：她愿意让所有偶像都知道的事——比如公开场合的成绩、没什么敏感度的事实。
 拿不准就写 shared。
 
-只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号], "scope": "shared|unit|private"}], "promises": [], \
+每条记忆还要标 emotion 和 tier：
+- emotion 是她记下这件事时的感情，用一两个词（开心、难过、生气、担心、怀念、平静…）；没有明显感情就写「平静」。
+- tier 是这件事对她的重要程度：strong（强，她会记很久、很当回事）、medium（中，一般的重要）、weak（弱，小事、随口一提）。\
+拿不准就写 medium。
+
+只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号], "scope": "shared|unit|private", \
+"emotion": "开心", "tier": "strong|medium|weak"}], "promises": [], \
 "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；没有约定时 \
 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；都没有就输出 \
 {"memories": [], "promises": [], "promise_changes": [], "moment": null}。
@@ -1003,6 +1081,10 @@ class NewMemory:
     any it was not shown are left for `Memories._add` to ignore."""
     scope: Scope = "shared"
     """How widely it is shared (GLOSSARY.md「记忆」), as the background model judged it."""
+    emotion: str | None = None
+    """The feeling she had about it (GLOSSARY.md「记忆」); None without one."""
+    tier: str = "medium"
+    """How strong it is: strong, medium or weak (`TIERS`, GLOSSARY.md「记忆」)."""
 
 
 def parse_memories(answer: str) -> list[NewMemory] | None:
@@ -1020,14 +1102,18 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
     for memory in memories:
         if isinstance(memory, dict):
             text, supersedes, scope = memory.get("text"), memory.get("supersedes"), memory.get("scope")
+            emotion, tier = memory.get("emotion"), memory.get("tier")
         else:
             text, supersedes, scope = memory, None, "shared"
+            emotion, tier = None, "medium"
         if not isinstance(text, str) or not (text := text.strip()[:MAX_MEMORY_LENGTH]):
             continue
         numbers = supersedes if isinstance(supersedes, list) else []
         written.setdefault(text, NewMemory(
             text, tuple(dict.fromkeys(n for n in numbers if type(n) is int)),
             scope if scope in SCOPES else "shared",
+            emotion if isinstance(emotion, str) and emotion.strip() else None,
+            tier if tier in TIERS else "medium",
         ))
     return list(written.values())[:MAX_NEW_MEMORIES]
 

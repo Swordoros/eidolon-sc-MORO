@@ -17,7 +17,7 @@ from eidolon.characters import Character, load_characters
 from eidolon import memory
 from eidolon.data_access import Database
 from eidolon.llm import ChatLLM
-from eidolon.memory import Memories, Memory, MemoryTurn, memory_query
+from eidolon.memory import MAX_FOUND, Memories, Memory, MemoryTurn, memory_query
 from eidolon.store import Conversation, Message, Segment, Store, add_turn
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeReranker
@@ -203,6 +203,21 @@ async def test_a_unit_memory_reaches_only_who_the_source_shares_it_with(world: W
     await memories.aclose()
 
 
+async def test_a_memory_is_written_with_its_emotion_and_tiers_strength(
+    world: World, make_memories: MemoriesFactory
+):
+    reply = '{"memories": [{"text": "制作人养了一只猫", "emotion": "开心", "tier": "strong"}]}'
+    memories = make_memories(reply)
+
+    await tell(memories, world, await world.conversation("mano"), "我养了猫")
+    [kept] = await memories.entries(world.producer)
+
+    assert kept.emotion == "开心"
+    assert kept.strength == 1.0  # a strong memory begins fullest
+    assert kept.maintain_until is not None  # and holds for its tier's maintenance
+    assert kept.kind == "short"
+
+
 async def test_one_users_memories_never_reach_another_user(
     world: World, make_memories: MemoriesFactory
 ):
@@ -270,13 +285,13 @@ async def test_irrelevant_memories_are_not_found(world: World, make_memories: Me
 
 
 async def test_only_the_most_relevant_few_are_found(world: World, make_memories: MemoriesFactory):
-    told = [f"制作人喜欢第{i}种点心" for i in range(1, 6)]
+    told = [f"制作人喜欢第{i}种点心" for i in range(1, 8)]
     memories = make_memories(memorized(*told))
 
     await tell(memories, world, await world.conversation("mano"), "我喜欢好多点心")
     section = await find(memories, world, await world.conversation("mano"), "你知道我喜欢什么点心吗？")
 
-    assert sum(t in section for t in told) == 3
+    assert sum(t in section for t in told) == MAX_FOUND
 
 
 @pytest.mark.parametrize(

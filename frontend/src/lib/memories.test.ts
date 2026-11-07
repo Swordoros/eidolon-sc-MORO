@@ -35,6 +35,8 @@ const memory = (source: string, superseded = false): Memory => ({
   created_at: "2026-09-01T12:00:00Z",
   superseded,
   scope: "shared",
+  emotion: null,
+  strength: 1,
 });
 
 describe("sourceCharacter", () => {

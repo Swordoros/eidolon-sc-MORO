@@ -31,7 +31,7 @@ from eidolon.characters import Character, ScriptedLine, in_idol_order, signature
 from eidolon.config import FishAudioModel
 from eidolon.database import readable
 from eidolon.engine import ENDED, TurnJudged, shown
-from eidolon.memory import Scope as MemoryScope
+from eidolon.memory import FORGET_THRESHOLD, Scope as MemoryScope
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -654,8 +654,9 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
-        """Newest first, each with the name of the character it was told to and whether
-        it has been superseded (ADR-0014)."""
+        """Newest first, each with the name of the character it was told to, its emotion and
+        strength, and whether it has been superseded (ADR-0014); forgotten memories (at or
+        below `FORGET_THRESHOLD`) are left out."""
         return [
             {
                 "id": m.id,
@@ -665,8 +666,11 @@ def create_app(backend: Backend) -> FastAPI:
                 "created_at": m.created_at,
                 "superseded": m.superseded_by is not None,
                 "scope": m.scope,
+                "emotion": m.emotion,
+                "strength": m.strength,
             }
             for m in await memory.entries(user_id)
+            if m.strength >= FORGET_THRESHOLD
         ]
 
     @app.delete("/api/memories/{memory_id}", status_code=204)
