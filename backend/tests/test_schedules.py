@@ -208,6 +208,32 @@ async def test_a_live_of_hers_that_day_is_to_be_in_it(
     assert "你昨天的安排：排练。" in told
 
 
+async def test_the_clerk_is_told_the_days_lives_so_she_does_not_invent_one(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    """Staff have no `lives_of`, so their schedule is told the day's real lives (or that
+    there are none), to keep her from writing a live no one is standing on."""
+    characters.add("hazuki", "七草はづき", "sheet", speakers=["はづき"])
+    write_world(characters)
+    llm = FakeLLM(REPLY, REPLY)
+    client = make_client(llm, settings=replace(settings, schedules=True))
+    backend = backend_of(client)
+
+    await backend.engine.write_schedules(
+        ["hazuki"], llm, date(2026, 11, 7), {"hazuki": []}, {"hazuki": None}
+    )
+    on_a_live_day = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "今天事务所各组合确实要举行的 LIVE" in on_a_live_day
+    assert "「THE IDOLM@STER SHINY COLORS 8thLIVE」在Kアリーナ横浜，出演：櫻木真乃" in on_a_live_day
+
+    await backend.engine.write_schedules(
+        ["hazuki"], llm, date(2026, 11, 9), {"hazuki": []}, {"hazuki": None}
+    )
+    on_a_quiet_day = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "今天事务所没有 LIVE" in on_a_quiet_day
+    assert "8thLIVE" not in on_a_quiet_day
+
+
 async def test_hers_is_hers_to_read(make_client: ClientFactory, settings: Settings):
     client, _, clock = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
     clock.now = today_at(6)

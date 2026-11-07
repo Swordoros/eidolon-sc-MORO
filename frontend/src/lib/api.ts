@@ -59,6 +59,9 @@ export type Character = {
   unit_reading: string | null;
   /** Where her unit is in the units' official order, from 0; null along with `unit`. */
   unit_order: number | null;
+  /** Who else, by id, her `unit` memories reach beyond her unit (the clerk's sister).
+   * The memory page shows her `unit` scope as 「家庭」 while this is not empty. */
+  memory_share: string[];
   /** What she says to a visitor on the landing page; null when she has no greeting. */
   greeting: Greeting | null;
   /** What she says first once a visitor answers her call in the landing page's demo; null when

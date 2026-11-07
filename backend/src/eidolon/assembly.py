@@ -433,13 +433,20 @@ def build(
         special_days_path(settings.characters_path), characters.values()
     )
 
-    def unit_of(character_id: str) -> str | None:
-        """The unit `character_id` belongs to, by name, or None if in none or unknown."""
+    def share_group(character_id: str) -> frozenset[str]:
+        """Who, by id, a `unit` memory of `character_id` reaches: her unit's members and,
+        for the clerk, her sister (`memory_share`), herself among them."""
         character = characters.get(character_id)
-        if character is None or world is None:
-            return None
-        found = world.unit_of(character.name)
-        return found[0] if found else None
+        if character is None:
+            return frozenset()
+        members = {character_id}
+        members.update(character.memory_share)
+        if world is not None and (found := world.unit_of(character.name)) is not None:
+            members.update(
+                cid for cid, c in characters.items()
+                if (u := world.unit_of(c.name)) is not None and u[0] == found[0]
+            )
+        return frozenset(members)
 
     retrieval = None
     corpus = None
@@ -458,7 +465,7 @@ def build(
         memories = Memories(
             database, characters, clock, embedder=embedder, reranker=reranker,
             min_relevance=lambda: config.rerank_thresholds.memories, promises=promises,
-            unit_of=unit_of,
+            share_group=share_group,
         )
     else:
         log.info(
@@ -467,7 +474,7 @@ def build(
             " SILICONFLOW_API_KEY for reranking, and the judge model's (JEV_API_KEY, or"
             " CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID with JUDGE_PROVIDER=cloudflare)"
         )
-        memories = Memories(database, characters, clock, promises=promises, unit_of=unit_of)
+        memories = Memories(database, characters, clock, promises=promises, share_group=share_group)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
     titles = Titles(store, characters, gift_catalog)
     closers.append(titles.aclose)  # likewise, so what it is naming can finish

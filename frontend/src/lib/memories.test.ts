@@ -20,6 +20,7 @@ const mano: Character = {
   unit: null,
   unit_reading: null,
   unit_order: null,
+  memory_share: [],
   greeting: null,
   call_opener: null,
   call_poster_url: null,

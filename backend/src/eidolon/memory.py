@@ -218,21 +218,21 @@ class Memories:
         reranker: Reranker | None = None,
         min_relevance: Callable[[], float] = lambda: DEFAULT_THRESHOLDS.memories,
         promises: Promises | None = None,
-        unit_of: Callable[[str], str | None] = lambda _: None,
+        share_group: Callable[[str], frozenset[str]] = lambda _: frozenset(),
     ) -> None:
         """Memories kept in `db`, next to the users and conversations they belong to; off
         unless `embedder` and `reranker` are both given, though `embedder` alone is enough to
         embed them again. A memory the reranker scores below what `min_relevance` says when
         it is found is not (see `rerank.KNOWN_THRESHOLDS`). The promises the same answer
-        writes down go to `promises`, if there are any to keep. `unit_of` says a character's
-        unit, by its identifier, or None if it is in none (GLOSSARY.md「组合」); it decides
-        who a `unit` memory is shared with."""
+        writes down go to `promises`, if there are any to keep. `share_group` says who, by
+        id, a character's `unit` memories reach: her unit and, for the clerk, her sister
+        (GLOSSARY.md「记忆」)."""
         self._db = db
         db.prepare(_open)
         self._characters = characters
         self._clock = clock
         self._promises = promises
-        self._unit_of = unit_of
+        self._share_group = share_group
         self._moments: list[Callable[[str, str, str, datetime], Awaitable[None]]] = []
         self._embedder = embedder
         self._services = (
@@ -448,8 +448,8 @@ class Memories:
 
     def _visible(self, memories: Sequence[Memory], character_id: str) -> list[Memory]:
         """Those of `memories` that still hold and `character_id` may recall: her own
-        whatever the scope, another's only where shared, or unit and in the source's unit."""
-        own_unit = self._unit_of(character_id)
+        whatever the scope, another's only where shared, or unit and among who the source
+        shares it with."""
         visible = []
         for memory in memories:
             if memory.superseded_by is not None:
@@ -457,8 +457,7 @@ class Memories:
             if memory.source_character_id == character_id or memory.scope == "shared":
                 visible.append(memory)
             elif memory.scope == "unit":
-                unit = self._unit_of(memory.source_character_id)
-                if unit is not None and unit == own_unit:
+                if character_id in self._share_group(memory.source_character_id):
                     visible.append(memory)
         return visible
 
@@ -567,7 +566,17 @@ class Memories:
                 await self._promises.standing(user_id, conversation.character_id)
                 if self._promises is not None else []
             )
-            prompt = _extraction_prompt(character, history, text, reply, shown, now, standing)
+            share = [
+                self._characters[cid].name
+                for cid in character.memory_share
+                if cid in self._characters
+            ]
+            unit_hint = (
+                f"你的「群组」（unit 记忆的可见范围）是：{'、'.join(share)}。" if share else None
+            )
+            prompt = _extraction_prompt(
+                character, history, text, reply, shown, now, standing, unit_hint=unit_hint
+            )
             answer = "".join([
                 chunk async for chunk in llm.stream(prompt)
                 if isinstance(chunk, str)
@@ -934,10 +943,14 @@ def _extraction_prompt(
     shown: Sequence[Memory],
     now: datetime,
     promised: Sequence[Promise] = (),
+    unit_hint: str | None = None,
 ) -> list[ChatMessage]:
     # 星期几也写上：约定（promises）里「下周六」这类说法要靠它算出是哪一天。
     weekday = "一二三四五六日"[now.weekday()]
-    lines = [f"今天是 {_date(now)}，星期{weekday}（制作人所在时区）。", "", "# 已经记住的事"]
+    lines = [f"今天是 {_date(now)}，星期{weekday}（制作人所在时区）。"]
+    if unit_hint:
+        lines.append(unit_hint)
+    lines += ["", "# 已经记住的事"]
     lines += [f"{n}. {m.text}" for n, m in enumerate(shown, 1)] or ["（还没有）"]
     lines += ["", "# 已经记着的约定"]
     lines += [f"{n}. {p.due.isoformat()}：{p.text}" for n, p in enumerate(promised, 1)] or ["（还没有）"]

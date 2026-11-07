@@ -167,6 +167,7 @@ export function MemoriesSettings() {
           <ul className="flex flex-col divide-y">
             {memories.map((memory) => {
               const source = sourceCharacter(memory, characters);
+              const family = (source?.memory_share.length ?? 0) > 0;
               const name = memory.source_character_name ?? t.goneCharacter;
               const created = new Date(memory.created_at);
               const mark = supersededMark(memory);
@@ -181,13 +182,13 @@ export function MemoriesSettings() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        aria-label={t.changeScope(t.scopeName(nextScope(memory.scope)))}
-                        title={t.changeScope(t.scopeName(nextScope(memory.scope)))}
+                        aria-label={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
+                        title={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
                         onClick={() => changeScope(memory)}
                         disabled={busy || clearing}
                         className="shrink-0 rounded-4xl focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       >
-                        <Badge variant={SCOPE_VARIANT[memory.scope]}>{t.scopeName(memory.scope)}</Badge>
+                        <Badge variant={SCOPE_VARIANT[memory.scope]}>{t.scopeName(memory.scope, family)}</Badge>
                       </button>
                       {mark && <Badge variant="secondary">{mark}</Badge>}
                       <span className="text-subtitle text-muted-foreground">

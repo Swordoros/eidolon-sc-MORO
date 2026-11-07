@@ -584,6 +584,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "name_zh": c.name_zh,
                 "name_kana": c.name_kana,
                 "name_romaji": c.name_romaji,
+                "memory_share": list(c.memory_share),
                 **_unit(c, backend.world),
                 "greeting": _greeting(c, backend.settings.stand_assets_url),
                 "call_opener": _call_opener(c, backend.settings.stand_assets_url),

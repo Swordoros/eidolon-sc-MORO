@@ -860,6 +860,20 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 
 WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。）"
 
+
+def _staff_lives(world: World, day: date) -> str:
+    """What one of the staff is told of the day's lives in her schedule: the ones really
+    on, or that there are none, so that she does not write accompanying a live no one is
+    standing on."""
+    on = world.lives_on(day)
+    if not on:
+        return "今天事务所没有 LIVE。不要写「陪同…LIVE」这类安排。"
+    lines = ["今天事务所各组合确实要举行的 LIVE，只有这些（陪同 LIVE 只能陪同下面列出的）："]
+    for live, live_day in on:
+        lines.append(f"- 「{live.name}」在{live_day.venue}，出演：{'、'.join(live_day.performers)}")
+    return "\n".join(lines)
+
+
 ANSWERING = "（制作人打来电话，把睡着的你吵醒了。你迷迷糊糊地接起电话，先开口说话。）"
 """Where the user's words would be as she answers a call that woke her (`opening`)."""
 
@@ -1106,11 +1120,14 @@ class ConversationEngine:
             character = self._characters[character_id]
             own: list[str] = []
             if self._world is not None:
-                for live, days in self._world.lives_of(character.name):
-                    own += [
-                        f"今天你有 live：「{live.name}」，在{d.venue}。必须排进去。"
-                        for d in days if d.date == day
-                    ]
+                if self._world.is_staff(character.name):
+                    own.append(_staff_lives(self._world, day))
+                else:
+                    for live, days in self._world.lives_of(character.name):
+                        own += [
+                            f"今天你有 live：「{live.name}」，在{d.venue}。必须排进去。"
+                            for d in days if d.date == day
+                        ]
             habit = character.heart.sleep if character.heart is not None else None
             if habit:
                 own.append(f"你的作息习惯：{habit}")

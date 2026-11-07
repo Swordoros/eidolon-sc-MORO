@@ -17,7 +17,7 @@ from eidolon.characters import Character, load_characters
 from eidolon import memory
 from eidolon.data_access import Database
 from eidolon.llm import ChatLLM
-from eidolon.memory import Memories, MemoryTurn, memory_query
+from eidolon.memory import Memories, Memory, MemoryTurn, memory_query
 from eidolon.store import Conversation, Message, Segment, Store, add_turn
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeReranker
@@ -176,6 +176,31 @@ async def test_a_memory_told_to_a_character_since_removed_is_hearsay_from_anothe
 
     assert "听事务所的另一位偶像说" in line_of(section, CAT)
     assert (cat.source_character_id, cat.source_character_name) == ("mano", None)
+
+
+async def test_a_unit_memory_reaches_only_who_the_source_shares_it_with(world: World):
+    """The clerk's `unit` memory reaches her sister, not her sister's unit mate; an idol's
+    reaches her unit, not the clerk (GLOSSARY.md「记忆」)."""
+    groups = {
+        "hazuki": frozenset({"hazuki", "nichika"}),  # 叶月 + 妹妹日花（家庭）
+        "nichika": frozenset({"nichika", "mikoto"}),  # SHHis
+        "mikoto": frozenset({"nichika", "mikoto"}),
+    }
+    memories = Memories(
+        world.db, world.characters, lambda: NOW,
+        share_group=lambda cid: groups.get(cid, frozenset()),
+    )
+    kept = [
+        Memory(1, world.producer, "hazuki", "七草はづき", "制作人请我吃了蛋糕",
+               "2026-09-25T00:00:00+00:00", scope="unit"),
+        Memory(2, world.producer, "nichika", "七草にちか", "制作人来看我练习",
+               "2026-09-25T00:00:00+00:00", scope="unit"),
+    ]
+
+    assert [m.id for m in memories._visible(kept, "nichika")] == [1, 2]
+    assert [m.id for m in memories._visible(kept, "mikoto")] == [2]
+    assert [m.id for m in memories._visible(kept, "hazuki")] == [1]
+    await memories.aclose()
 
 
 async def test_one_users_memories_never_reach_another_user(

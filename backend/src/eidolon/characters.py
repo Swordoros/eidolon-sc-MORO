@@ -219,6 +219,9 @@ class Character:
     heart: "Heart | None" = None
     """Her heart (GLOSSARY.md「她的心」): what pleases and hurts her, and how she shows each
     tier; None goes by the generic wording of `affinity`."""
+    memory_share: tuple[str, ...] = ()
+    """Who else, by id, her `unit` memories reach beyond her unit: the clerk shares them
+    with her sister (GLOSSARY.md「记忆」)."""
 
     @property
     def photographed(self) -> bool:
@@ -342,6 +345,12 @@ def _parse_character(
     if not isinstance(speakers, list) or not all(isinstance(s, str) and s for s in speakers):
         raise CharacterConfigError(f"角色 {label} 的 speakers 应为说话人名字的列表")
 
+    memory_share = entry.get("memory_share", [])
+    if not isinstance(memory_share, list) or not all(
+        isinstance(s, str) and _VALID_ID.fullmatch(s) for s in memory_share
+    ):
+        raise CharacterConfigError(f"角色 {label} 的 memory_share 应为角色标识的列表")
+
     liked_gifts = entry.get("liked_gifts", [])
     if not isinstance(liked_gifts, list) or not all(isinstance(g, str) for g in liked_gifts):
         raise CharacterConfigError(f"角色 {label} 的 liked_gifts 应为礼物标识的列表")
@@ -406,6 +415,7 @@ def _parse_character(
         bar_tolerance=_bar_name(entry, "bar_tolerance", label),
         photo_tag=_other_name(entry, "photo_tag", label),
         photo_appearance=_other_name(entry, "photo_appearance", label),
+        memory_share=tuple(memory_share),
     )
 
 

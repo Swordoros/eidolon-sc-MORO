@@ -215,6 +215,16 @@ class World:
                 found.append((live, days))
         return found
 
+    def lives_on(self, day: date) -> list[tuple[Live, LiveDay]]:
+        """Every live day that falls on `day`, with its live, in the data's order; for one
+        of the staff to be told what is actually on, so that she does not invent a live."""
+        return [
+            (live, live_day)
+            for live in self.lives
+            for live_day in live.days
+            if live_day.date == day
+        ]
+
     def entries(self) -> list[WorldEntry]:
         """The work facts retrieval searches: each song with who sings it and the releases
         it is on, each release with its date and tracks, and each live day with its venue,

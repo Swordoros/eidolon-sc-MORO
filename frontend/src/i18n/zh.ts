@@ -318,7 +318,7 @@ export const zh = {
       woken: "被你吵醒了",
       bedtime: "准备睡了",
       bath: "在洗澡 🛁",
-      label: (doing: string) => `她现在大概在：${doing}`,
+      label: (doing: string) => doing,
     },
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
@@ -2622,9 +2622,12 @@ export const zh = {
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
     superseded: "已被取代",
-    /** 三类可见范围（GLOSSARY.md「记忆」）的名字，按 scope 取。 */
-    scopeName: (scope: "private" | "unit" | "shared") =>
-      ({ private: "私密", unit: "群组", shared: "共享" })[scope],
+    /** 三类可见范围（GLOSSARY.md「记忆」）的名字，按 scope 取；`family` 时 unit 显示成「家庭」
+     * （叶月没有组合，群组记忆是和妹妹日花共享）。 */
+    scopeName: (scope: "private" | "unit" | "shared", family = false) =>
+      scope === "unit" && family
+        ? "家庭"
+        : ({ private: "私密", unit: "群组", shared: "共享" })[scope],
     /** 把一条记忆改成某范围时的读屏名。 */
     changeScope: (name: string) => `改成${name}`,
     date: (year: number, month: number, day: number) => `${year}年${month}月${day}日`,
