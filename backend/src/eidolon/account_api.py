@@ -260,6 +260,12 @@ class CycleSwitch(BaseModel):
     on: StrictBool
 
 
+class DevSwitch(BaseModel):
+    """The user's own switch for the development tools (GLOSSARY.md「开发」)."""
+
+    on: StrictBool
+
+
 class FeatureSwitch(BaseModel):
     """The user's own switch for a feature (GLOSSARY.md「玩法开关」)."""
 
@@ -446,6 +452,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "visit_outreach_mode": await backend.visits.host.mode(user_id) if backend.visits else "off",
             "cycles": cycles,
             "moments": moments,
+            "dev": await store.get_dev(user_id),
             "letters": backend.config.letters_on,
             "features": {f: switches[f] for f in FEATURES if f in deployed},
             "sponsor_version": sponsor.version,
@@ -478,6 +485,12 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             await backend.moments.switch(user_id, body.on)
         except MomentsOff:
             raise HTTPException(409, "朋友圈没有开放") from None
+
+    @app.put("/api/account/dev", status_code=204)
+    async def switch_dev(body: DevSwitch, user_id: UserId) -> None:
+        """Turn the user's own switch for the development tools on or off (GLOSSARY.md
+        「开发」)."""
+        await store.set_dev(user_id, body.on)
 
     @app.put("/api/account/features/{feature}", status_code=204)
     async def switch_feature(feature: str, body: FeatureSwitch, user_id: UserId) -> None:

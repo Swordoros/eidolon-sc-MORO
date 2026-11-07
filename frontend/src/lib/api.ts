@@ -526,6 +526,9 @@ export type Account = {
   visit_outreach_mode: "off" | "natural" | "tonight";
   cycles: boolean | null;
   moments: boolean | null;
+  /** The user's own switch for the development tools (GLOSSARY.md「开发」): shows the last
+   * conversation prompt. Default off. */
+  dev: boolean;
   /** Whether the deployer has letters on (GLOSSARY.md「信」); the letters written stay to be read either way. */
   letters: boolean;
   sponsor_version: string | null;
@@ -1049,6 +1052,23 @@ export async function setMemoryScope(id: number, scope: MemoryScope): Promise<vo
 
 export async function clearMemories(): Promise<void> {
   await expectNoContent(await api("/api/memories", { method: "DELETE" }));
+}
+
+/** The user's last conversation prompt, for the development tools (GLOSSARY.md「开发」):
+ * null when their switch is off or none was generated since the backend started. */
+export async function lastPrompt(): Promise<string | null> {
+  return (await json<{ prompt: string | null }>(await api("/api/dev/last-prompt"))).prompt;
+}
+
+/** Turn the user's development switch on or off (GLOSSARY.md「开发」). */
+export async function setDev(on: boolean): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/dev", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on }),
+    }),
+  );
 }
 
 /** Checks a response that carries no body. */

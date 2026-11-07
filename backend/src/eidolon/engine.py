@@ -874,6 +874,25 @@ def _staff_lives(world: World, day: date) -> str:
     return "\n".join(lines)
 
 
+def _dump_prompt(prompt: Sequence[ChatMessage]) -> str:
+    """The prompt as the developer reads it (GLOSSARY.md「开发」): one message per section,
+    its role on a line of its own, what it carried after it."""
+    lines: list[str] = []
+    for message in prompt:
+        marks = []
+        if message.cache_breakpoint:
+            marks.append("cache-breakpoint")
+        if message.tool_calls:
+            marks.append("、".join(c.name for c in message.tool_calls))
+        if message.tool_call_id:
+            marks.append(f"answering {message.tool_call_id}")
+        if message.reasoning:
+            marks.append("reasoning")
+        role = message.role + (f"（{'; '.join(marks)}）" if marks else "")
+        lines += [f"--- {role} ---", message.content or "（无内容）", ""]
+    return "\n".join(lines).rstrip()
+
+
 ANSWERING = "（制作人打来电话，把睡着的你吵醒了。你迷迷糊糊地接起电话，先开口说话。）"
 """Where the user's words would be as she answers a call that woke her (`opening`)."""
 
@@ -993,6 +1012,14 @@ class ConversationEngine:
         self._recorded_listeners: list[
             Callable[[Conversation, Message, datetime, str], Awaitable[None]]
         ] = []
+        self._last_prompt: dict[str, str] = {}
+        """Each user's last conversation prompt, as the chat model read it, for the
+        development switch (GLOSSARY.md「开发」); kept in memory, gone on restart."""
+
+    def last_prompt(self, user_id: str) -> str | None:
+        """The user's last conversation prompt, as the chat model read it, or None if none
+        was generated since the backend started (GLOSSARY.md「开发」)."""
+        return self._last_prompt.get(user_id)
 
     def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
         """Have `listener` told the conversation's id, and why, as she ends one, once it is
@@ -1500,6 +1527,7 @@ class ConversationEngine:
             [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text, voiced_by,
         )
+        self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
 
         # Offered on every turn, so that what goes before the history (the tools, with
         # many services) opens every turn's prompt alike, for the service to cache it.
@@ -1678,6 +1706,7 @@ class ConversationEngine:
             [*([memories] if memories else []), rules],
             wants, voiced_by,
         )
+        self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
         parser = ReplyParser(zh_names=self._zh_names)
         tag: str | None = None
         stream = llm.stream(prompt)

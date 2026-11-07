@@ -67,9 +67,13 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
         "is_admin": False,
         "exempting_keys": ["llm", "tts", "stt"],
         "reach_outs": None,
+        "visit_outreach": False,
+        "visit_outreach_mode": "off",
         "cycles": None,
         "moments": None,
+        "dev": False,
         "letters": False,
+        "features": {"anniversaries": True, "special_days": True, "promises": True, "word_of_mouth": True},
         "sponsor_version": None,
         "deployer_tts": True,
     }

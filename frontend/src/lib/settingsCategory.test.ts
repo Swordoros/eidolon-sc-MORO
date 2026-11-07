@@ -29,7 +29,7 @@ describe("路径和类别互转", () => {
 
 describe("一级列表有哪几类", () => {
   it("搭话放在通话和外观之间，朋友圈紧跟在搭话后面，再是周期", () => {
-    expect(settingsGroups({ reachOuts: false, moments: false, cycles: false })[1]).toEqual([
+    expect(settingsGroups({ reachOuts: false, moments: false, cycles: false, dev: false })[1]).toEqual([
       "call",
       "reach-outs",
       "moments",
@@ -40,16 +40,17 @@ describe("一级列表有哪几类", () => {
   });
 
   it("账号里没有搭话、朋友圈、周期（部署者没开）时没有这几类，别的照旧", () => {
-    expect(settingsGroups({ reachOuts: null, moments: null, cycles: null })).toEqual([
+    expect(settingsGroups({ reachOuts: null, moments: null, cycles: null, dev: false })).toEqual([
       ["profile", "memories", "stats"],
       ["call", "appearance", "own-keys"],
       ["sign-in", "data-package"],
+      ["dev"],
       ["about"],
     ]);
   });
 
   it("各看各的：只开周期时有周期、没有搭话和朋友圈", () => {
-    expect(settingsGroups({ reachOuts: null, moments: null, cycles: true })[1]).toEqual([
+    expect(settingsGroups({ reachOuts: null, moments: null, cycles: true, dev: false })[1]).toEqual([
       "call",
       "cycles",
       "appearance",
@@ -58,7 +59,7 @@ describe("一级列表有哪几类", () => {
   });
 
   it("只开朋友圈时有朋友圈，用户自己关了也还在", () => {
-    expect(settingsGroups({ reachOuts: null, moments: false, cycles: null })[1]).toEqual([
+    expect(settingsGroups({ reachOuts: null, moments: false, cycles: null, dev: false })[1]).toEqual([
       "call",
       "moments",
       "appearance",
@@ -108,6 +109,7 @@ describe("一级列表上的摘要", () => {
     reachOuts: null,
     moments: null,
     cycles: null,
+    dev: null,
     ownServices: null,
     signInMethods: null,
   };
@@ -164,6 +166,11 @@ describe("一级列表上的摘要", () => {
   it("周期是开／关", () => {
     expect(settingsSummaries({ ...loading, cycles: true }).cycles).toBe("开");
     expect(settingsSummaries({ ...loading, cycles: false }).cycles).toBe("关");
+  });
+
+  it("开发是开／关", () => {
+    expect(settingsSummaries({ ...loading, dev: true }).dev).toBe("开");
+    expect(settingsSummaries({ ...loading, dev: false }).dev).toBe("关");
   });
 
   it("自带密钥按 LLM、语音合成、语音识别的顺序列出填了的，一项都没填时「全部用部署者的服务」", () => {

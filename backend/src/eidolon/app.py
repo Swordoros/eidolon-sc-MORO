@@ -594,6 +594,15 @@ def create_app(backend: Backend) -> FastAPI:
             for c in listed
         ]
 
+    @app.get("/api/dev/last-prompt")
+    async def last_prompt(user_id: UserId) -> dict:
+        """The user's last conversation prompt, for the development tools (GLOSSARY.md
+        「开发」): the full prompt as the chat model read it, or None if none was generated
+        since the backend started, or their development switch is off."""
+        if not await store.get_dev(user_id):
+            return {"prompt": None}
+        return {"prompt": engine.last_prompt(user_id)}
+
     @app.get("/api/landing")
     def landing() -> dict:
         """What the landing page shows that belongs to no one character: its act about memory

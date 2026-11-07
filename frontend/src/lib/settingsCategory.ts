@@ -22,6 +22,7 @@ const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
   ["call", "reach-outs", "moments", "cycles", "appearance", "own-keys"],
   ["sign-in", "data-package"],
+  ["dev"],
   ["about"],
 ] as const;
 
@@ -32,8 +33,13 @@ export type SettingsCategory = (typeof SETTINGS_CATEGORIES)[number];
 const ROOT = "/settings";
 
 /** The user's own switches the account says: each null where the deployer has it off, or the account
- * not read yet. */
-export type SettingsSwitches = { reachOuts: boolean | null; moments: boolean | null; cycles: boolean | null };
+ * not read yet. `dev` is never off by the deployer: null only before the account is read. */
+export type SettingsSwitches = {
+  reachOuts: boolean | null;
+  moments: boolean | null;
+  cycles: boolean | null;
+  dev: boolean | null;
+};
 
 /** The switches `account` says; all null before it is read. */
 export function settingsSwitches(account: Account | null): SettingsSwitches {
@@ -41,15 +47,17 @@ export function settingsSwitches(account: Account | null): SettingsSwitches {
     reachOuts: account?.reach_outs ?? null,
     moments: account?.moments ?? null,
     cycles: account?.cycles ?? null,
+    dev: account?.dev ?? null,
   };
 }
 
 /** The categories there only where the deployer has them on, each with its switch, whose value is
- * also its summary. */
+ * also its summary. `dev` is a switch too, always there once the account is read. */
 const SWITCHED = [
   ["reach-outs", "reachOuts"],
   ["moments", "moments"],
   ["cycles", "cycles"],
+  ["dev", "dev"],
 ] as const satisfies readonly (readonly [SettingsCategory, keyof SettingsSwitches])[];
 
 /** The first level's groups for an account with `switches`: without a category whose switch is null. */

@@ -16,6 +16,7 @@ import {
   AppearanceIcon,
   CyclesIcon,
   DataPackageIcon,
+  DevIcon,
   MemoriesIcon,
   MomentsIcon,
   OwnKeysIcon,
@@ -40,6 +41,7 @@ const ICONS = {
   "own-keys": OwnKeysIcon,
   "sign-in": SignInIcon,
   "data-package": DataPackageIcon,
+  dev: DevIcon,
   about: AboutIcon,
 };
 

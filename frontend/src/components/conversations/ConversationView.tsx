@@ -19,6 +19,7 @@ import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { HerLetterButton } from "@/components/letter/LetterButton";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +42,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText, untilText } from "@/lib/affinity";
 import { scheduleText } from "@/lib/scheduleNow";
-import type { Character } from "@/lib/api";
+import { lastPrompt, type Character } from "@/lib/api";
 import { keepCalendarMode } from "@/lib/calendar";
 import { eventText } from "@/lib/conversationEvents";
 import type { Entry } from "@/lib/conversationLog";
@@ -61,6 +62,7 @@ import {
   BackIcon,
   CalendarIcon,
   CooldownIcon,
+  DevIcon,
   EndedIcon,
   GiftIcon,
   MoreIcon,
@@ -145,6 +147,9 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const [pickingPast, setPickingPast] = useState(false);
+  // 开发：上一次生成对话的完整提示词（GLOSSARY.md「开发」）。undefined 还没取，null 没有。
+  const [devPromptOpen, setDevPromptOpen] = useState(false);
+  const [devPrompt, setDevPrompt] = useState<string | null | undefined>(undefined);
   const { viewing, view, backToCurrent } = usePastConversation(character.id);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
@@ -192,6 +197,12 @@ export function ConversationView({
   const dial = () => void live?.startCall();
   // ASMR 模式通话：同样要在这次点击里同步调用。历史对话里、通话中都拨不出去，同电话键。
   const dialAsmr = () => void live?.startCall(true);
+  // 开发：取上一次生成对话的完整提示词，打开弹窗（GLOSSARY.md「开发」）。
+  const openDevPrompt = () => {
+    setDevPromptOpen(true);
+    setDevPrompt(undefined);
+    lastPrompt().then(setDevPrompt, () => setDevPrompt(null));
+  };
 
   // 朗读她的话：通话一开始（这一页上拨的，或者别处拨的）、离开这一页时，正在放的停下。
   const readAloud = useMemo(() => readAloudFor(userId), [userId]);
@@ -321,6 +332,12 @@ export function ConversationView({
               <AchievementsIcon aria-hidden />
               {copy.achievements.open}
               {achievements.isUnseen && <UnseenDot className="ml-auto" />}
+            </DropdownMenuItem>
+          )}
+          {account?.dev && (
+            <DropdownMenuItem onClick={openDevPrompt}>
+              <DevIcon aria-hidden />
+              {t.devPrompt}
             </DropdownMenuItem>
           )}
           {isScheduleOn && (
@@ -521,6 +538,21 @@ export function ConversationView({
         her={achievements.her}
         unseen={achievements.unseenRows}
       />
+      <Dialog open={devPromptOpen} onOpenChange={setDevPromptOpen}>
+        <DialogContent className="max-w-[min(48rem,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{t.devPrompt}</DialogTitle>
+            <DialogDescription className="sr-only">{t.devPrompt}</DialogDescription>
+          </DialogHeader>
+          {devPrompt === undefined ? (
+            <p className="text-body text-muted-foreground">…</p>
+          ) : (
+            <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
+              {devPrompt ?? t.devPromptNone}
+            </pre>
+          )}
+        </DialogContent>
+      </Dialog>
       {live && (
         <LiveCallLayer
           live={live}

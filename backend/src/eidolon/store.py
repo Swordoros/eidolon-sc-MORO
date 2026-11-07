@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     consented_at TEXT,
     banned_at TEXT,
-    ban_note TEXT
+    ban_note TEXT,
+    dev INTEGER NOT NULL DEFAULT 0
 );
 -- Only a hash of each session's token is kept; the times are epoch seconds.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -593,6 +594,14 @@ class Store:
             raise NotFound(f"用户 {user_id} 不存在")
         return user
 
+    async def get_dev(self, user_id: str) -> bool:
+        """Whether the user has the development switch on (GLOSSARY.md「开发」)."""
+        return await self._db.read(_dev, user_id)
+
+    async def set_dev(self, user_id: str, on: bool) -> None:
+        """Turn the user's development switch on or off."""
+        await self._db.write(_set_dev, user_id, on)
+
     async def first_user_named(self, name: str) -> User | None:
         """The earliest user with this name, if any; names are not unique."""
         return await self._db.read(_first_user_named, name)
@@ -945,6 +954,7 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE users ADD COLUMN name TEXT")
         db.execute("UPDATE users SET name = id")
     _add_missing_columns(db, "users", ("consented_at", "banned_at", "ban_note"), "TEXT")
+    _add_missing_columns(db, "users", ("dev",), "INTEGER NOT NULL DEFAULT 0")
     _add_missing_columns(db, "producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
     _add_missing_columns(
         db, "producer_profiles", ("city_name", "city_adm2", "city_adm1", "city_country"), "TEXT"
@@ -1003,6 +1013,15 @@ def _user(db: sqlite3.Connection, user_id: str) -> User | None:
         f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)
     ).fetchone()
     return User(**row) if row else None
+
+
+def _dev(db: sqlite3.Connection, user_id: str) -> bool:
+    row = db.execute("SELECT dev FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def _set_dev(db: sqlite3.Connection, user_id: str, on: bool) -> None:
+    db.execute("UPDATE users SET dev = ? WHERE id = ?", (1 if on else 0, user_id))
 
 
 def _first_user_named(db: sqlite3.Connection, name: str) -> User | None:

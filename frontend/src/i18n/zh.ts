@@ -302,6 +302,10 @@ export const zh = {
     callTooltip: "语音通话",
     /** 更多菜单里的 ASMR 模式通话：她在耳边轻声慢慢地说话，聊什么都可以。 */
     asmrCall: "ASMR 模式",
+    /** 开发开关打开时更多菜单里查看上一次完整提示词的项（GLOSSARY.md「开发」）。 */
+    devPrompt: "上一次生成对话中的全套提示词内容",
+    /** 还没有生成过提示词时，那项打开后显示的字。 */
+    devPromptNone: "none",
     placeholder: "用中文或日语说点什么",
     send: "发送",
     /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
@@ -786,6 +790,7 @@ export const zh = {
       "own-keys": "自带密钥",
       "sign-in": "登录与数据",
       "data-package": "数据包",
+      dev: "开发",
       about: "关于",
     },
     /** 一级每行名字下面的当前值摘要（「关于」没有）。 */
@@ -922,6 +927,10 @@ export const zh = {
     cycles: {
       on: "她们的周期",
       hint: "关掉后她不受周期影响，玩法里不显示周期；记录会留着。",
+    },
+    dev: {
+      on: "提示词调试",
+      hint: "开发用。打开后，对话页更多菜单里会多一项「上一次生成对话中的全套提示词」，能看到模型实际收到的完整提示词（含你的人设、世界设定和聊天记录）。",
     },
     appearance: {
       scspAvatars: "SCSP 头像",
