@@ -303,7 +303,7 @@ export const zh = {
     /** 更多菜单里的 ASMR 模式通话：她在耳边轻声慢慢地说话，聊什么都可以。 */
     asmrCall: "ASMR 模式",
     /** 开发开关打开时更多菜单里查看上一次完整提示词的项（GLOSSARY.md「开发」）。 */
-    devPrompt: "上一次生成对话中的全套提示词内容",
+    devPrompt: "提示词",
     /** 还没有生成过提示词时，那项打开后显示的字。 */
     devPromptNone: "none",
     placeholder: "用中文或日语说点什么",
