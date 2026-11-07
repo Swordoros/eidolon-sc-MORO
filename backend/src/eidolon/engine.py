@@ -748,9 +748,10 @@ MAX_KEEPSAKE_NAME = 20
 _KEEPSAKE_TAG = re.compile(r"<keepsake>(.*?)</keepsake>", re.DOTALL)
 
 
-def read_keepsake(answer: str) -> KeepsakeDraft:
-    """The keepsake the model's `answer` gives: its tag's fields and the segments after it.
-    Raises EmptyReply where it names nothing, or says nothing."""
+def read_keepsake(answer: str, zh_names: Mapping[str, str] | None = None) -> KeepsakeDraft:
+    """The keepsake the model's `answer` gives: its tag's fields and the segments after it,
+    their Chinese subtitles with `zh_names` replaced. Raises EmptyReply where it names
+    nothing, or says nothing."""
     found = _KEEPSAKE_TAG.search(answer)
     fields: dict[str, str] = {}
     if found is not None:
@@ -760,7 +761,7 @@ def read_keepsake(answer: str) -> KeepsakeDraft:
                 fields.setdefault(key.strip().lower(), value.strip())
         answer = answer[: found.start()] + answer[found.end() :]
     name = fields.get("name", "").strip("「」『』 ")[:MAX_KEEPSAKE_NAME]
-    parser = ReplyParser(zh_names=self._zh_names)
+    parser = ReplyParser(zh_names=zh_names)
     parser.feed(answer)
     parser.finish()
     said = [Segment(without_cues(s.ja), without_cues(s.zh)) for s in parser.complete]
@@ -1251,7 +1252,7 @@ class ConversationEngine:
             WANTS_TO_GIVE, None,
         )
         answer = "".join([item async for item in llm.stream(prompt) if isinstance(item, str)])
-        return read_keepsake(answer)
+        return read_keepsake(answer, self._zh_names)
 
     async def _schedule_lines(
         self,
