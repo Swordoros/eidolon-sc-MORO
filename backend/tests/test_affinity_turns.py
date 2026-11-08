@@ -2,7 +2,7 @@
 model judges each turn before she replies: by a step for each of five levels, from hurting
 her (−1.5) to making her very happy (+0.2), the likeliest level taken and two as likely as each
 other changing nothing; by −10 for what is out of line, whatever the level; never up for
-what tries to dictate it. Turns raise it by 0.6 a day at most, the day in Beijing wherever
+what tries to dictate it. Turns raise it by 2.0 a day at most, the day in Beijing wherever
 the user is, the last of it as far as it goes; nothing limits how far they lower it. It falls no lower than
 0, where a cooldown begins.
 
@@ -137,31 +137,31 @@ async def test_out_of_line_lowers_it_by_ten_and_dictating_it_never_raises_it(
     assert taken[-1][1]["affinity"] == {"tier": "distant", "cooldown_until": None}
 
 
-async def test_turns_raise_it_by_0_6_a_day_at_most_the_day_in_beijing(
+async def test_turns_raise_it_by_2_a_day_at_most_the_day_in_beijing(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()  # 12:00 UTC, 20:00 in Beijing, 21:00 in Tokyo
     clients = FakeServiceClients()
-    clients.judge.judgings = [
-        level(4), level(4), level(3), level(4), level(3), level(0),
-        level(4), level(4), level(4), level(4),
-    ]
-    client = make_client(FakeLLM(*[REPLY] * 10), clients=clients, clock=clock)
+    clients.judge.judgings = [level(4)] * 13
+    client = make_client(FakeLLM(*[REPLY] * 13), clients=clients, clock=clock)
     await client.put("/api/profile", json={"timezone": "Asia/Tokyo"})
     conversation = await start_conversation(client)
     keep(settings.database_path, "producer", 60, clock.now)  # above the normal value, not recovering
 
-    today = await turns(client, settings.database_path, conversation, 6)
+    today = await turns(client, settings.database_path, conversation, 11)
     clock.advance(hours=3, minutes=30)  # 00:30 the next day in Tokyo, 23:30 in Beijing
-    in_tokyo = await turns(client, settings.database_path, conversation, 2)
+    in_tokyo = await turns(client, settings.database_path, conversation, 1)
     clock.advance(hours=1)  # 00:30 the next day in Beijing
-    tomorrow = await turns(client, settings.database_path, conversation, 2)
+    tomorrow = await turns(client, settings.database_path, conversation, 1)
 
-    # The fourth turn raises it by the 0.1 left of the day's 0.6; lowering it gives none back.
-    assert [v for v, _ in today] == pytest.approx([60.2, 60.4, 60.5, 60.6, 60.6, 59.1])
-    assert today[4][1]["message"]["affinity"] is None
-    assert [v for v, _ in in_tokyo] == pytest.approx([59.1, 59.1])
-    assert [v for v, _ in tomorrow] == pytest.approx([59.3, 59.5])
+    # Ten level(4)s raise it the day's 2.0; the eleventh raises nothing, the day is full.
+    assert [v for v, _ in today] == pytest.approx(
+        [60.2, 60.4, 60.6, 60.8, 61.0, 61.2, 61.4, 61.6, 61.8, 62.0, 62.0]
+    )
+    assert today[10][1]["message"]["affinity"] is None
+    assert [v for v, _ in in_tokyo] == pytest.approx([62.0])  # still the same day in Beijing: capped
+    assert in_tokyo[0][1]["message"]["affinity"] is None
+    assert [v for v, _ in tomorrow] == pytest.approx([62.2])  # a new day in Beijing: raises again
 
 
 async def test_what_the_steps_fractions_leave_of_the_day_is_no_sliver_to_raise_it_by(
@@ -169,14 +169,14 @@ async def test_what_the_steps_fractions_leave_of_the_day_is_no_sliver_to_raise_i
 ):
     clock = FakeClock()
     clients = FakeServiceClients()
-    clients.judge.judgings = [level(3)] * 7
-    client = make_client(FakeLLM(*[REPLY] * 7), clients=clients, clock=clock)
+    clients.judge.judgings = [level(3)] * 21
+    client = make_client(FakeLLM(*[REPLY] * 21), clients=clients, clock=clock)
     conversation = await start_conversation(client)
-    keep(settings.database_path, "producer", 63.7, clock.now)  # six 0.1s from it leave one
+    keep(settings.database_path, "producer", 60, clock.now)  # twenty 0.1s raise it the day's 2.0
 
-    taken = await turns(client, settings.database_path, conversation, 7)
+    taken = await turns(client, settings.database_path, conversation, 21)
 
-    assert taken[-1][0] == pytest.approx(64.3)
+    assert taken[-1][0] == pytest.approx(62.0)  # 60 + 2.0; the sliver left raises nothing
     assert taken[-1][1]["message"]["affinity"] is None
 
 async def test_it_falls_no_lower_than_0_where_a_cooldown_begins(
