@@ -72,3 +72,37 @@ function union(ids: readonly string[], more: readonly string[]): string[] {
 function without(ids: readonly string[], gone: readonly string[]): string[] {
   return ids.filter((id) => !gone.includes(id));
 }
+
+// 群聊的置顶单独存（角色列表没有群、群的 id 和角色 id 也不相通）：一样按用户分开、只存这台设备上。
+function groupStorageKey(userId: string): string {
+  return `eidolon.listPreferences.groups.${userId}`;
+}
+
+/** 这台设备上置顶的群 id（群聊解散了也照旧留着，列表里对不上就不出现）。 */
+export function pinnedGroups(userId: string): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(groupStorageKey(userId)) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 存下置顶的群；存不进去时什么也不做。 */
+export function keepPinnedGroups(userId: string, ids: string[]): void {
+  try {
+    localStorage.setItem(groupStorageKey(userId), JSON.stringify(ids));
+  } catch {
+    // 存储不可用：这次存不下，改动只在这次页面里生效。
+  }
+}
+
+/** 置顶这个群。 */
+export function pinGroup(ids: readonly string[], id: string): string[] {
+  return ids.includes(id) ? [...ids] : [...ids, id];
+}
+
+/** 取消置顶这个群。 */
+export function unpinGroup(ids: readonly string[], id: string): string[] {
+  return ids.filter((group) => group !== id);
+}

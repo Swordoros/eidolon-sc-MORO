@@ -3,13 +3,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   hide,
   keepListPreferences,
+  keepPinnedGroups,
   listPreferences,
   NO_PREFERENCES,
   pin,
+  pinnedGroups,
+  pinGroup,
   setShown,
   show,
   showAll,
   unpin,
+  unpinGroup,
 } from "@/lib/listPreferences";
 
 // 配置里现有的角色。
@@ -113,5 +117,24 @@ describe("整理列表", () => {
     const prefs = pin(hide(NO_PREFERENCES, ["hiori", "kogane"]), "mano");
 
     expect(showAll(prefs)).toEqual({ hidden: [], pinned: ["mano"] });
+  });
+});
+
+describe("群聊的置顶", () => {
+  it("和角色的置顶分开存，置顶和取消置顶往返一样", () => {
+    storage();
+
+    keepPinnedGroups("u1", pinGroup(pinnedGroups("u1"), "g-1"));
+    keepPinnedGroups("u1", pinGroup(pinnedGroups("u1"), "g-2"));
+    keepPinnedGroups("u1", unpinGroup(pinGroup(["g-1", "g-2"], "g-3"), "g-1"));
+
+    expect(pinnedGroups("u1")).toEqual(["g-2", "g-3"]);
+    expect(pinnedGroups("u2")).toEqual([]);
+  });
+
+  it("数据坏了当作没有置顶", () => {
+    storage({ "eidolon.listPreferences.groups.u1": "{not json" });
+
+    expect(pinnedGroups("u1")).toEqual([]);
   });
 });

@@ -27,7 +27,7 @@ import { showTime } from "@/lib/callTime";
 import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
 import { createGroup, listGroups, type GroupSummary } from "@/lib/group";
 import { unreadFrom } from "@/lib/letter";
-import { pin, setShown, unpin } from "@/lib/listPreferences";
+import { keepPinnedGroups, pin, pinnedGroups, pinGroup, setShown, unpin, unpinGroup } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import { HideIcon, PinIcon, SearchIcon, ShowIcon, UnpinIcon, GroupCardIcon } from "@/theme/icons";
@@ -62,6 +62,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const [groupName, setGroupName] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
+  const [groupPins, setGroupPins] = useState<string[]>([]);
 
   const loadGroups = useCallback(() => {
     listGroups().then(setGroups, () => {});
@@ -69,7 +70,20 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
 
   useEffect(() => {
     loadGroups();
-  }, [loadGroups, pathname]);
+    setGroupPins(pinnedGroups(account?.id ?? ""));
+  }, [account?.id, loadGroups, pathname]);
+
+  /** 置顶 / 取消置顶一个群，存在这台设备上、按用户分开。 */
+  const toggleGroupPin = useCallback(
+    (id: string) => {
+      setGroupPins((current) => {
+        const next = current.includes(id) ? unpinGroup(current, id) : pinGroup(current, id);
+        if (account?.id) keepPinnedGroups(account.id, next);
+        return next;
+      });
+    },
+    [account?.id],
+  );
 
   // 群聊的新消息、预览和已读状态都跟着列表刷新：标签页在前台时每 30 秒拉一次，
   // 从群页返回时因为 pathname 变了会马上再拉一次（页码里读群时后端已记成看过）。
@@ -102,9 +116,14 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   // 群聊和私聊排在一起：置顶的在最前，其余按最近一条消息的时间交叉排列。
   const ordered = useMemo(() => {
     if (!shown) return [];
-    const pinned = shown.rows
-      .filter((row) => row.isPinned)
-      .map((row) => ({ kind: "character" as const, at: "", row }));
+    const pinned = [
+      ...shown.rows
+        .filter((row) => row.isPinned)
+        .map((row) => ({ kind: "character" as const, at: "", row })),
+      ...groups
+        .filter((group) => groupPins.includes(group.id))
+        .map((group) => ({ kind: "group" as const, at: "", group })),
+    ];
     const rest = [
       ...shown.rows
         .filter((row) => !row.isPinned)
@@ -113,14 +132,16 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           at: previewOf(latest[row.character.id])?.at ?? "",
           row,
         })),
-      ...groups.map((group) => ({
-        kind: "group" as const,
-        at: group.last_message_at ?? group.last_topic_at ?? group.created_at,
-        group,
-      })),
+      ...groups
+        .filter((group) => !groupPins.includes(group.id))
+        .map((group) => ({
+          kind: "group" as const,
+          at: group.last_message_at ?? group.last_topic_at ?? group.created_at,
+          group,
+        })),
     ].sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
     return [...pinned, ...rest];
-  }, [groups, latest, shown]);
+  }, [groups, groupPins, latest, shown]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -192,7 +213,9 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                       group={item.group}
                       characters={characters}
                       isOpen={item.group.id === openGroupId}
+                      isPinned={groupPins.includes(item.group.id)}
                       go={go}
+                      onTogglePin={() => toggleGroupPin(item.group.id)}
                     />
                   </li>
                 ) : (
@@ -293,36 +316,49 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   );
 }
 
-/** 列表里的一行群聊：成员头像、群名、人数和最近一句。 */
+/** 列表里的一行群聊：成员头像、群名、人数和最近一句；右键菜单可以置顶或取消置顶。 */
 function GroupRow({
   group,
   characters,
   isOpen,
+  isPinned,
   go,
+  onTogglePin,
 }: {
   group: GroupSummary;
   characters: Character[] | null;
   /** 这一群正开着：红点当场就消（后端进群时也会把它记成看过）。 */
   isOpen: boolean;
+  isPinned: boolean;
   go: (href: string) => void;
+  onTogglePin: () => void;
 }) {
   const preview = group.preview;
+  // 长按打开菜单后，松手时浏览器可能还会补发一次点击；菜单打开之后、下一次按下之前的点击不进群。
+  const openedMenu = useRef(false);
   return (
-    <button
-      type="button"
-      onClick={() => go(`/conversation/group/${group.id}`)}
-      className="flex w-full items-center gap-3 px-4 py-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
-    >
-      <span className="flex shrink-0 -space-x-2">
-        {group.members.slice(0, 2).map((member) => (
-          <MarkedAvatar
-            key={member.id}
-            name={member.name}
-            src={characters?.find((c) => c.id === member.id)?.avatar_url ?? null}
-            size="sm"
-          />
-        ))}
-      </span>
+    <ContextMenu onOpenChange={(open) => {
+      if (open) openedMenu.current = true;
+    }}>
+      <ContextMenuTrigger
+        render={<button type="button" />}
+        onPointerDown={() => (openedMenu.current = false)}
+        onKeyDown={() => (openedMenu.current = false)}
+        onClick={() => {
+          if (!openedMenu.current) go(`/conversation/group/${group.id}`);
+        }}
+        className="flex w-full items-center gap-3 px-4 py-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      >
+        <span className="flex shrink-0 -space-x-2">
+          {group.members.slice(0, 2).map((member) => (
+            <MarkedAvatar
+              key={member.id}
+              name={member.name}
+              src={characters?.find((c) => c.id === member.id)?.avatar_url ?? null}
+              size="sm"
+            />
+          ))}
+        </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5">
@@ -331,15 +367,23 @@ function GroupRow({
                 <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
               )}
             </span>
-            <span className="shrink-0 text-meta text-muted-foreground">
+            <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground">
+              {isPinned && <PinIcon aria-hidden className="size-3" />}
               {group.members.length} 人
             </span>
           </span>
-        <span className="truncate text-preview text-muted-foreground">
-          {preview ? `${preview.name}：${preview.zh || preview.text}` : copy.play.group.noHistory}
+          <span className="truncate text-preview text-muted-foreground">
+            {preview ? `${preview.name}：${preview.zh || preview.text}` : copy.play.group.noHistory}
+          </span>
         </span>
-      </span>
-    </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onTogglePin}>
+          {isPinned ? <UnpinIcon aria-hidden /> : <PinIcon aria-hidden />}
+          {isPinned ? t.unpin : t.pin}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
