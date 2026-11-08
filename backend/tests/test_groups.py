@@ -5,8 +5,9 @@ strength, as a private turn's are."""
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-from eidolon.groups import Groups, Member
+from eidolon.groups import Groups, Member, _seven_am
 from eidolon.memory import NewMemory
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
@@ -62,3 +63,30 @@ def test_what_the_user_revealed_is_remembered_with_feeling_and_tier():
         "制作人养了一只猫", "开心", 1.0,
         (now + timedelta(hours=48)).astimezone(timezone.utc).isoformat(), "short", None,
     )
+
+
+def test_seven_am_is_the_next_morning_in_shanghai():
+    # 23:00 in Shanghai (15:00 UTC) -> the next day's 7, as 23:00 UTC.
+    now = datetime(2026, 11, 9, 15, 0, tzinfo=timezone.utc)
+    assert _seven_am(now) == "2026-11-09T23:00:00+00:00"
+    # Just before 7 in Shanghai (22:59 UTC) -> the same day's 7.
+    just_before = datetime(2026, 11, 9, 22, 59, tzinfo=timezone.utc)
+    assert _seven_am(just_before) == "2026-11-09T23:00:00+00:00"
+
+
+async def test_the_asleep_are_left_out_of_a_topic():
+    groups = object.__new__(Groups)
+    asleep = {"rinze"}
+
+    async def fake_asleep(user_id: str, character_id: str, now: datetime) -> bool:
+        return character_id in asleep
+
+    groups._asleep = fake_asleep  # type: ignore[attr-defined]
+    members = [
+        Member("mano", "櫻木真乃", "i", "s", "真乃"),
+        Member("rinze", "杜野凛世", "i", "s", "凛世"),
+    ]
+
+    awake = await groups._awake("u", members, datetime(2026, 11, 9, tzinfo=timezone.utc))
+
+    assert [m.id for m in awake] == ["mano"]

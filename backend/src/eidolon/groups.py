@@ -42,6 +42,9 @@ from eidolon.data_access import Database
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
+from eidolon.producer import effective_timezone
+from eidolon.schedules import Schedules, rest
+from eidolon.store import Store
 
 log = logging.getLogger(__name__)
 
@@ -193,6 +196,16 @@ def _at_quiet(at: datetime) -> bool:
     return QUIET[0] <= local < QUIET[1]
 
 
+def _seven_am(now: datetime) -> str:
+    """The next 7 in the morning, in the producer's own clock (`QUIET_ZONE`), as ISO in UTC:
+    when a group whose members are all asleep next raises a topic."""
+    local = now.astimezone(QUIET_ZONE)
+    at = local.replace(hour=7, minute=0, second=0, microsecond=0)
+    if local >= at:
+        at += timedelta(days=1)
+    return at.astimezone(timezone.utc).isoformat()
+
+
 def _soon_topic_at() -> str:
     """Two to six hours from now, at random: when a group raises its next topic."""
     seconds = random.uniform(2 * 3600, 6 * 3600)
@@ -298,6 +311,8 @@ class Groups:
         affinities: Affinities | None = None,
         memories: Memories | None = None,
         *,
+        daily: Schedules | None = None,
+        store: Store | None = None,
         member_count: int = DEFAULT_MEMBERS,
         gap: tuple[timedelta, timedelta] = TOPIC_GAP,
         delay: tuple[float, float] = DEFAULT_DELAY,
@@ -308,6 +323,8 @@ class Groups:
         self._lease_of = lease_of
         self._affinities = affinities
         self._memories = memories
+        self._daily = daily
+        self._store = store
         self._member_count = member_count
         self._gap = gap
         self._delay = delay
@@ -596,13 +613,21 @@ class Groups:
 
     async def raise_topic(self, user_id: str, group_id: str) -> str | None:
         """Have a member raise a topic and the others talk it through in the background; the
-        topic's id, or None where the group is gone, off or has no members."""
+        topic's id, or None where the group is gone, off, has no members, or everyone is
+        asleep (it is then put off until the next 7 in the morning)."""
         state = await self.read(user_id, group_id)
         if state is None or not state["on"] or not state["members"]:
             return None
         members = [self._members_by_id(m["id"]) for m in state["members"]]
         members = [m for m in members if m is not None]
         if not members:
+            return None
+        # Whoever is asleep does not raise a topic, nor answer one; when all of them are
+        # asleep, the group is quiet until the next 7 in the morning.
+        now = self._clock()
+        members = await self._awake(user_id, members, now)
+        if not members:
+            await self._db.write(self._put_off, group_id, _seven_am(now))
             return None
         recent = state["lines"][-6:]
         # What it has been talking about, latest first, so the new topic can stay off it.
@@ -614,12 +639,18 @@ class Groups:
             log.warning("a member could not raise a topic", exc_info=True)
             return None
         topic_id = secrets.token_urlsafe(12)
-        now = self._clock()
         await self._db.write(
             self._start_topic, user_id, group_id, topic_id, raiser.id, said.ja, said.zh, now
         )
         self._start_conversation(user_id, group_id, topic_id, members, said.ja, raiser.id)
         return topic_id
+
+    def _put_off(self, db: sqlite3.Connection, group_id: str, until: str) -> None:
+        """Put the group's next topic off until `until` (ISO, UTC): everyone is asleep now."""
+        db.execute(
+            "UPDATE group_chats SET next_topic_at = ? WHERE id = ? AND dissolved_at IS NULL",
+            (until, group_id),
+        )
 
     async def _raise(
         self, user_id: str, members: Sequence[Member], raiser: Member, recent: Sequence[dict],
@@ -823,6 +854,32 @@ class Groups:
                 log.warning("reading her affinity for the group failed", exc_info=True)
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
         return f"你叫{label}。{member.sheet}\n你们在群聊里。" + (f"\n{tier}" if tier else "")
+
+    async def _asleep(self, user_id: str, character_id: str, now: datetime) -> bool:
+        """Whether the character is asleep now, by her daily schedule (GLOSSARY.md「行程」);
+        False without the schedules or a store to read the producer's time zone, or on
+        failing, so that a group without them goes on as before."""
+        if self._daily is None or self._store is None:
+            return False
+        try:
+            zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
+            local = now.astimezone(zone)
+            today = await self._daily.of(user_id, character_id, local.date())
+            yesterday = await self._daily.of(
+                user_id, character_id, local.date() - timedelta(days=1)
+            )
+            return rest(today, yesterday, local) == "asleep"
+        except Exception:
+            log.warning("reading her sleep for the group failed", exc_info=True)
+            return False
+
+    async def _awake(self, user_id: str, members: Sequence[Member], now: datetime) -> list[Member]:
+        """The members not asleep now; those whose sleep cannot be told are kept awake."""
+        awake: list[Member] = []
+        for member in members:
+            if not await self._asleep(user_id, member.id, now):
+                awake.append(member)
+        return awake
 
     async def _relevance(
         self, members: Sequence[Member], topic: str
