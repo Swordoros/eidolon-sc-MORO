@@ -28,7 +28,8 @@ import { cn } from "@/lib/utils";
 export default function ConversationsLayout({ children }: { children: ReactNode }) {
   const wide = useWide();
   const hydrated = useHydrated();
-  const { characterId } = useParams<{ characterId?: string }>();
+  const { characterId, groupId } = useParams<{ characterId?: string; groupId?: string }>();
+  const open = characterId ?? groupId;
   const list = <ConversationList selectedId={wide ? (characterId ?? null) : null} />;
 
   return (
@@ -45,7 +46,7 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
           {/* 两栏之间的细线（列表栏的 border-r），也是拖动调宽窄的地方。 */}
           {wide && <ResizableHandle aria-label={copy.conversationList.resize} />}
           <ResizablePanel id="content" className="min-w-0">
-            <div className="relative h-full">{wide || characterId ? children : list}</div>
+            <div className="relative h-full">{wide || open ? children : list}</div>
           </ResizablePanel>
         </ResizablePanelGroup>
       ) : (
@@ -53,12 +54,12 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <nav
             aria-label={copy.conversationList.title}
-            className={cn("h-full w-(--list-width,20rem) shrink-0 max-md:w-full", characterId && "max-md:hidden")}
+            className={cn("h-full w-(--list-width,20rem) shrink-0 max-md:w-full", open && "max-md:hidden")}
           >
             {list}
           </nav>
           <div className="w-px shrink-0 bg-border max-md:hidden" />
-          <div className={cn("relative h-full min-w-0 flex-1", !characterId && "max-md:hidden")}>{children}</div>
+          <div className={cn("relative h-full min-w-0 flex-1", !open && "max-md:hidden")}>{children}</div>
         </div>
       )}
     </PageShell>

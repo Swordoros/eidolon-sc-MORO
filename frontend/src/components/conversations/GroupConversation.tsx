@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Message, MessageAvatar, MessageContent, MessageHeader } from "@/components/ui/message";
+import { Message, MessageContent, MessageHeader } from "@/components/ui/message";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -269,13 +269,14 @@ export function GroupConversation({
         <p className="px-4 py-2 text-center text-meta text-muted-foreground">{t.dissolved}</p>
       )}
 
-      <div className="shrink-0 border-t border-border px-3 py-2">
-        <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+      <div className="shrink-0 border-t bg-background px-3 py-2">
+        <div className="flex items-end gap-2">
           <Textarea
+            variant="composer"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 send();
               }
@@ -283,18 +284,22 @@ export function GroupConversation({
             placeholder={group?.on ? t.placeholder : t.dissolved}
             disabled={!group?.on || busy !== null}
             rows={1}
-            className="min-h-9 flex-1 resize-none"
+            className="flex-1"
           />
           <Button
+            type="submit"
+            variant="her"
+            size="icon-lg"
             onClick={send}
             disabled={!group?.on || busy !== null || !draft.trim()}
             aria-label={t.send}
+            onMouseDown={(e) => e.preventDefault()}
           >
-            <SendIcon aria-hidden />
+            <SendIcon aria-hidden className="size-5" />
           </Button>
         </div>
         {(busy === "sending" || open) && (
-          <p className="mx-auto mt-1 w-full max-w-3xl text-meta text-muted-foreground">
+          <p className="mt-1 text-meta text-muted-foreground">
             {busy === "sending" ? t.sending : t.raising}
           </p>
         )}
@@ -432,7 +437,7 @@ export function GroupConversation({
   );
 }
 
-/** 一个话题：一条「新话题」分隔，然后是它的台词。 */
+/** 一个话题：一条「新话题」分隔，然后是它的台词（和私聊同一套气泡：同一个人连着说并成一个气泡，带时刻）。 */
 function TopicBlock({
   entry,
   byId,
@@ -440,6 +445,7 @@ function TopicBlock({
   entry: { topic: GroupTopic; lines: GroupLine[] };
   byId: Map<string, Character>;
 }) {
+  const lines = entry.lines;
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center gap-2 text-meta text-muted-foreground">
@@ -448,40 +454,60 @@ function TopicBlock({
         <span>{formatTimestamp(entry.topic.created_at, { format: "auto", now: new Date() })}</span>
         <span className="h-px flex-1 bg-border" />
       </div>
-      {entry.lines.map((line, index) => {
+      {lines.map((line, index) => {
         const mine = line.color === null;
+        const first = index === 0 || lines[index - 1].speaker !== line.speaker;
+        const last = index === lines.length - 1 || lines[index + 1].speaker !== line.speaker;
+        const time = (
+          <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(line.created_at)}</time>
+        );
+        if (mine) {
+          return (
+            <Message key={`${entry.topic.id}-${index}`} align="end">
+              <div className="flex min-w-0 flex-1 items-end justify-end gap-1.5">
+                {last && time}
+                <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
+                  <BubbleContent>
+                    <p className="text-body whitespace-pre-wrap">{line.text}</p>
+                  </BubbleContent>
+                </Bubble>
+              </div>
+            </Message>
+          );
+        }
         return (
-          <Message key={`${entry.topic.id}-${index}`} align={mine ? "end" : "start"}>
-            {!mine && (
-              <MessageAvatar>
-                <MarkedAvatar
-                  name={line.name}
-                  src={byId.get(line.speaker)?.avatar_url ?? null}
-                  size="bubble"
-                />
-              </MessageAvatar>
+          <Message key={`${entry.topic.id}-${index}`} align="start">
+            {first ? (
+              <MarkedAvatar name={line.name} src={byId.get(line.speaker)?.avatar_url ?? null} size="bubble" />
+            ) : (
+              <span aria-hidden className="w-bubble-avatar shrink-0" />
             )}
-            <MessageContent>
-              {!mine && <MessageHeader>{line.name}</MessageHeader>}
-              <Bubble variant={mine ? "producer" : "her"} align={mine ? "end" : "start"}>
-                <BubbleContent>
-                  <p className="text-body whitespace-pre-wrap">{line.text}</p>
-                  {line.zh && (
-                    <p
-                      className={cn(
-                        "whitespace-pre-wrap text-meta",
-                        mine ? "text-on-producer-ink/80" : "text-muted-foreground",
+            <MessageContent className="gap-1">
+              {first && <MessageHeader className="px-1">{line.name}</MessageHeader>}
+              <div className="flex min-w-0 items-end gap-1.5">
+                <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
+                  <BubbleContent>
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-japanese-line whitespace-pre-wrap">{line.text}</p>
+                      {line.zh && (
+                        <p className="text-subtitle whitespace-pre-wrap text-muted-foreground">{line.zh}</p>
                       )}
-                    >
-                      {line.zh}
-                    </p>
-                  )}
-                </BubbleContent>
-              </Bubble>
+                    </div>
+                  </BubbleContent>
+                </Bubble>
+                {last && time}
+              </div>
             </MessageContent>
           </Message>
         );
       })}
     </section>
   );
+}
+
+/** 气泡旁的时刻，写成 8:49（和私聊里今天的时间一样）。 */
+function clock(at: string): string {
+  const d = new Date(at);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getHours()}:${two(d.getMinutes())}`;
 }
