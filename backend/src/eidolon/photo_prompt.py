@@ -64,6 +64,7 @@ QUALITY_TAGS = ("rating:general", "very aesthetic", "masterpiece", "no text")
 """What every positive prompt ends with: all ages, then V5's standard quality tags."""
 
 NEGATIVE_PROMPT = ", ".join((
+    "nsfw",
     # The Human Focus preset: the Heavy one, with what goes wrong with faces.
     "lowres", "artistic error", "film grain", "scan artifacts", "worst quality", "bad quality",
     "jpeg artifacts", "very displeasing", "chromatic aberration", "dithering", "halftone",
@@ -71,7 +72,7 @@ NEGATIVE_PROMPT = ", ".join((
     "blank page", "@_@", "mismatched pupils", "glowing eyes", "bad anatomy",
     # All ages (ADR-0023).
     "nude", "nipples", "underwear", "bra", "panties", "bra strap", "strap slip", "see-through",
-    "pantyshot", "cleavage", "nsfw",
+    "pantyshot", "cleavage",
 ))
 
 NSFW_RATING = "rating:explicit"
