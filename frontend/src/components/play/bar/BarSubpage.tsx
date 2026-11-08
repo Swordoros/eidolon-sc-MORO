@@ -22,6 +22,7 @@ import { useBarSettings } from "@/components/play/bar/useBarSettings";
 import { useBarSound } from "@/components/play/bar/useBarSound";
 import { useBarTutorial } from "@/components/play/bar/useBarTutorial";
 import { useBarVisit } from "@/components/play/bar/useBarVisit";
+import { useBarVoice } from "@/components/play/bar/useBarVoice";
 import { useBar } from "@/components/play/useBar";
 import { copy } from "@/i18n";
 import { gainOf } from "@/lib/barSettings";
@@ -130,6 +131,17 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
     loop(voice && TYPING_SOUND[voice]);
   }, [voice, loop]);
 
+  // 她在酒吧里的台词也有声音：提前把队列里她的日语合成好，轮到时用酒吧的 AudioContext 播。
+  const her = characters?.find((c) => c.id === current.guest?.characterId) ?? null;
+  useBarVoice({
+    line: scene.shown?.line ?? null,
+    queue: scene.queue,
+    characterId: her?.id ?? null,
+    enabled: true,
+    say: sound.say,
+    stopSay: sound.stopSay,
+  });
+
   if (bar && !bar.enabled) notFound();
   if (!bar && !failed) return <div className="bar-layer absolute inset-0" style={{ background: BAR_INK.ground }} />;
   // manifest 还在读、或者有曲目但还不知道是谁（记着的选择按用户分开）时，先盖一层黑的，不让店门口闪一下又换成选曲界面。
@@ -137,7 +149,6 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
   const isReading = sound.audio === null || (jukebox.isAvailable && !jukebox.jukebox) || tutorial.isSeen === null;
   const isChoosing = choosing ?? tutorial.isSeen === true;
   const isInside = isTutorial || state.stage === "visit" || state.stage === "next";
-  const her = characters?.find((c) => c.id === current.guest?.characterId) ?? null;
   const card = endCard(state);
   // 设置框只在店里开着：回到店门口、出结束卡时收起，「再营业」以后不再自己弹出来。
   const isSettingsShown = isSettingsOpen && isInside && !card;

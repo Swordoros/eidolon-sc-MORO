@@ -16,6 +16,7 @@ const NO_AUDIO: BarAudio = { tracks: [], playlist: [], sfx: [] };
  * - `play(name)` 放一次音效；`loop(name)` 无缝循环一个音效（Web Audio 的循环缓冲，`<audio>` 的 loop 有空隙），换一个或
  *   `loop(null)` 立刻停。音效第一次用到时才下载、解码，之后用缓冲区；manifest 还没读完时等它读完再放。
  * - `setVolume(gain)`：音效的音量（设置里的，0–1），所有音效和打字音都过这一个增益。
+ * - `say(blob)` / `stopSay()`：放她台词合成出来的 mp3、和停掉它（useBarVoice 用）；走的也是这个 AudioContext。
  * - 离开这一页（卸载）时全停。不放进 Service Worker 缓存，靠浏览器的 HTTP 缓存。
  */
 export function useBarSound(base: string | null) {
@@ -138,7 +139,42 @@ export function useBarSound(base: string | null) {
     [buffer],
   );
 
-  return useMemo(() => ({ audio, start, play, loop, setVolume }), [audio, start, play, loop, setVolume]);
+  /** 正在放的是哪句语音（她的话合成出来的 mp3）。 */
+  const saying = useRef<AudioBufferSourceNode | null>(null);
+
+  /** 停掉正在放的那句语音（换句、翻页或离开这一页时）。 */
+  const stopSay = useCallback(() => {
+    saying.current?.stop();
+    saying.current = null;
+  }, []);
+
+  /** 放一段现成的音频（她的台词合成出来的 mp3）：解码后接在同一个 AudioContext 上，先停掉上一句。 */
+  const say = useCallback(
+    (blob: Blob) => {
+      if (!context.current && navigator.userActivation?.hasBeenActive) start();
+      const ctx = context.current;
+      if (!ctx) return;
+      void blob
+        .arrayBuffer()
+        .then((data) => ctx.decodeAudioData(data))
+        .then((decoded) => {
+          if (context.current !== ctx) return;
+          stopSay();
+          const source = sourceOf(decoded, false);
+          saying.current = source;
+          source.onended = () => {
+            if (saying.current === source) saying.current = null;
+          };
+        })
+        .catch(() => {});
+    },
+    [start, stopSay],
+  );
+
+  return useMemo(
+    () => ({ audio, start, play, loop, say, stopSay, setVolume }),
+    [audio, start, play, loop, say, stopSay, setVolume],
+  );
 }
 
 export type BarSound = ReturnType<typeof useBarSound>;

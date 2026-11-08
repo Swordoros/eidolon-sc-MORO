@@ -15,8 +15,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, model_validator
 from starlette.types import Receive, Scope, Send
 
@@ -25,6 +25,7 @@ from eidolon.assembly import Backend
 from eidolon.bar import BarCall, BarClosed, BrokenDrink, NotFailed, NotWaiting, VisitGone
 from eidolon.drink_catalog import Mixture
 from eidolon.own_keys import BroughtKeys
+from eidolon.read_aloud import ReadAloudFailed
 from eidolon.sessions import DeviceTimezone, UserId
 
 
@@ -64,6 +65,13 @@ class ServeInput(BaseModel):
         )
 
 
+class TtsInput(BaseModel):
+    """A line of hers to voice at the bar: which character, and what she says."""
+
+    character_id: str
+    text: str
+
+
 def add_bar_routes(app: FastAPI, backend: Backend) -> None:
     bar = backend.bar
 
@@ -83,6 +91,27 @@ def add_bar_routes(app: FastAPI, backend: Backend) -> None:
         """Whether the bar is open and, if it is, its drinks in catalog order, and whether a
         visit done today would be rewarded."""
         return await bar.read(user_id)
+
+    @app.post("/api/bar/tts")
+    async def tts(body: TtsInput, user_id: UserId) -> Response:
+        """`text` said in the character's voice, as mp3; 422 for a character the bar has not,
+        or nothing said; 503 when this deployment has no speech synthesis."""
+        character = bar.character(body.character_id)
+        if character is None or not body.text.strip() or not character.voice_id.strip():
+            raise HTTPException(422, "要说的哪位角色、说什么")
+        lease = backend.config.lease()
+        try:
+            if lease.keys.tts is None:
+                raise HTTPException(503, "这个部署没配语音合成")
+            try:
+                audio = await backend.read_aloud.said_on_deployers(
+                    lease.keys.tts, lease.keys.tts_model, character.voice_id, body.text
+                )
+            except ReadAloudFailed:
+                raise HTTPException(502, "语音合成失败，过一会儿再试") from None
+        finally:
+            lease.release()
+        return Response(audio, media_type="audio/mpeg")
 
     @app.post("/api/bar/visits")
     async def enter(

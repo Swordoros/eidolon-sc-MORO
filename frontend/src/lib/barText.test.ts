@@ -92,17 +92,17 @@ describe("打字", () => {
   const producer = pages({ speaker: "producer", zh: "一二三四五六七八九十" })[0];
   const her = pages({ speaker: "her", ja: "あいうえおかきくけこ", zh: "甲乙丙丁戊" })[0];
 
-  it("每秒 30 字", () => {
+  it("每秒 18 字", () => {
     expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000)).toBe(0);
-    expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000 + 100)).toBe(3);
-    expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000 + 250)).toBe(7);
+    expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000 + 100)).toBe(1);
+    expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000 + 250)).toBe(4);
     expect(typedChars(producer, { startedAt: 1000, finished: false }, 1000 + 5000)).toBe(10);
   });
 
   it("打完的时刻", () => {
-    expect(typedOutAt(producer, { startedAt: 1000, finished: false })).toBe(1000 + 334);
-    expect(isTypedOut(producer, { startedAt: 1000, finished: false }, 1000 + 333)).toBe(false);
-    expect(isTypedOut(producer, { startedAt: 1000, finished: false }, 1000 + 334)).toBe(true);
+    expect(typedOutAt(producer, { startedAt: 1000, finished: false })).toBe(1000 + 556);
+    expect(isTypedOut(producer, { startedAt: 1000, finished: false }, 1000 + 555)).toBe(false);
+    expect(isTypedOut(producer, { startedAt: 1000, finished: false }, 1000 + 556)).toBe(true);
   });
 
   it("点一下打完整句", () => {

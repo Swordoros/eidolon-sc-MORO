@@ -399,6 +399,11 @@ class Bar:
         """Visits over, till they are settled."""
         db.prepare(_open)
 
+    def character(self, character_id: str) -> Character | None:
+        """The character `character_id`, for her voice at the bar and the like; None if the bar
+        has no such."""
+        return self._characters.get(character_id)
+
     async def read(self, user_id: str) -> dict:
         """Whether the bar is open and, if it is, its drinks in catalog order, and whether the
         user would be rewarded for a visit done today: none done yet, and rewards given."""

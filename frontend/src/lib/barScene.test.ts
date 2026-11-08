@@ -37,11 +37,11 @@ function run(...actions: BarSceneAction[]): BarSceneState {
 }
 
 describe("打字和翻页", () => {
-  it("第一句一到就开始打，每秒 30 字", () => {
+  it("第一句一到就开始打，每秒 18 字", () => {
     const state = run(line(HELLO, 100));
 
     expect(shownText(state, 100)?.rows.map((row) => row.text)).toEqual(["", ""]);
-    expect(shownText(state, 100 + 100)?.rows.map((row) => row.text)).toEqual(["こんば", "晚上"]);
+    expect(shownText(state, 100 + 100)?.rows.map((row) => row.text)).toEqual(["こ", "晚"]);
   });
 
   it("句子按到达顺序排队，打完一页、点了才翻下一页", () => {
