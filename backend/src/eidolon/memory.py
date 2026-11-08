@@ -539,20 +539,25 @@ class Memories:
         self,
         embedder: Embedder,
         user_id: str,
+        character_id: str,
         query_text: str,
         query_vector: Sequence[float] | None,
     ) -> list[Memory]:
-        """The memories the background model is shown: the user's holding memories nearest
-        `query_text`, embedded unless it already was (`query_vector`), or while that cannot
-        be embedded, their latest."""
+        """The memories the background model is shown: those `character_id` may recall
+        (`_visible`) nearest `query_text`, embedded unless it already was (`query_vector`),
+        or while that cannot be embedded, the latest of them. It is shown no memory it
+        cannot recall, so it never supersedes one told to someone else beyond its scope
+        (ADR-0014 with scope, ADR-0002)."""
         try:
             if query_vector is None:
                 query_vector = await embedder.embed_query(query_text)
-            return await self._nearest(embedder, user_id, query_vector, SHOWN_MEMORIES)
+            return await self._nearest(
+                embedder, user_id, query_vector, SHOWN_MEMORIES, character_id, scope=True
+            )
         except EmbeddingError:
             log.warning("embedding the turn failed; the background model is shown the latest"
                         " memories", exc_info=True)
-            return _holding(await self.kept(user_id))[-SHOWN_MEMORIES:]
+            return self._visible(await self.kept(user_id), character_id)[-SHOWN_MEMORIES:]
 
     def _write_down(
         self,
@@ -608,7 +613,8 @@ class Memories:
         try:
             character = self._characters[conversation.character_id]
             shown = await self._shown(
-                services.embedder, user_id, memory_query(history, text), query_vector
+                services.embedder, user_id, conversation.character_id,
+                memory_query(history, text), query_vector,
             )
             standing = (
                 await self._promises.standing(user_id, conversation.character_id)

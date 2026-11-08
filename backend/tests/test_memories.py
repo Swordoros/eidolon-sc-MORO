@@ -566,6 +566,36 @@ async def test_a_new_memory_supersedes_what_it_updates_whoever_it_was_told_to(
     assert OSAKA not in section and DOG in section
 
 
+async def test_a_memory_is_superseded_only_by_someone_who_may_recall_it(world: World):
+    """A `unit` memory told to one idol is not shown to an idol outside her group, so that
+    idol's model cannot supersede it (GLOSSARY.md「记忆」, ADR-0014 with scope)."""
+    background = FakeBackgroundLLM(
+        '{"memories": [{"text": "制作人请我吃了蛋糕", "scope": "unit"}]}',
+        json.dumps(
+            {"memories": [{"text": "制作人请我吃了蛋糕还送了礼物", "supersedes": [1]}]},
+            ensure_ascii=False,
+        ),
+    )
+    memories = writing_with(
+        Memories(
+            world.db, world.characters, lambda: NOW,
+            embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+            # 每个偶像的群组只有她自己：unit 记忆不外传。
+            share_group=lambda cid: frozenset({cid}),
+        ),
+        background,
+    )
+    await tell(memories, world, await world.conversation("mano"), "我请你吃蛋糕")
+    await memories.entries(world.producer)  # 真乃先记下这条 unit 记忆
+    await tell(memories, world, await world.conversation("kogane"), "我请你吃蛋糕，还送了礼物")
+    await memories.entries(world.producer)
+
+    by_text = {m.text: m for m in await memories.entries(world.producer)}
+    assert by_text["制作人请我吃了蛋糕"].superseded_by is None  # 恋鐘不在真乃的群组里，看不到、也取代不了
+    assert by_text["制作人请我吃了蛋糕还送了礼物"].superseded_by is None
+    await memories.aclose()
+
+
 async def test_one_memory_may_supersede_several(world: World, make_memories: MemoriesFactory):
     both = "制作人的狗去世了，现在住在东京"
     memories = make_memories(memorized(OSAKA, DOG, CAT), superseding(both, OSAKA, DOG))
