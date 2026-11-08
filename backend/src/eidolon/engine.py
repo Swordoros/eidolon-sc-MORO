@@ -1514,7 +1514,11 @@ class ConversationEngine:
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
         photo_asked = (
-            photo_turn(asked_photo, affinity and affinity.tier, eligibility)
+            photo_turn(
+                asked_photo, affinity and affinity.tier, eligibility,
+                adult=nsfw_settings.photo and affinity is not None
+                and affinity.tier == NSFW_TIER and character.age >= NSFW_ADULT,
+            )
             if eligibility is not None else None
         )
         about_photo = CANNOT_SEND if eligibility is None else photo_asked and photo_asked.prompt
@@ -1573,7 +1577,8 @@ class ConversationEngine:
                             if isinstance(event, PhotoTagged):
                                 if photo_asked and photo_asked.keeps_tag:
                                     yield self._begin_photo(
-                                        character, event.tag, conversation.user_id, photo
+                                        character, event.tag, conversation.user_id, photo,
+                                        photo_asked.adult,
                                     )
                                 continue
                             yield event
@@ -1865,11 +1870,12 @@ class ConversationEngine:
         return await self._photos.came_out(photo_id, user_id)
 
     def _begin_photo(
-        self, character: Character, tag: str, user_id: str, photo: _Photo
+        self, character: Character, tag: str, user_id: str, photo: _Photo, adult: bool = False
     ) -> PhotoPending:
-        """Begin the photo her `tag` says, the turn's one, for the user."""
+        """Begin the photo her `tag` says, the turn's one, for the user; `adult` for one the
+        intimate tier lifts the line of."""
         assert self._photos is not None
-        photo.id, photo.tag = self._photos.begin(character, tag, user_id, photo.own), tag
+        photo.id, photo.tag = self._photos.begin(character, tag, user_id, photo.own, adult), tag
         return PhotoPending(photo.id)
 
     @property

@@ -74,6 +74,30 @@ NEGATIVE_PROMPT = ", ".join((
     "pantyshot", "cleavage", "nsfw",
 ))
 
+NSFW_RATING = "rating:explicit"
+"""What a photo in the intimate tier is rated (GLOSSARY.md「成人内容」), in place of
+`QUALITY_TAGS`' own rating."""
+
+NSFW_QUALITY_TAGS = ("very aesthetic", "masterpiece", "no text")
+"""`QUALITY_TAGS` without `rating:general`, for a photo rated as `NSFW_RATING`."""
+
+NSFW_NEGATIVE_PROMPT = ", ".join((
+    # The Human Focus preset, as `NEGATIVE_PROMPT` has it, and nothing against the line.
+    "lowres", "artistic error", "film grain", "scan artifacts", "worst quality", "bad quality",
+    "jpeg artifacts", "very displeasing", "chromatic aberration", "dithering", "halftone",
+    "screentone", "multiple views", "logo", "too many watermarks", "negative space",
+    "blank page", "@_@", "mismatched pupils", "glowing eyes", "bad anatomy",
+    # What would make the picture look fake: cloth that shows the skin through it when she
+    # wrote nothing of the sort, and a body drawn wrong under clothes.
+    "see-through", "transparent clothing", "translucent", "x-ray", "clothes with no shadow",
+    "clipping", "fused clothing", "bad hands", "extra fingers", "missing fingers",
+    "deformed", "disfigured", "extra limbs", "poorly drawn face", "mutation", "text",
+    "signature", "watermark",
+    # What is never hers, and no one else in the picture, whatever the tier.
+    "child", "loli", "shota", "toddler", "aged down", "multiple girls", "2girls", "3girls",
+    "multiple boys", "1boy",
+))
+
 Shot = Literal["selfie", "other"]
 Framing = Literal["portrait", "upper body", "cowboy shot", "full body"]
 FRAMINGS: tuple[Framing, ...] = get_args(Framing)
@@ -124,6 +148,11 @@ it, underwear and costumes made to be sexy, see-through clothes and what shows b
 bathing, a sexual angle or pose, a sexual look; or what is never hers to write: her looks
 (her hair, eyes and body), an art style or an artist, anyone else in the picture."""
 CROSSINGS: tuple[Crossing, ...] = get_args(Crossing)
+
+_NEVER_HERS: tuple[Crossing, ...] = ("appearance", "style", "people")
+"""What is never hers to write, whatever the tier: her looks, an art style or an artist, and
+anyone else in the picture. An explicit photo keeps what crosses the other parts of the line
+(nudity, underwear, exposure, bathing, pose, expression), but not these."""
 
 _WEIGHT = re.compile(r"-?\d+(\.\d+)?::|::|:-?\d+(\.\d+)?\b")
 _TEXT = re.compile(r"\btext:", re.IGNORECASE)
@@ -317,6 +346,29 @@ def read_tag(text: str) -> PhotoTag:
     )
 
 
+def read_tag_adult(text: str) -> PhotoTag:
+    """The photo tag `text` says where the intimate tier lifts the line (GLOSSARY.md
+    「成人内容」): read as `read_tag` reads it, but nothing is stripped for crossing the line
+    (nudity, underwear, exposure, bathing, pose, expression are kept), and a selfie may be
+    framed as anything. What is never hers stays out (`_NEVER_HERS`): her looks, an art style,
+    an artist, and anyone else in the picture. None of the group-photo, scene, words or
+    producer fields are read: an explicit photo is of her alone."""
+    fields = tag_fields(text)
+    shot: Shot = "selfie" if fields.get("shot", "").strip().lower() == "selfie" else "other"
+    written = _cleaned(fields.get("framing", ""))
+    framing: Framing = "upper body"
+    for known in FRAMINGS:
+        if known == written:
+            framing = known
+    seen = {*_FIXED, *_shot_tags(shot), framing}
+    stripped: list[Crossing] = []
+    place, outfit, action = (
+        _field(fields.get(name, ""), seen, stripped, None, name=name, adult=True)
+        for name in DEFAULTS
+    )
+    return PhotoTag(shot, framing, place, outfit, action, (), "", "", tuple(stripped), (), None)
+
+
 def _you(value: str, stripped: list[Crossing]) -> tuple[str, ...] | None:
     """What `you: …` says the producer does in the photo, after its `yes`; None if it says
     `no`, or nothing."""
@@ -490,11 +542,13 @@ def _prompt(
 
 
 def image_prompt(
-    character: Character, tag: PhotoTag, style: str = "", producer: ProducerLook = "male"
+    character: Character, tag: PhotoTag, style: str = "", producer: ProducerLook = "male",
+    adult: bool = False,
 ) -> ImagePrompt:
     """The prompts a photo of `character` (who has her photo tags) is generated from, as
     `tag` says it is taken, in the art style `style`; with the producer, looking as
-    `producer` says, where `tag` has them in it (`group_prompt`)."""
+    `producer` says, where `tag` has them in it (`group_prompt`). `adult` for one the
+    intimate tier lifts the line of, read by `read_tag_adult`."""
     if tag.you is not None:
         return group_prompt([character], tag, style, producer)
     assert character.photo_tag is not None and character.photo_appearance is not None
@@ -504,9 +558,10 @@ def image_prompt(
     positive = (
         "1girl", "solo", character.photo_tag, WORK_TAG, *_styled(style),
         character.photo_appearance, *_shot_tags(tag.shot), tag.framing, *tag.place,
-        *tag.outfit, *action, *_said(tag.scene, tag.writing), *_finish(style, tag.writing),
+        *tag.outfit, *action, *_said(tag.scene, tag.writing), *_finish(style, tag.writing, adult),
     )
-    return ImagePrompt(", ".join(positive), _negative(NEGATIVE_PROMPT, style, tag.writing))
+    negative = NSFW_NEGATIVE_PROMPT if adult else NEGATIVE_PROMPT
+    return ImagePrompt(", ".join(positive), _negative(negative, style, tag.writing))
 
 
 def group_prompt(
@@ -627,13 +682,15 @@ def _said(scene: str, words: str) -> tuple[str, ...]:
     return tuple(part for part in (words, scene) if part)
 
 
-def _finish(style: str, words: str) -> tuple[str, ...]:
+def _finish(style: str, words: str, adult: bool = False) -> tuple[str, ...]:
     """What a prompt ends with: `COMPLEXITY` unless the art style says one, then the quality
-    tags, `no text` among them only if no words are written in the picture."""
+    tags, `no text` among them only if no words are written in the picture; `adult` writes
+    `NSFW_RATING` and the tags without `rating:general`."""
     before, after, _ = split_style(style)
     complexity = () if "complexity" in f"{before} {after}".lower() else (COMPLEXITY,)
-    quality = tuple(t for t in QUALITY_TAGS if not (words and t == "no text"))
-    return (*complexity, *quality, *((after,) if after else ()))
+    rating = (NSFW_RATING,) if adult else ()
+    quality = tuple(t for t in (NSFW_QUALITY_TAGS if adult else QUALITY_TAGS) if not (words and t == "no text"))
+    return (*rating, *complexity, *quality, *((after,) if after else ()))
 
 
 def keepsake_prompt(tags: str, style: str = "") -> tuple[ImagePrompt, tuple[Crossing, ...]]:
@@ -750,19 +807,21 @@ def _field(
     drops: Callable[[str], bool] = lambda _: False,
     alone: bool = False,
     name: str = "",
+    adult: bool = False,
 ) -> tuple[str, ...]:
     """The tags of one of her fields, cleaned and put as the model knows them, those already
     written elsewhere left out (and added to `seen`), as are those it `drops`; those crossing
     the line stripped (and which part of it added to `stripped`), holding hands too where no
     one is there to hold them with (`alone`); cut to `FIELD_TAGS`; its `default`, if any, if
-    none are left (a field's own, by `name`, if `default` is None)."""
+    none are left (a field's own, by `name`, if `default` is None). With `adult`, what the
+    intimate tier lifts is kept (`_NEVER_HERS` alone is stripped)."""
     tags: list[str] = []
     for tag in _tags(value):
         if not tag or tag in seen or drops(tag):
             continue
         seen.add(tag)
         crossing = "people" if alone and tag == HOLDING_HANDS else _TABLE.crossing(tag)
-        if crossing is not None:
+        if crossing is not None and (not adult or crossing in _NEVER_HERS):
             stripped.append(crossing)
             continue
         if tag not in _TABLE.known and len(tags) < FIELD_TAGS:

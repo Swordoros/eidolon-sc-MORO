@@ -73,7 +73,7 @@ from eidolon.config import ImageSettings
 from eidolon.gpt_image_prompt import GptPrompt
 from eidolon.image_generation import TIME_LIMIT, GptImageGenerator, ImageFailed, ImageGenerator
 from eidolon.own_keys import masked_cause
-from eidolon.photo_prompt import Crossing, PictureTag, image_prompt, picture_prompt, read_tag
+from eidolon.photo_prompt import Crossing, PictureTag, image_prompt, picture_prompt, read_tag, read_tag_adult
 from eidolon.store import Photo, PhotoFailure, Store
 from eidolon.usage import OverLimit, UsageLimiter
 
@@ -102,6 +102,36 @@ note: 在咖啡店给他拍的自拍
 - 不拍裸露和半裸、内衣和情趣服装、透视、走光、洗澡，也不拍性感的姿势、表情和镜头；泳装、睡衣、躺在床上可以拍。他要这些时，你可以推掉，也可以换成全年龄的样子再拍。
 - 一次回复最多一张。标签后面照常用 <ja><zh> 说话。"""
 """What she is told in a turn the user asks for a photo in, and she can send one."""
+
+CAN_SEND_INTIMATE = """\
+# 照片
+制作人在要你发一张照片。你可以发，也可以按你的性格和此刻的情境推掉（比如害羞、正在忙）。
+要发的话，在回复的最前面、第一个 <ja> 之前写一个照片标签，一行一栏，格式如下：
+<photo>
+shot: selfie
+framing: upper body
+place: bedroom, indoors, night, dim light
+outfit: unbuttoned shirt, underwear
+action: blush, looking at viewer, biting lip
+note: 深夜在房间里，衣服已经脱到只剩内衣，自己拍给他的
+</photo>
+- shot：selfie（自拍）或 other（别人帮你拍）。在这个关系里，多半是你自己拍。
+- framing：portrait、upper body、cowboy shot、full body 选一个。自拍也不一定只能拍到脸：
+  想让他看到多少，就用哪种拍法，`full body`、`cowboy shot` 都可以。
+- place：2–4 个英文 tag，写地点、室内还是室外、时段或天气、光线。
+- outfit：1–4 个英文 tag，写一套衣服，只写这个景别里看得见的。
+  先看清他这句话是什么态度，再定你露到哪一步；写清楚是哪种样子，别用含糊的词。
+- action：2–4 个英文 tag，写一个动作、一两个表情；不看镜头时加一个视线。
+- note：一句中文，写这是一张什么样的照片，只给你自己回看。
+- place、outfit、action 合计不超过 12 个 tag。照片里只有你一个人；不写发色、瞳色、发型、身材，也不写画风或画师。
+- 这是你自己的照片，你愿意给他看多少由你定：答应了给他看，就真的拍成那个样子，不要嘴上说得露骨、拍出来却不是。
+  真的不想给，就照你的方式推掉，不要发一张打折的。
+- 台词和照片要对上：你说「已经全脱了」「什么都没穿」，`outfit` 就必须是 `nude` 或 `topless`，不能还穿着内衣。
+- 但有一条线，除非他明说了要看全身，不然不要主动越过：不主动给他发全身赤条条的照片。
+  半身、只露上半身、穿着内衣布料很薄、姿势带着暗示，这些都可以；整个人都脱光得是他自己要的。
+- 一次回复最多一张。标签后面照常用 <ja><zh> 说话。"""
+"""What she is told in a turn she is asked for a photo in, her affinity in the intimate tier:
+how far she may go is hers to decide, not a rule."""
 
 NOT_NOW = """\
 # 照片
@@ -145,24 +175,28 @@ class Eligibility:
 class PhotoTurn:
     """What a turn the judge model says asks for a photo comes to: what she is told of it,
     whether a photo tag she writes is kept, and, the user's photos used up, when the user
-    may ask again."""
+    may ask again. `adult` is for one the intimate tier lifts the line of."""
 
     prompt: str
     keeps_tag: bool
     used_up_until: datetime | None = None
+    adult: bool = False
 
 
-def photo_turn(asked: bool, tier: Tier | None, eligibility: Eligibility) -> PhotoTurn | None:
+def photo_turn(
+    asked: bool, tier: Tier | None, eligibility: Eligibility, adult: bool = False
+) -> PhotoTurn | None:
     """What a turn that could have a photo, as `eligibility` says, comes to, the user having
     `asked` for one or not, her affinity in `tier` (None where affinity is off); None if not
-    asked. Used up, she cannot send one, whatever her affinity."""
+    asked. Used up, she cannot send one, whatever her affinity. `adult` for one the intimate
+    tier lifts the line of."""
     if not asked:
         return None
     if eligibility.used_up_until is not None:
         return PhotoTurn(USED_UP, keeps_tag=False, used_up_until=eligibility.used_up_until)
     if tier == COLDEST:
         return PhotoTurn(NOT_NOW, keeps_tag=False)
-    return PhotoTurn(CAN_SEND, keeps_tag=True)
+    return PhotoTurn(CAN_SEND_INTIMATE if adult else CAN_SEND, keeps_tag=True, adult=adult)
 
 
 @dataclass
@@ -271,16 +305,21 @@ class Photos:
         return Eligibility()
 
     def begin(
-        self, character: Character, tag: str, user_id: str, own: ImageSettings | None = None
+        self,
+        character: Character,
+        tag: str,
+        user_id: str,
+        own: ImageSettings | None = None,
+        adult: bool = False,
     ) -> str:
         """Begin the photo her `tag` says, for the user, generating on their `own` image
         generation if the turn brings it, else on the deployer's, in the turn it is begun
-        in; its id."""
+        in; its id. `adult` for one the intimate tier lifts the line of."""
         photo_id = uuid.uuid4().hex
         self._generating[photo_id] = _Generating()
         until = asyncio.get_running_loop().time() + TIME_LIMIT
         task = asyncio.create_task(
-            self._generate(photo_id, character, tag, user_id, own, until, recording())
+            self._generate(photo_id, character, tag, user_id, own, until, recording(), adult)
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -320,10 +359,12 @@ class Photos:
         own: ImageSettings | None,
         until: float,
         turn: Recording | None,
+        adult: bool = False,
     ) -> None:
         """Count the photo against the user's limit, as exempt on their `own` image
         generation, and generate it by `until` (the running loop's time), its request
-        recorded under `turn`; given back if not sent."""
+        recorded under `turn`; given back if not sent. `adult` for one the intimate tier
+        lifts the line of."""
         outcome: tuple[bytes | None, PhotoFailure | None]
         try:
             use = await self._usage.take(user_id, "photo", exempt=own is not None)
@@ -334,7 +375,7 @@ class Photos:
             log.exception("counting photo %s failed", photo_id)
             outcome = None, "service_error"
         else:
-            outcome = await self._generated(photo_id, character, tag, own, until, turn)
+            outcome = await self._generated(photo_id, character, tag, own, until, turn, adult)
             if outcome[0] is None:
                 await use.give_back()
         generating = self._generating[photo_id]
@@ -353,16 +394,17 @@ class Photos:
         own: ImageSettings | None,
         until: float,
         turn: Recording | None,
+        adult: bool = False,
     ) -> tuple[bytes | None, PhotoFailure | None]:
         """The photo generated by `until`, on the user's `own` image generation if any,
         or why it was not: on their own, anything but taking too long is their key's
-        failing."""
+        failing. `adult` for one the intimate tier lifts the line of."""
         try:
             generator = self._generator() if own is None else self._own(own)
             if generator is None:
                 raise ImageFailed("service_error", "image generation is off")
             settings = generator.settings
-            read = read_tag(tag)
+            read = read_tag_adult(tag) if adult else read_tag(tag)
             async with self._turn_on(
                 "image", settings.api_key, settings.concurrency, until, aside=False
             ):
@@ -370,7 +412,9 @@ class Photos:
                     image = await timed(
                         self._activity,
                         image_origin(settings) if own is None else OWN_IMAGE_ORIGIN,
-                        generator.generate(image_prompt(character, read, settings.style), until),
+                        generator.generate(
+                            image_prompt(character, read, settings.style, adult=adult), until
+                        ),
                         read.stripped,
                     )
             return image.webp, None
