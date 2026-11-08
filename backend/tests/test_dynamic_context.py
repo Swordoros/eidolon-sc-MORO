@@ -10,7 +10,8 @@ import pytest
 
 from eidolon.config import Settings
 from eidolon.llm import ChatMessage
-from eidolon.reply_format import FORMAT_INSTRUCTIONS
+from eidolon.characters import EXTRA_NAME_TRANSLATIONS
+from eidolon.reply_format import names_instructions
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -54,7 +55,9 @@ async def test_what_changes_each_turn_comes_after_the_history(make_client: Clien
     await send_turn(client, conversation, "第2句")
 
     shared, producer, *rest = llm.prompts[-1]
-    assert shared.cache_breakpoint and shared.content.endswith(FORMAT_INSTRUCTIONS)
+    assert shared.cache_breakpoint and shared.content.endswith(
+        names_instructions(EXTRA_NAME_TRANSLATIONS)
+    )
     assert producer.role == "system"
     assert "小林" in producer.content and "5月3日" in producer.content
     assert "现在是" not in producer.content

@@ -2124,7 +2124,7 @@ class ConversationEngine:
         should any photo of the history not have been sent, what that means, then `closing`:
         what retrieval found, or how she is to reach out."""
         # What every user's turns with her that day open with, apart, for a service to cache.
-        shared = [*always_known(character, world_prompt), format_instructions(voiced_by)]
+        shared = [*always_known(character, world_prompt), format_instructions(voiced_by, self._zh_names)]
         prompt = [
             ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
             ChatMessage("system", about_producer),

@@ -78,11 +78,32 @@ DIRECTED_FORMAT_INSTRUCTIONS = _FORMAT + _DIRECTED_CUES
 """The reply format, for a turn voiced with a model that reads paired tags too, and
 directions as long as a director's (`delivery_cues.TAG_READERS`)."""
 
+_NAMES = """\
+# 名字怎么译
+这些名字有定好的中文译名，字幕里一律照它写，不要自己音译：
+{names}
+- 她们以外的人名，按常见的中文习惯音译；拿不准就保留原文的假名。
+- 同一个名字在整段对话里写法要一致，不要一会儿一个译法。"""
 
-def format_instructions(voiced_by: FishAudioModel | None) -> str:
+
+def names_instructions(names: Mapping[str, str]) -> str:
+    """How the names in her subtitles are written: `names`, each as the deployment has it
+    (`characters.Character.name_zh`), so that 「ルカ」 is 「路加」 and not what the model makes
+    of the romaji."""
+    written = "\n".join(f"- {ja} → {zh}" for ja, zh in names.items())
+    return _NAMES.format(names=written)
+
+
+def format_instructions(
+    voiced_by: FishAudioModel | None, names: Mapping[str, str] | None = None
+) -> str:
     """The reply format, for a turn voiced, or to be read aloud, with `voiced_by`; None for
-    one not voiced at all."""
-    return DIRECTED_FORMAT_INSTRUCTIONS if voiced_by in TAG_READERS else FORMAT_INSTRUCTIONS
+    one not voiced at all. `names` is how her companions are written in the subtitles, if
+    any."""
+    base = DIRECTED_FORMAT_INSTRUCTIONS if voiced_by in TAG_READERS else FORMAT_INSTRUCTIONS
+    if not names:
+        return base
+    return f"{base}\n\n{names_instructions(names)}"
 
 
 @dataclass(frozen=True)

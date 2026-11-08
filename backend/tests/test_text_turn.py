@@ -6,7 +6,8 @@ import json
 import httpx
 
 from eidolon.llm import ChatMessage
-from eidolon.reply_format import FORMAT_INSTRUCTIONS
+from eidolon.characters import EXTRA_NAME_TRANSLATIONS
+from eidolon.reply_format import FORMAT_INSTRUCTIONS, names_instructions
 from tests.conftest import MANO_SHEET, ClientFactory
 from tests.fakes import FakeLLM, system_of
 
@@ -182,9 +183,11 @@ async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
     await send_turn(client, conversation_id, "好可爱")
 
     # Without a world setting, the part every user's turns with her share is her sheet, her
-    # birthday and how she is to format her reply.
+    # birthday and how she is to format her reply, and how the names are written.
     assert llm.prompts[1][0] == ChatMessage(
-        "system", f"{MANO_SHEET}\n\n你的生日是4月25日。\n\n{FORMAT_INSTRUCTIONS}",
+        "system",
+        f"{MANO_SHEET}\n\n你的生日是4月25日。\n\n{FORMAT_INSTRUCTIONS}"
+        f"\n\n{names_instructions(EXTRA_NAME_TRANSLATIONS)}",
         cache_breakpoint=True,
     )
     system = system_of(llm.prompts[1])
