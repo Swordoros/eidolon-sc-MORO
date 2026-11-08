@@ -2161,6 +2161,48 @@ export const zh = {
       title: "玩法暂时没有开放",
       description: "这里还没有开放好感度和礼物。已经有的礼物会留着，开放后照常能送。",
     },
+    /** 群聊（GLOSSARY.md「群聊」）：偶像们自己聊，用户也是普通一员。 */
+    group: {
+      title: "群聊",
+      hint: "她和其他成员按相关度自己接话，也可能没人接；用户只是普通一员。",
+      on: "群聊开着",
+      off: "群聊关着",
+      members: "成员",
+      /** 成员数。 */
+      status: (n: number) => `${n} 位成员`,
+      raise: "抛个话题",
+      raising: "正在聊……",
+      empty: "还没有聊过，等着谁先开口。",
+      placeholder: "说点什么……",
+      send: "发送",
+      sending: "发送中……",
+      you: "你",
+      failed: "没连上，稍后再试。",
+      /** 开关的说明。 */
+      switchHint: "关掉只是暂停，之前的群聊都留着。",
+      /** 拉群：选成员、开一个新的群。 */
+      create: "拉群",
+      createTitle: "拉谁进群？",
+      createHint: "选几位成员，拉一个群；群里的偶像会自己找话题聊起来。",
+      creating: "正在拉群……",
+      /** 解散群：关掉、清空成员，历史记录留着。 */
+      dissolve: "解散群",
+      dissolveTitle: "解散这个群？",
+      dissolveDescription: "解散后不会再自动开新话题，群聊记录都留着。",
+      dissolveConfirm: "解散",
+      dissolving: "正在解散……",
+      dissolved: "这个群已经解散了，历史记录还在。",
+      /** 历史记录里两条话题之间的分隔。 */
+      newTopic: "新话题",
+      /** 历史记录为空。 */
+      noHistory: "还没有聊过。",
+      /** 已解散、可以重新拉群。 */
+      regroup: "重新拉群",
+      /** 改群名。 */
+      rename: "改群名",
+      /** 群里有哪些人。 */
+      roster: "群成员",
+    },
     cards: {
       gifts: {
         name: "礼物",

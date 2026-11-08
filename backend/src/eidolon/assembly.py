@@ -83,6 +83,7 @@ from eidolon.proxy import ProxyRoutes
 from eidolon.letter_music import letter_music_path, load_letter_music
 from eidolon.letters import Letters
 from eidolon.moments import Moments
+from eidolon.groups import Groups
 from eidolon.reach_outs import ReachOuts
 from eidolon.read_aloud import ReadAloud
 from eidolon.readings import load_readings, readings_path
@@ -193,6 +194,8 @@ class Backend:
     """Has characters give keepsakes, and shows the cabinet."""
     moments: Moments
     """Has characters post moments to users once their time comes, and shows them."""
+    groups: Groups
+    """The group chats: idols talking among themselves and with the user, by relevance."""
     schedules: Schedules
     """Each week's jobs and every producer's schedule, where schedules are on."""
     schedule_writer: ScheduleWriter
@@ -220,6 +223,7 @@ class Backend:
     _reaching_out: asyncio.Task[None] | None = field(default=None, repr=False)
     _posting: asyncio.Task[None] | None = field(default=None, repr=False)
     _writing: asyncio.Task[None] | None = field(default=None, repr=False)
+    _talking: asyncio.Task[None] | None = field(default=None, repr=False)
     _sweeping: asyncio.Task[None] | None = field(default=None, repr=False)
     _tidying: asyncio.Task[None] | None = field(default=None, repr=False)
     _watching: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -247,6 +251,7 @@ class Backend:
         self._giving = asyncio.create_task(self.keepsakes.keep_giving())
         self._sending = asyncio.create_task(self.trip_photos.keep_sending())
         self._planning = asyncio.create_task(self.schedule_writer.keep_writing())
+        self._talking = asyncio.create_task(self.groups.keep_going())
         self._sweeping = asyncio.create_task(self.bar.keep_sweeping())
         self._decaying = asyncio.create_task(self.memories.keep_decaying())
         self._tidying = asyncio.create_task(
@@ -262,6 +267,7 @@ class Backend:
             task
             for task in (
                 self._keeping_fresh, self._probing, self._reaching_out, self._posting, self._writing,
+                self._talking,
                 self._sweeping,
                 self._tidying, self._watching, self._loading_stories,
             )
@@ -604,6 +610,8 @@ def build(
         database, characters, config, affinities, activity, memories, her_now, clock,
         random or secure_random, weathers, schedules, photos, world, places,
     )
+    groups = Groups(database, clock, characters, config.lease, affinities, memories)
+    closers.append(groups.aclose)  # closed before the database, so each conversation is written down
     config.on_change(gifts.notice)
     backend = Backend(
         settings=settings,
@@ -649,6 +657,7 @@ def build(
         keepsakes=keepsakes,
         special_days=special_days,
         moments=moments,
+        groups=groups,
         schedules=schedules,
         schedule_writer=schedule_writer,
         daily=daily,

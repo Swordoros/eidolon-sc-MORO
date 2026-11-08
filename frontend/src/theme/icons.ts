@@ -62,6 +62,8 @@ export { Activity as ServiceStatusIcon } from "lucide-react";
 
 // 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
 export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
+// 对话列表页首「拉群」的按钮（群聊）。
+export { Users as GroupCardIcon } from "lucide-react";
 
 // 日记页（`/diary`，GLOSSARY.md「日记」）：日记本、合上的日记、她夹起来的那一页。
 export { BookOpen as DiaryIcon, Lock as DiaryClosedIcon, Paperclip as DiarySecretIcon } from "lucide-react";

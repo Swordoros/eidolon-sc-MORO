@@ -71,6 +71,7 @@ from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.bar_api import add_bar_routes
+from eidolon.groups_api import add_group_routes
 from eidolon.calendar_api import add_calendar_routes
 from eidolon.cycles_api import add_cycle_routes
 from eidolon.letters_api import add_letter_routes
@@ -485,6 +486,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_keepsake_routes(app, backend)
     add_city_routes(app, backend)
     add_bar_routes(app, backend)
+    add_group_routes(app, backend)
     add_photo_routes(app, backend)
     add_sponsor_routes(app, backend)
     add_data_package_routes(app, backend)
