@@ -114,11 +114,14 @@ BATH_MINUTES: dict[BathKind, tuple[int, int]] = {"tub": (30, 50), "shower": (15,
 BEDTIME = timedelta(minutes=30)
 """How long before she goes to bed it is her bedtime."""
 
-WAKE_HOURS = (time(7), time(9))
-"""When she may get up: from the first to the second."""
+WAKE_HOURS = (time(5), time(11))
+"""When she may get up: from the first to the second. The idols wake from 6 to 10 and
+beyond; too narrow a range dropped the early risers' `wake`, and they were never seen
+asleep."""
 
-SLEEP_HOURS = (time(23), time(2))
-"""When she may go to bed: from the first, through midnight, to the second."""
+SLEEP_HOURS = (time(21), time(4))
+"""When she may go to bed: from the first, through midnight, to the second. From 21:30 to
+3 or so, as the idols' habits say; too narrow a range dropped the early sleepers' `sleep`."""
 
 
 @dataclass(frozen=True)
