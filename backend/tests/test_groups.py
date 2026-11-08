@@ -90,3 +90,27 @@ async def test_the_asleep_are_left_out_of_a_topic():
     awake = await groups._awake("u", members, datetime(2026, 11, 9, tzinfo=timezone.utc))
 
     assert [m.id for m in awake] == ["mano"]
+
+
+async def test_the_next_topic_waits_until_they_all_wake():
+    from datetime import time as clock_time
+
+    groups = object.__new__(Groups)
+
+    class FakeDaily:
+        wakes = {"mano": clock_time(6, 0), "rinze": clock_time(8, 0)}
+
+        async def of(self, user_id, character_id, day):
+            wake = self.wakes.get(character_id)
+            return type("S", (), {"wake": wake})() if wake is not None else None
+
+    groups._daily = FakeDaily()  # type: ignore[attr-defined]
+    members = [
+        Member("mano", "櫻木真乃", "i", "s", "真乃"),
+        Member("rinze", "杜野凛世", "i", "s", "凛世"),
+    ]
+    local = datetime(2026, 11, 9, 1, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    awake_at = await groups._next_awake_at("u", members, local)
+
+    assert awake_at == datetime(2026, 11, 9, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai"))

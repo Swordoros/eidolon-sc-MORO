@@ -618,16 +618,25 @@ class Groups:
         state = await self.read(user_id, group_id)
         if state is None or not state["on"] or not state["members"]:
             return None
-        members = [self._members_by_id(m["id"]) for m in state["members"]]
-        members = [m for m in members if m is not None]
-        if not members:
+        all_members = [self._members_by_id(m["id"]) for m in state["members"]]
+        all_members = [m for m in all_members if m is not None]
+        if not all_members:
             return None
         # Whoever is asleep does not raise a topic, nor answer one; when all of them are
-        # asleep, the group is quiet until the next 7 in the morning.
+        # asleep, the group is quiet until they all wake.
         now = self._clock()
-        members = await self._awake(user_id, members, now)
+        members = await self._awake(user_id, all_members, now)
         if not members:
-            await self._db.write(self._put_off, group_id, _seven_am(now))
+            until = _seven_am(now)
+            if self._daily is not None and self._store is not None:
+                try:
+                    zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
+                    local = now.astimezone(zone)
+                    if (awake_at := await self._next_awake_at(user_id, all_members, local)) is not None:
+                        until = awake_at.astimezone(timezone.utc).isoformat()
+                except Exception:
+                    log.warning("scheduling the group's next topic failed", exc_info=True)
+            await self._db.write(self._put_off, group_id, until)
             return None
         recent = state["lines"][-6:]
         # What it has been talking about, latest first, so the new topic can stay off it.
@@ -880,6 +889,28 @@ class Groups:
             if not await self._asleep(user_id, member.id, now):
                 awake.append(member)
         return awake
+
+    async def _next_awake_at(
+        self, user_id: str, members: Sequence[Member], local: datetime
+    ) -> datetime | None:
+        """When the last of `members` wakes, in the producer's time zone (`local`); None
+        where none of their wake times can be told (no schedules)."""
+        if self._daily is None:
+            return None
+        wakes: list[datetime] = []
+        for member in members:
+            schedule = await self._daily.of(user_id, member.id, local.date())
+            if schedule is None or schedule.wake is None:
+                schedule = await self._daily.of(
+                    user_id, member.id, local.date() - timedelta(days=1)
+                )
+            if schedule is None or schedule.wake is None:
+                continue
+            wake = datetime.combine(local.date(), schedule.wake, tzinfo=local.tzinfo)
+            if wake <= local:
+                wake += timedelta(days=1)
+            wakes.append(wake)
+        return max(wakes) if wakes else None
 
     async def _relevance(
         self, members: Sequence[Member], topic: str
