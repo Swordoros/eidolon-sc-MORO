@@ -32,6 +32,9 @@ deploy/event-names.toml
 /.scratch/_faces/
 /.scratch/photos/prototype/tags/contact_sheet.png
 
+# 对照分析用到的外部 fork 仓库克隆（Milimil），不进仓库
+/.scratch/milimil-fork/
+
 __pycache__/
 
 # 数据库（任何本地库都不进仓库）
