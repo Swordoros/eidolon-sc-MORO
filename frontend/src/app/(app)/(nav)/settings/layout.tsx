@@ -19,6 +19,7 @@ import {
   DevIcon,
   MemoriesIcon,
   MomentsIcon,
+  NsfwIcon,
   OwnKeysIcon,
   PhoneIcon,
   ProfileIcon,
@@ -42,6 +43,7 @@ const ICONS = {
   "sign-in": SignInIcon,
   "data-package": DataPackageIcon,
   dev: DevIcon,
+  nsfw: NsfwIcon,
   about: AboutIcon,
 };
 

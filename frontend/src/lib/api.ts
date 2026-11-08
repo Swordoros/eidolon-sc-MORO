@@ -533,6 +533,11 @@ export type Account = {
   /** The user's own switch for the development tools (GLOSSARY.md「开发」): shows the last
    * conversation prompt. Default off. */
   dev: boolean;
+  /** The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each default off and
+   * never for an under-age character: the conversation, her voiced lines in a call, the photos. */
+  nsfw: boolean;
+  nsfw_voice: boolean;
+  nsfw_photo: boolean;
   /** Whether the deployer has letters on (GLOSSARY.md「信」); the letters written stay to be read either way. */
   letters: boolean;
   sponsor_version: string | null;
@@ -1071,6 +1076,22 @@ export async function setDev(on: boolean): Promise<void> {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ on }),
+    }),
+  );
+}
+
+/** Turn the user's own switches for the adult scenes on or off (GLOSSARY.md「成人内容」); a field
+ * left out leaves its switch as it was. */
+export async function setNsfw(switches: {
+  conversation?: boolean;
+  voice?: boolean;
+  photo?: boolean;
+}): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/nsfw", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(switches),
     }),
   );
 }

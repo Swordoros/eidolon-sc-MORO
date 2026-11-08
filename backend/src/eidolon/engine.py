@@ -979,7 +979,6 @@ class ConversationEngine:
         schedules: "Schedules | None" = None,
         promises: "Promises | None" = None,
         promise_judge: "PromiseJudge | None" = None,
-        nsfw: bool = False,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
@@ -1011,7 +1010,6 @@ class ConversationEngine:
         self._promises = promises
         self._promise_judge = promise_judge
         self._her_now = her_now
-        self._nsfw = nsfw
         self._ended_listeners: list[Callable[[str, EndsFor], None]] = []
         self._cooled_listeners: list[Callable[[str, str, datetime], None]] = []
         self._recorded_listeners: list[
@@ -1475,10 +1473,11 @@ class ConversationEngine:
             if not weather.done():
                 weather.cancel()
         # An explicit scene is open only for an adult character in the intimate tier, out of
-        # a cooldown, with the deployment's switch on; what a lover asks is not out of line
+        # a cooldown, with the user's own switch on; what a lover asks is not out of line
         # where one may open, so `beyond` turns there do not lower her affinity or end it.
+        nsfw_settings = await self._store.get_nsfw(conversation.user_id)
         nsfw = (
-            self._nsfw and affinity is not None and not affinity.cooling
+            nsfw_settings.conversation and affinity is not None and not affinity.cooling
             and affinity.tier == NSFW_TIER and character.age >= NSFW_ADULT
         )
         if nsfw and judged is not None and judged.beyond:
@@ -1506,6 +1505,7 @@ class ConversationEngine:
                 cooling=affinity.cooling,
                 age=character.age,
                 nsfw=nsfw,
+                in_call=nsfw_settings.voice and in_call is not None,
             )
             if affinity is not None
             else []

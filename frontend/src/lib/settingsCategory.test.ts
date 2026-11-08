@@ -44,7 +44,7 @@ describe("一级列表有哪几类", () => {
       ["profile", "memories", "stats"],
       ["call", "appearance", "own-keys"],
       ["sign-in", "data-package"],
-      ["dev"],
+      ["dev", "nsfw"],
       ["about"],
     ]);
   });

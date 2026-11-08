@@ -523,10 +523,6 @@ class Settings:
     bar: bool = True
     """Whether the bar is open (GLOSSARY.md「酒吧」); on unless `.env` turns it off, and the
     admin console may override it."""
-    nsfw: bool = False
-    """Whether adult characters may have explicit scenes in the intimate tier (18+ only, off
-    unless `.env` turns it on with `EIDOLON_NSFW`). Under-age characters never do, and the
-    admin console may not override it."""
     proxy: ProxySettings = field(default_factory=ProxySettings)
     """Which of the deployer's services go through which proxy; none unless `.env` sets
     one, and the admin console may override it."""
@@ -646,7 +642,6 @@ class Settings:
             keepsakes=_switch("EIDOLON_KEEPSAKES"),
             cycles=_switch("EIDOLON_CYCLES", default=True),
             bar=_switch("EIDOLON_BAR", default=True),
-            nsfw=_switch("EIDOLON_NSFW"),
             proxy=proxy_from_env(),
             service_status=service_status_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,

@@ -266,6 +266,15 @@ class DevSwitch(BaseModel):
     on: StrictBool
 
 
+class NsfwSwitch(BaseModel):
+    """The user's own switches for the adult scenes (GLOSSARY.md「成人内容」); a field left out
+    leaves its switch as it was."""
+
+    conversation: StrictBool | None = None
+    voice: StrictBool | None = None
+    photo: StrictBool | None = None
+
+
 class FeatureSwitch(BaseModel):
     """The user's own switch for a feature (GLOSSARY.md「玩法开关」)."""
 
@@ -438,6 +447,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         moments = await backend.moments.switch_of(user_id)
         switches = await backend.features.of(user_id)
         deployed = deployed_features(settings, backend.config)
+        nsfw = await store.get_nsfw(user_id)
         return {
             "id": user_id,
             "name": user.name,
@@ -453,6 +463,9 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "cycles": cycles,
             "moments": moments,
             "dev": await store.get_dev(user_id),
+            "nsfw": nsfw.conversation,
+            "nsfw_voice": nsfw.voice,
+            "nsfw_photo": nsfw.photo,
             "letters": backend.config.letters_on,
             "features": {f: switches[f] for f in FEATURES if f in deployed},
             "sponsor_version": sponsor.version,
@@ -491,6 +504,12 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Turn the user's own switch for the development tools on or off (GLOSSARY.md
         「开发」)."""
         await store.set_dev(user_id, body.on)
+
+    @app.put("/api/account/nsfw", status_code=204)
+    async def switch_nsfw(body: NsfwSwitch, user_id: UserId) -> None:
+        """Turn the user's own switches for the adult scenes on or off (GLOSSARY.md「成人内容」),
+        each for themselves and never for an under-age character."""
+        await store.set_nsfw(user_id, body.conversation, body.voice, body.photo)
 
     @app.put("/api/account/features/{feature}", status_code=204)
     async def switch_feature(feature: str, body: FeatureSwitch, user_id: UserId) -> None:

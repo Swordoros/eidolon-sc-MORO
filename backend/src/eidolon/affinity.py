@@ -283,6 +283,16 @@ NSFW_OFF_LINE = (
     "但意思要清楚，不要顺着往下说，也不要描写身体上的事。"
 )
 
+NSFW_VOICE = (
+    "这一回合的日语会被念出来给制作人听。这种时候说话和平时不一样，要把声音的状态写进语气提示里："
+    "呼吸乱、气息短、声音发颤、忍不住溢出来的声音、压着的抽气、说完整句很难——"
+    "该断的地方就让它断在段落中间。用 [_] 里的英文描述，例如 [breathless] [trembling voice] "
+    "[soft gasp] [shaky breath] [moaning softly] [whispering close to the mic] [voice breaking]，"
+    "每段可以有两三处，比平时多，但不要整段都是提示。"
+    "日语的台词要像喘不过气时说出来的：短句、断句、拖长的尾音，而不是完整的书面句。"
+    "中文字幕照常只写台词的意思，不带提示。"
+)
+
 PROMISE_STEPS: dict[str, float] = {
     "kept": 2.0,
     "kept_late": 1.0,
@@ -592,15 +602,16 @@ def nsfw_open(tier: Tier, cooling: bool, age: int | None) -> bool:
     return tier == NSFW_TIER and not cooling and age is not None and age >= NSFW_ADULT
 
 
-def nsfw_line(open: bool, judged: Judged | None) -> list[str] | None:
+def nsfw_line(open: bool, judged: Judged | None, in_call: bool = False) -> list[str] | None:
     """How a turn in the tier an explicit scene opens in is a scene one: `INTIMATE_NSFW`,
-    `NSFW_REALISM` and `NSFW_PACE` when she is asked for one (`beyond`), and `NSFW_OFF_LINE`
-    when the producer asks what `open` says she is not to answer here; None when neither, so
-    that an ordinary turn in the tier is left as it is."""
+    `NSFW_REALISM` and `NSFW_PACE` when she is asked for one (`beyond`), with `NSFW_VOICE`
+    too in a call, where her words are voiced; and `NSFW_OFF_LINE` when the producer asks
+    what `open` says she is not to answer here; None when neither, so that an ordinary turn
+    in the tier is left as it is."""
     if not open:
         return [NSFW_OFF_LINE]
     if judged is not None and judged.beyond:
-        return [INTIMATE_NSFW, NSFW_REALISM, NSFW_PACE]
+        return [INTIMATE_NSFW, NSFW_REALISM, NSFW_PACE, *([NSFW_VOICE] if in_call else [])]
     return None
 
 
@@ -626,6 +637,7 @@ def affinity_prompt(
     cooling: bool = False,
     age: int | None = None,
     nsfw: bool = False,
+    in_call: bool = False,
 ) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
@@ -636,7 +648,8 @@ def affinity_prompt(
     With her `heart` (`hearts`), she shows her tier as it says, trust too; an adult idol's
     closer tiers are romance as it says, to a producer who is a woman (`female_producer`) or
     not, and an under-age idol's closer tiers are told they are none. With `nsfw` on and her
-    `age` adult in `NSFW_TIER`, whether the turn is an explicit scene one (`nsfw_line`)."""
+    `age` adult in `NSFW_TIER`, whether the turn is an explicit scene one (`nsfw_line`),
+    with its voice as `in_call`."""
     lines = []
     shown = heart.tiers.get(tier) if heart is not None else None
     if tier != "trust" or shown:
@@ -651,7 +664,7 @@ def affinity_prompt(
             lines.append(_FONDNESS[tier] + _SWEET_WITHIN_BOUNDS)
         lines.append(_WHATEVER_THE_TIER_BUT_ROMANCE if romance else _WHATEVER_THE_TIER)
     if nsfw and nsfw_open(tier, cooling, age):
-        scene = nsfw_line(judged is None or judged.beyond or not judged.out_of_line, judged)
+        scene = nsfw_line(judged is None or judged.beyond or not judged.out_of_line, judged, in_call)
         if scene:
             lines += scene
     if judged is not None:

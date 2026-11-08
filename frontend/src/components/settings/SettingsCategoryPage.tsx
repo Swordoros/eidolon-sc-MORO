@@ -10,6 +10,7 @@ import { DeleteAccount } from "@/components/DeleteAccount";
 import { DevSettings } from "@/components/DevSettings";
 import { MemoriesSettings } from "@/components/MemoriesSettings";
 import { MomentsSettings } from "@/components/MomentsSettings";
+import { NsfwSettings } from "@/components/NsfwSettings";
 import { OwnKeysSettings } from "@/components/OwnKeysSettings";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
 import { ReachOutsSettings } from "@/components/ReachOutsSettings";
@@ -38,6 +39,7 @@ const PANELS: Record<Exclude<SettingsCategory, "memories" | "stats">, ReactNode>
   ),
   "data-package": <DataPackageSettings />,
   dev: <DevSettings />,
+  nsfw: <NsfwSettings />,
   about: <AboutSettings />,
 };
 

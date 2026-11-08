@@ -22,7 +22,7 @@ const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
   ["call", "reach-outs", "moments", "cycles", "appearance", "own-keys"],
   ["sign-in", "data-package"],
-  ["dev"],
+  ["dev", "nsfw"],
   ["about"],
 ] as const;
 

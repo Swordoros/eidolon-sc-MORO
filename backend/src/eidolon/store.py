@@ -50,7 +50,10 @@ CREATE TABLE IF NOT EXISTS users (
     consented_at TEXT,
     banned_at TEXT,
     ban_note TEXT,
-    dev INTEGER NOT NULL DEFAULT 0
+    dev INTEGER NOT NULL DEFAULT 0,
+    nsfw INTEGER NOT NULL DEFAULT 0,
+    nsfw_voice INTEGER NOT NULL DEFAULT 0,
+    nsfw_photo INTEGER NOT NULL DEFAULT 0
 );
 -- Only a hash of each session's token is kept; the times are epoch seconds.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -568,6 +571,17 @@ class WholeConversation:
     reach_outs: list[KeptReachOut]
 
 
+@dataclass(frozen=True)
+class NsfwSettings:
+    """The user's own switches for the adult scenes, each off by default: the conversation,
+    her voiced lines in a call, and the photos (GLOSSARY.md「成人内容」). Never for an
+    under-age character."""
+
+    conversation: bool
+    voice: bool
+    photo: bool
+
+
 class Store:
     """Users, their sessions, sign-in methods, producer profiles and bans, and their
     conversations with all that is kept in them, read and written through the data access
@@ -601,6 +615,16 @@ class Store:
     async def set_dev(self, user_id: str, on: bool) -> None:
         """Turn the user's development switch on or off."""
         await self._db.write(_set_dev, user_id, on)
+
+    async def get_nsfw(self, user_id: str) -> NsfwSettings:
+        """The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each off by
+        default and never for an under-age character."""
+        return await self._db.read(_nsfw, user_id)
+
+    async def set_nsfw(self, user_id: str, conversation: bool | None, voice: bool | None, photo: bool | None) -> None:
+        """Turn the user's own switches for the adult scenes on or off; None leaves one as it
+        was."""
+        await self._db.write(_set_nsfw, user_id, conversation, voice, photo)
 
     async def first_user_named(self, name: str) -> User | None:
         """The earliest user with this name, if any; names are not unique."""
@@ -955,6 +979,9 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("UPDATE users SET name = id")
     _add_missing_columns(db, "users", ("consented_at", "banned_at", "ban_note"), "TEXT")
     _add_missing_columns(db, "users", ("dev",), "INTEGER NOT NULL DEFAULT 0")
+    _add_missing_columns(
+        db, "users", ("nsfw", "nsfw_voice", "nsfw_photo"), "INTEGER NOT NULL DEFAULT 0"
+    )
     _add_missing_columns(db, "producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
     _add_missing_columns(
         db, "producer_profiles", ("city_name", "city_adm2", "city_adm1", "city_country"), "TEXT"
@@ -1022,6 +1049,25 @@ def _dev(db: sqlite3.Connection, user_id: str) -> bool:
 
 def _set_dev(db: sqlite3.Connection, user_id: str, on: bool) -> None:
     db.execute("UPDATE users SET dev = ? WHERE id = ?", (1 if on else 0, user_id))
+
+
+def _nsfw(db: sqlite3.Connection, user_id: str) -> NsfwSettings:
+    row = db.execute(
+        "SELECT nsfw, nsfw_voice, nsfw_photo FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    return NsfwSettings(*(bool(v) for v in row)) if row else NsfwSettings(False, False, False)
+
+
+def _set_nsfw(
+    db: sqlite3.Connection,
+    user_id: str,
+    conversation: bool | None,
+    voice: bool | None,
+    photo: bool | None,
+) -> None:
+    for column, value in (("nsfw", conversation), ("nsfw_voice", voice), ("nsfw_photo", photo)):
+        if value is not None:
+            db.execute(f"UPDATE users SET {column} = ? WHERE id = ?", (1 if value else 0, user_id))
 
 
 def _first_user_named(db: sqlite3.Connection, name: str) -> User | None:

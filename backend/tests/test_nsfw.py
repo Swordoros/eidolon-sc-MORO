@@ -1,7 +1,7 @@
 """The explicit scenes (NSFW): a turn that asks to cross the friend line into a physical
 relation opens a scene in the intimate tier, for an adult character only, and only with the
-deployment's switch on (`Settings.nsfw`); anywhere else it is out of line as ever. The judge
-asks a `beyond` question for it, apart from the out-of-line one."""
+user's own switch on; anywhere else it is out of line as ever. The judge asks a `beyond`
+question for it, apart from the out-of-line one."""
 
 from dataclasses import replace
 
@@ -22,6 +22,12 @@ REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 def settings(settings: Settings) -> Settings:
     """With the judge model and affinity on, so that turns are judged."""
     return replace(settings, judge=FAKE_JUDGE, affinity_and_gifts=True)
+
+
+async def nsfw_on(client: ClientFactory) -> None:
+    """Turn the user's own switch for the adult conversation on."""
+    res = await client.put("/api/account/nsfw", json={"conversation": True})
+    assert res.status_code == 204
 
 
 def test_nsfw_is_open_only_for_adults_in_intimate_out_of_a_cooldown():
@@ -45,12 +51,11 @@ async def test_an_adult_beyond_turn_is_not_out_of_line_when_nsfw_is_on(
     clock = FakeClock()
     clients = FakeServiceClients()
     clients.judge.judgings = [level(2, out_of_line=True, beyond=True)]
-    client = make_client(
-        FakeLLM(REPLY), clients=clients, settings=replace(settings, nsfw=True), clock=clock,
-    )
+    client = make_client(FakeLLM(REPLY), clients=clients, settings=settings, clock=clock)
     conversation = await start_conversation(client, "kogane")  # 19, an adult
     keep(settings.database_path, "producer", 90, clock.now, character="kogane")
     scenes_off(settings.database_path)
+    await nsfw_on(client)
 
     await send_turn(client, conversation, "今晚留下来")
 
@@ -79,13 +84,13 @@ async def test_a_minor_beyond_turn_is_out_of_line_even_when_nsfw_is_on(
     clock = FakeClock()
     clients = FakeServiceClients()
     clients.judge.judgings = [level(2, out_of_line=True, beyond=True)]
-    client = make_client(
-        FakeLLM(REPLY), clients=clients, settings=replace(settings, nsfw=True), clock=clock,
-    )
+    client = make_client(FakeLLM(REPLY), clients=clients, settings=settings, clock=clock)
     conversation = await start_conversation(client, "mano")  # 16, under age
     keep(settings.database_path, "producer", 90, clock.now, character="mano")
     scenes_off(settings.database_path)
+    await nsfw_on(client)
 
     await send_turn(client, conversation, "今晚留下来")
 
     assert value(settings.database_path, character="mano") == 80  # −10 for out of line
+
