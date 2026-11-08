@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { availableAudio, BAR_AUDIO, type BarAudio, parseManifest } from "@/lib/barAudio";
+import { availableAudio, BAR_AUDIO, type BarAudio, extOf, parseManifest } from "@/lib/barAudio";
 
 const NO_AUDIO: BarAudio = { tracks: [], playlist: [], sfx: [] };
 
@@ -35,11 +35,11 @@ export function useBarSound(base: string | null) {
   useEffect(() => {
     if (!base) return;
     let isCurrent = true;
-    const canPlayOgg = new Audio().canPlayType('audio/ogg; codecs="vorbis"') !== "";
+    const canPlay = new Audio().canPlayType('audio/mpeg') !== "";
     isRead.current = fetch(`${base}/manifest.json`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
-        if (isCurrent) available.current = availableAudio(BAR_AUDIO, parseManifest(body), canPlayOgg);
+        if (isCurrent) available.current = availableAudio(BAR_AUDIO, parseManifest(body), canPlay);
       })
       .catch(() => {})
       .then(() => {
@@ -86,10 +86,11 @@ export function useBarSound(base: string | null) {
       // 这一页被点过（选曲界面上、从玩法页点进来）时，浏览器放行，不必等到进门。
       if (!context.current && navigator.userActivation?.hasBeenActive) start();
       const ctx = context.current;
-      if (!ctx || !available.current.sfx.includes(name)) return null;
+      const sfx = available.current.sfx.find((s) => s.name === name);
+      if (!ctx || !sfx) return null;
       let decoded = buffers.current.get(name);
       if (!decoded) {
-        decoded = fetch(`${base}/sfx/${name}.ogg`)
+        decoded = fetch(`${base}/sfx/${name}.${extOf(sfx.file)}`)
           .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
           .then((data) => ctx.decodeAudioData(data))
           .catch(() => {

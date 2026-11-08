@@ -7,29 +7,36 @@
 import catalog from "@/lib/barAudio.json";
 
 export type BarTrack = { id: number; file: string; title: string };
+export type BarSfx = { name: string; file: string };
 export type BarAudioCatalog = {
   /** The jukebox's tracks, in its order; `id` is the original's sound number. */
   tracks: BarTrack[];
   /** The default playlist, by track id. */
   default_playlist: number[];
-  sfx: { name: string; file: string }[];
+  sfx: BarSfx[];
 };
 /** `bar/manifest.json`: the track ids and sound effect names uploaded to the bucket. */
 export type BarManifest = { tracks: number[]; sfx: string[] };
 /** What the bar can play: the tracks in the jukebox's order, the default playlist, the sound effects. */
-export type BarAudio = { tracks: BarTrack[]; playlist: number[]; sfx: string[] };
+export type BarAudio = { tracks: BarTrack[]; playlist: number[]; sfx: BarSfx[] };
 
 export const BAR_AUDIO: BarAudioCatalog = catalog;
 
-/** What both the list and the bucket have, if the browser plays Ogg; nothing without a manifest. */
-export function availableAudio(catalog: BarAudioCatalog, manifest: BarManifest | null, canPlayOgg: boolean): BarAudio {
-  if (!manifest || !canPlayOgg) return { tracks: [], playlist: [], sfx: [] };
+/** The file's extension (ogg, mp3), without the dot; ogg for none. */
+export function extOf(file: string): string {
+  const dot = file.lastIndexOf(".");
+  return dot >= 0 ? file.slice(dot + 1) : "ogg";
+}
+
+/** What both the list and the bucket have, if the browser plays the audio; nothing without a manifest. */
+export function availableAudio(catalog: BarAudioCatalog, manifest: BarManifest | null, canPlay: boolean): BarAudio {
+  if (!manifest || !canPlay) return { tracks: [], playlist: [], sfx: [] };
   const tracks = catalog.tracks.filter((t) => manifest.tracks.includes(t.id));
   const ids = new Set(tracks.map((t) => t.id));
   return {
     tracks,
     playlist: catalog.default_playlist.filter((id) => ids.has(id)),
-    sfx: catalog.sfx.map((s) => s.name).filter((name) => manifest.sfx.includes(name)),
+    sfx: catalog.sfx.filter((s) => manifest.sfx.includes(s.name)),
   };
 }
 

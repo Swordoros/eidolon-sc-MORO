@@ -23,7 +23,7 @@ const track = (id: number) => ({ id, file: `${String(id).padStart(3, "0")}_t.ogg
 const audio: BarAudio = {
   tracks: Array.from({ length: 13 }, (_, i) => track(i + 1)),
   playlist: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
-  sfx: ["door"],
+  sfx: [{ name: "door", file: "095_door.ogg" }],
 };
 const full = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
@@ -145,7 +145,7 @@ describe("小播放器", () => {
 
 describe("没有可用的音频时", () => {
   it("整块不可用；有一首就能用", () => {
-    expect(hasJukebox({ tracks: [], playlist: [], sfx: ["door"] })).toBe(false);
+    expect(hasJukebox({ tracks: [], playlist: [], sfx: [{ name: "door", file: "095_door.ogg" }] })).toBe(false);
     expect(hasJukebox(audio)).toBe(true);
   });
 });

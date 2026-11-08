@@ -30,6 +30,13 @@ AUDIO_CACHE = "public, max-age=31536000, immutable"
 MANIFEST_CACHE = "no-cache"
 _CONCURRENT_UPLOADS = 8
 
+_AUDIO_TYPES = {".ogg": "audio/ogg", ".mp3": "audio/mpeg"}
+
+
+def audio_type(file: str) -> str:
+    """The media type the browser reads `file` as, by its extension; Ogg for none known."""
+    return _AUDIO_TYPES.get(Path(file).suffix.lower(), "audio/ogg")
+
 
 @dataclass(frozen=True)
 class Track:
@@ -71,11 +78,11 @@ def load_bar_audio(path: Path) -> BarAudio:
 
 
 def track_key(track: Track) -> str:
-    return f"{PREFIX}music/{track.id}.ogg"
+    return f"{PREFIX}music/{track.id}{Path(track.file).suffix.lower()}"
 
 
 def sfx_key(sfx: SoundEffect) -> str:
-    return f"{PREFIX}sfx/{sfx.name}.ogg"
+    return f"{PREFIX}sfx/{sfx.name}{Path(sfx.file).suffix.lower()}"
 
 
 @dataclass
@@ -109,7 +116,7 @@ async def upload_bar_audio(audio_dir: Path, catalog: BarAudio, bucket: Bucket) -
             if etags.get(key) == hashlib.md5(body).hexdigest():
                 report.unchanged += 1
                 return
-            await bucket.put(key, body, "audio/ogg", AUDIO_CACHE)
+            await bucket.put(key, body, audio_type(path.name), AUDIO_CACHE)
         in_bucket.add(key)
         report.uploaded += 1
         report.uploaded_bytes += len(body)

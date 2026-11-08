@@ -36,6 +36,9 @@ deploy/event-names.toml
 /.scratch/milimil-fork/
 /.scratch/milimil-main/
 
+# 酒吧音频：部署者自己的 MP3（版权素材），不进仓库
+/bar-music/
+
 __pycache__/
 
 # 数据库（任何本地库都不进仓库）

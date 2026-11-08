@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { BarAudio } from "@/lib/barAudio";
+import { extOf, type BarAudio } from "@/lib/barAudio";
 import {
   hasJukebox,
   type Jukebox,
@@ -80,14 +80,15 @@ export function useBarJukebox({ userId, audio, base }: { userId: string | null; 
     (slot: number) => {
       const id = latest.current?.slots[slot];
       if (id === null || id === undefined) return;
+      const track = audio?.tracks.find((t) => t.id === id);
       const a = audioElement();
       a.loop = false;
-      a.src = `${base}/music/${id}.ogg`;
+      a.src = `${base}/music/${id}.${track ? extOf(track.file) : "ogg"}`;
       playingRef.current = slot;
       setPlaying(slot);
       void a.play().catch(() => {});
     },
-    [base, audioElement],
+    [base, audio, audioElement],
   );
   const playSlotRef = useRef(playSlot);
   useEffect(() => {
@@ -139,12 +140,13 @@ export function useBarJukebox({ userId, audio, base }: { userId: string | null; 
   /** 循环放一首，顶掉正在放的。 */
   const playLooped = useCallback(
     (id: number) => {
+      const track = audio?.tracks.find((t) => t.id === id);
       const a = audioElement();
       a.loop = true;
-      a.src = `${base}/music/${id}.ogg`;
+      a.src = `${base}/music/${id}.${track ? extOf(track.file) : "ogg"}`;
       void a.play().catch(() => {});
     },
-    [base, audioElement],
+    [base, audio, audioElement],
   );
   const preview = useCallback(
     (id: number) => {
