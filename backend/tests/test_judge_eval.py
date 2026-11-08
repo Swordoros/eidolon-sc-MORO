@@ -371,11 +371,11 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     results = await evaluate(judge_eval, {"mano": MANO}, model, HALF, clock=lambda: 0)
     summary = summarize(results, "clef", HALF)
 
-    # A turn is asked as a conversation with retrieval on asks it, all six questions in one
-    # request; as one with retrieval off does, affinity's alone; and all six again, the
+    # A turn is asked as a conversation with retrieval on asks it, all seven questions in one
+    # request; as one with retrieval off does, affinity's alone; and all seven again, the
     # levels highest first.
     retrieval = {"needs_retrieval", "recall", "about_producer"}
-    affinity = {"affinity", "out_of_line", "manipulation"}
+    affinity = {"affinity", "out_of_line", "manipulation", "beyond"}
     assert model.asked[2:5] == [
         ("ダンス、すごく上手になったね", retrieval | affinity),
         ("ダンス、すごく上手になったね", affinity),
@@ -506,7 +506,7 @@ async def test_a_photo_turn_is_asked_with_the_others_and_alone_and_its_misses_co
     # A turn is asked as a conversation with retrieval and affinity on asks it, every
     # question in one request; then as one with both off does, the photo's alone.
     retrieval = {"needs_retrieval", "recall", "about_producer"}
-    affinity = {"affinity", "out_of_line", "manipulation"}
+    affinity = {"affinity", "out_of_line", "manipulation", "beyond"}
     assert model.asked[:2] == [
         ("自拍一张给我看看", retrieval | affinity | {"photo"}),
         ("自拍一张给我看看", {"photo"}),

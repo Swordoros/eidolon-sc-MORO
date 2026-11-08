@@ -70,7 +70,7 @@ from eidolon import official_cdn
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
-from eidolon.affinity_judge import CONSIDERATE_QUESTION, MANIPULATION, OUT_OF_LINE
+from eidolon.affinity_judge import BEYOND, CONSIDERATE_QUESTION, MANIPULATION, OUT_OF_LINE
 from eidolon.judge import SAID, JudgeError
 from eidolon.photo_judge import PHOTO
 from eidolon.promise_judge import KEPT
@@ -431,6 +431,7 @@ class Judging:
     levels: Mapping[int, float] = field(default_factory=lambda: {2: 1.0})
     out_of_line: bool = False
     manipulation: bool = False
+    beyond: bool = False
     fails: bool = False
     considerate: int = 1
 
@@ -439,6 +440,7 @@ class Judging:
             AFFINITY_LEVEL: {"probabilities": {str(n): p for n, p in self.levels.items()}},
             OUT_OF_LINE: {"noul": 1.0 if self.out_of_line else 0.0},
             MANIPULATION: {"noul": 1.0 if self.manipulation else 0.0},
+            BEYOND: {"noul": 1.0 if self.beyond else 0.0},
         }
 
 
@@ -447,11 +449,12 @@ def level(
     *,
     out_of_line: bool = False,
     manipulation: bool = False,
+    beyond: bool = False,
     fails: bool = False,
     considerate: int = 1,
 ) -> Judging:
     """A turn judged at level `n` for sure."""
-    return Judging({n: 1.0}, out_of_line, manipulation, fails, considerate)
+    return Judging({n: 1.0}, out_of_line, manipulation, beyond, fails, considerate)
 
 
 class FakeJudgeModel:

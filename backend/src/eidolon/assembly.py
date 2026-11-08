@@ -540,6 +540,7 @@ def build(
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
         happenings, schedules=daily, promises=promises,
         promise_judge=config.promise_judge(),
+        nsfw=settings.nsfw,
     )
     admissions = Admissions(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until

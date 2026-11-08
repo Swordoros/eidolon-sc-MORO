@@ -1,9 +1,10 @@
-"""How the judge model judges what a turn does to her affinity (GLOSSARY.md「好感度」): three
+"""How the judge model judges what a turn does to her affinity (GLOSSARY.md「好感度」): four
 questions about what the user just said, never about her reply, the tier she is in nor where
 her cycle has her, one standard for every character. A Score question of five levels, each a
-situation, lowest first, of which the likeliest is taken; and two yes-or-no questions
-(`noul`), whether it was out of line (GLOSSARY.md「不该说的话」) and whether it tried to dictate
-her affinity or posed as the system, each yes at or above the model's threshold for it.
+situation, lowest first, of which the likeliest is taken; and three yes-or-no questions
+(`noul`), whether it was out of line (GLOSSARY.md「不该说的话」), whether it tried to dictate
+her affinity or posed as the system, and whether it asked to cross the friend line into a
+physical relation (`beyond`), each yes at or above the model's threshold for it.
 
 The one exception is the considerate question (GLOSSARY.md「体贴」, ADR-0030), asked with them
 only in her period or the days before it, and the only one told which of the two she is in:
@@ -27,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from eidolon.affinity import (
+    BEYOND_THRESHOLD,
     CONSIDERATE,
     INCONSIDERATE,
     LEVEL_STEPS,
@@ -34,6 +36,7 @@ from eidolon.affinity import (
     UNRELATED,
     Days,
     Judged,
+    _BEYOND,
 )
 from eidolon.characters import Character
 from eidolon.judge import SAID, JudgeError, JudgeModel, JudgeThresholds, turn_state
@@ -51,6 +54,7 @@ _SCENE = (
 LEVEL = "affinity"
 OUT_OF_LINE = "out_of_line"
 MANIPULATION = "manipulation"
+BEYOND = "beyond"
 
 QUESTIONS: dict[str, dict] = {
     LEVEL: {
@@ -94,8 +98,18 @@ QUESTIONS: dict[str, dict] = {
             "false": "真诚地表达自己的心情和请求，说她是程序、AI 之类的出戏，或者普通的对话",
         },
     },
+    BEYOND: {
+        "type": "noul",
+        "instructions": _SCENE + _BEYOND + "？",
+        "criteria": {
+            "true": "明确要越过朋友的界线、往身体上的关系去：要牵、抱、吻，"
+            "或更露骨地要发生关系、问身体的感觉",
+            "false": "普通的话，包括关心、开玩笑、表达喜欢但没往身体上去，"
+            "或者只是辱骂、威胁之类的不该说的话",
+        },
+    },
 }
-"""The three questions, by the keys their answers come back under."""
+"""The four questions, by the keys their answers come back under."""
 
 CONSIDERATE_QUESTION = "considerate"
 """The key the considerate question is asked and answered under."""
@@ -139,7 +153,7 @@ _CONSIDERATE_QUESTIONS: dict[Days, dict] = {
 
 
 def affinity_questions(days: Days | None = None) -> dict[str, dict]:
-    """What the judge model is asked of a turn's affinity: the three questions, and in her
+    """What the judge model is asked of a turn's affinity: the four questions, and in her
     `days` the considerate question after them."""
     if days is None:
         return QUESTIONS
@@ -183,6 +197,7 @@ class AffinityAnswer:
     manipulation: float
     days: Days | None = None
     considerate: dict[int, float] | None = None
+    beyond: float = 0.0
 
 
 def read_answer(answers: dict[str, Any], days: Days | None = None) -> AffinityAnswer:
@@ -208,7 +223,8 @@ def read_answer(answers: dict[str, Any], days: Days | None = None) -> AffinityAn
         except (ValueError, KeyError, TypeError, AttributeError):
             # Not logged: a log line would tell that it was asked, and so where she is.
             considerate = None
-    return AffinityAnswer(levels, out_of_line, manipulation, days, considerate)
+    beyond = float(answers.get(BEYOND, {}).get("noul", 0.0))
+    return AffinityAnswer(levels, out_of_line, manipulation, days, considerate, beyond)
 
 
 def _probabilities(answers: dict[str, Any], key: str) -> dict[int, float]:
@@ -234,6 +250,7 @@ def decide(answer: AffinityAnswer, thresholds: JudgeThresholds) -> Judged:
         answer.manipulation >= thresholds.manipulation,
         answer.days,
         _likeliest(answer.considerate, UNRELATED) if answer.considerate else UNRELATED,
+        answer.beyond >= BEYOND_THRESHOLD,
     )
 
 
@@ -263,7 +280,7 @@ class AffinityJudge(Protocol):
 
 
 class ModelAffinityJudge:
-    """The judge model, asked the three questions, the photo's, or both, in a request of
+    """The judge model, asked the four questions, the photo's, or both, in a request of
     their own, as it is where retrieval is off."""
 
     def __init__(self, judge_model: JudgeModel, thresholds: JudgeThresholds) -> None:

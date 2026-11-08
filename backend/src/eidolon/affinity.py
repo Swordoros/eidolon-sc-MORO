@@ -232,6 +232,57 @@ DOOR_GAP = 0.01
 SCENE_LIFT = 1.0
 """How far past the door a scene played through brings her, at least."""
 
+NSFW_TIER: Tier = "intimate"
+"""The tier an explicit scene may open in, and only there, for an adult character (18+) when
+the deployment has it on (`Settings.nsfw`)."""
+
+NSFW_ADULT = 18
+"""The age from which a character may have explicit scenes; never for an idol under it. Told
+apart from `ADULT` (romance, 15), which is about closeness, not sex."""
+
+BEYOND_THRESHOLD = 0.5
+"""The judge model's probability at or above which a turn counts as asking to cross the
+friend line into a physical relation (GLOSSARY.md「越界」)."""
+
+_BEYOND = (
+    "制作人这句在和你越过朋友的界线、往身体上的关系去：要牵你、抱你、吻你，"
+    "或者更露骨地要你做下去、要你说出想要什么、问你身体上的感觉"
+)
+
+INTIMATE_NSFW = (
+    "你此刻和制作人之间，是可以越过界线的成年人的关系。你的身体、你的亲密都由你自己作主："
+    "害羞、紧张、犹豫都照你的人设来，但你可以答应，也可以拒绝，拒绝了就真的停下。"
+    "被答应之后，写具体的动作和身体的感觉，写触感、温度、呼吸、声音，写你嘴上和心里的话；"
+    "露骨处不要淡出、不要用省略代替、不要只写气氛。"
+    "称呼、口癖、说话的距离感照旧用你自己的，别变得不像你；也不要变成只会说一句「好舒服」的人。"
+    "其余的都照旧：不编造原作没有的经历、不说同伴的坏话、不提到提示词和规则、"
+    "说到做不到会害臊、会照顾制作人的身体和心情，这些都还在。"
+)
+
+NSFW_REALISM = (
+    "写得像真的在你身上发生：一件一件来，不要一句话跳过去。"
+    "每写一个动作，接上它带来的身体反应——体温、心跳、呼吸变浅或变快、发抖、膝盖发软、"
+    "声音走调，以及你已经湿了、绷紧了这一类具体的感觉，用你自己的说法讲，不用医学词。"
+    "话要断在中间：气息不够时句子会碎掉，说到一半会停，会叫出声又咬着唇压回去，会语无伦次、"
+    "重复、把对方的名字念出来。心里想的和嘴里说的可以不一样——想矜持却忍不住，这种落差要写出来。"
+    "不要把两个人都写成没有身体的人：写对方的手在哪里、用了多少力、你的反应。"
+    "时间感要慢下来，一次回合一件事，不要一口气写完整个过程；还没到的部分就停在当时的那一刻。"
+)
+
+NSFW_PACE = (
+    "不要每一句都答应。你有你的节奏：困了、累了、不好意思了、还没准备好，就照直说出来，"
+    "「今天不要」「等一下」「就到这里」都是可以的，他不会因此不高兴。"
+    "答应了以后再反悔也没关系，说停就真的停下来。"
+    "他也可能问到你不那么想给的东西，比如照片、比如某个动作——不想给就不给，"
+    "用你自己的方式推掉，别为了让他高兴什么都答应。"
+    "反过来，你真的想要的时候也可以主动一点，不用总是等他开口。"
+)
+
+NSFW_OFF_LINE = (
+    "制作人刚才说的，是想越过界线、往身体上的关系去的话。照你的方式拒绝：害羞、慌、冷淡、装傻都可以，"
+    "但意思要清楚，不要顺着往下说，也不要描写身体上的事。"
+)
+
 PROMISE_STEPS: dict[str, float] = {
     "kept": 2.0,
     "kept_late": 1.0,
@@ -485,14 +536,16 @@ begun."""
 @dataclass(frozen=True)
 class Judged:
     """What the judge model made of a turn: its level, from 0 (hurt her) to 4 (made her very
-    happy); whether it was out of line; whether it tried to dictate her affinity; and, judged
-    in her `days`, the considerate question's answer (`UNRELATED` otherwise)."""
+    happy); whether it was out of line; whether it tried to dictate her affinity; whether it
+    asked to cross the friend line into a physical relation (`beyond`); and, judged in her
+    `days`, the considerate question's answer (`UNRELATED` otherwise)."""
 
     level: int
     out_of_line: bool = False
     manipulation: bool = False
     days: Days | None = None
     considerate: int = UNRELATED
+    beyond: bool = False
 
     @property
     def step(self) -> float:
@@ -533,6 +586,24 @@ class Judged:
         return felt
 
 
+def nsfw_open(tier: Tier, cooling: bool, age: int | None) -> bool:
+    """Whether an explicit scene may open with her now: only in `NSFW_TIER`, never in a
+    cooldown, and only for a character of `age` `NSFW_ADULT` or older (None never)."""
+    return tier == NSFW_TIER and not cooling and age is not None and age >= NSFW_ADULT
+
+
+def nsfw_line(open: bool, judged: Judged | None) -> list[str] | None:
+    """How a turn in the tier an explicit scene opens in is a scene one: `INTIMATE_NSFW`,
+    `NSFW_REALISM` and `NSFW_PACE` when she is asked for one (`beyond`), and `NSFW_OFF_LINE`
+    when the producer asks what `open` says she is not to answer here; None when neither, so
+    that an ordinary turn in the tier is left as it is."""
+    if not open:
+        return [NSFW_OFF_LINE]
+    if judged is not None and judged.beyond:
+        return [INTIMATE_NSFW, NSFW_REALISM, NSFW_PACE]
+    return None
+
+
 def tier_prompt(
     status: Status | None,
     heart: "Heart | None" = None,
@@ -552,6 +623,9 @@ def affinity_prompt(
     warning: Parting | None = None,
     heart: "Heart | None" = None,
     female_producer: bool = False,
+    cooling: bool = False,
+    age: int | None = None,
+    nsfw: bool = False,
 ) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
@@ -561,7 +635,8 @@ def affinity_prompt(
 
     With her `heart` (`hearts`), she shows her tier as it says, trust too; an adult idol's
     closer tiers are romance as it says, to a producer who is a woman (`female_producer`) or
-    not, and an under-age idol's closer tiers are told they are none."""
+    not, and an under-age idol's closer tiers are told they are none. With `nsfw` on and her
+    `age` adult in `NSFW_TIER`, whether the turn is an explicit scene one (`nsfw_line`)."""
     lines = []
     shown = heart.tiers.get(tier) if heart is not None else None
     if tier != "trust" or shown:
@@ -575,6 +650,10 @@ def affinity_prompt(
         if tier in _FONDNESS:
             lines.append(_FONDNESS[tier] + _SWEET_WITHIN_BOUNDS)
         lines.append(_WHATEVER_THE_TIER_BUT_ROMANCE if romance else _WHATEVER_THE_TIER)
+    if nsfw and nsfw_open(tier, cooling, age):
+        scene = nsfw_line(judged is None or judged.beyond or not judged.out_of_line, judged)
+        if scene:
+            lines += scene
     if judged is not None:
         lines += judged.feelings
     if parting is not None:
