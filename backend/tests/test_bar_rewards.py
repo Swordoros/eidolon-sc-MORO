@@ -1,11 +1,11 @@
 """What a visit to the bar done gives (GLOSSARY.md「光顾」「抽奖」「好感度」): the day's first
 done, by the Beijing day she came in on, gives a draw chance, held to the most kept
-(`affinity.MAX_DRAWS`), and raises her affinity by how well each drink was served, averaged
-(`affinity.SERVED_STEPS`), in a cooldown too, out of it at the thaw line, beyond the day's
-limit; told of as the visit is done, and to the navigation as a reward is, but as no
-conversation event. Later visits that day give nothing, nor does one left before it is done,
-nor any while affinity and gifts are off. Reading the bar tells whether there is a reward
-today.
+(`affinity.MAX_DRAWS`), and every visit done raises her affinity by how well each drink was
+served, averaged (`affinity.SERVED_STEPS`), in a cooldown too, out of it at the thaw line,
+beyond the day's limit; told of as the visit is done, and to the navigation as a reward is,
+but as no conversation event. Later visits that day give no draw, nor does one left before it
+is done, nor any while affinity and gifts are off. Reading the bar tells whether there is a
+reward today.
 
 Driven through the backend's external API; her affinity read from the database, as only its
 tier is shown. Mano is the only character, ordering as `test_bar_visit` has her."""
@@ -238,10 +238,10 @@ async def test_only_the_days_first_visit_done_is_rewarded_not_one_left_nor_those
     assert after_leaving == (2, 50.0, True)
     assert first["rewarded"] == {"draws": 1, "affinity_up": True}
     assert after_first == (3, 50.5, False)
-    assert second["rewarded"] is None
-    assert ((await state(client))["draws"], affinity(database)) == (3, 50.5)
+    assert second["rewarded"] == {"draws": 0, "affinity_up": True}
+    assert ((await state(client))["draws"], affinity(database)) == (3, 51.0)
     assert rewards(database) == [("bar:2026-09-25", 1)]
-    assert [row["rewarded"] for row in visit_rows(database)] == [1, 0]
+    assert [row["rewarded"] for row in visit_rows(database)] == [1, 1]
 
 
 async def test_a_visit_is_of_the_day_she_came_in_on(

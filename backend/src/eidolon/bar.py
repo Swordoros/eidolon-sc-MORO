@@ -58,12 +58,12 @@ broken, it is refused and nothing changes; anything else is served her and judge
 each order, whether she got drunk; nothing of what was said. Her visits with the user done
 are what she remembers of the bar, next time; a visit left before it is done is not.
 
-**Rewarded.** The user's first visit done of the day she came in on, while affinity and gifts
-are on (`LiveConfig.affinity_on`), is rewarded as it is written down, in the same transaction:
-a draw chance, held to the most kept (`Gifts.reward_draw`), keyed by the day; and her affinity
-raised by how well each drink was served (`Affinities.visit_done`), whether there was a best
-for its order or not (`bar_rules.has_best`). Told of as the visit is done; no conversation
-event, nothing in the conversations. Later visits that day give nothing.
+**Rewarded.** A visit done, while affinity and gifts are on (`LiveConfig.affinity_on`), is
+rewarded as it is written down, in the same transaction: a draw chance, held to the most
+kept (`Gifts.reward_draw`), keyed by the day, on the day's first done only; and her affinity
+raised by how well each drink was served (`Affinities.visit_done`), on every visit, whether
+there was a best for its order or not (`bar_rules.has_best`). Told of as the visit is done;
+no conversation event, nothing in the conversations. Later visits that day give no draw.
 
 Nothing of the bar is told to the conversations, nor written in them or in memory.
 """
@@ -810,22 +810,28 @@ class Bar:
     def _write_down(
         self, db: sqlite3.Connection, visit: _Visit, now: datetime, rewarding: bool
     ) -> Rewarded | None:
-        """Write the visit down, done `now`, rewarding it if `rewarding` and it is the user's
-        first done of the day it came in on: what it was rewarded with; None if nothing."""
+        """Write the visit down, done `now`, rewarding it if `rewarding`: the draw chance only
+        on the user's first done of the day it came in on, her affinity on every visit; what
+        it was rewarded with; None if nothing."""
         rewarded = None
-        if rewarding and not _done_on(db, visit.user_id, visit.entered_on):
+        if rewarding:
             assert self._gifts is not None and self._affinities is not None
             her = visit.character
-            rewarded = Rewarded(
-                int(self._gifts.reward_draw(db, visit.user_id, f"bar:{visit.entered_on}")),
-                self._affinities.visit_done(
-                    db, visit.user_id, her.id,
-                    [
-                        DrinkServed(s.tier, has_best(s.order, her, self._catalog))
-                        for s in visit.servings
-                    ],
-                ),
+            first_today = not _done_on(db, visit.user_id, visit.entered_on)
+            draws = (
+                int(self._gifts.reward_draw(db, visit.user_id, f"bar:{visit.entered_on}"))
+                if first_today
+                else 0
             )
+            affinity_up = self._affinities.visit_done(
+                db, visit.user_id, her.id,
+                [
+                    DrinkServed(s.tier, has_best(s.order, her, self._catalog))
+                    for s in visit.servings
+                ],
+            )
+            if draws or affinity_up:
+                rewarded = Rewarded(draws, affinity_up)
         orders = [
             {
                 "target": s.order.target.id, "phrasing": s.order.phrasing,
