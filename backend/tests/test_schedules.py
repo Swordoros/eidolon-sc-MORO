@@ -279,6 +279,20 @@ async def test_before_sleep_with_no_slot_she_is_free(
     assert status == {"free": True}
 
 
+async def test_without_todays_schedule_shes_free_when_yesterday_does_not_say_she_sleeps(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(datetime(2026, 11, 9, 20, 0, tzinfo=UTC))
+    client = make_client(FakeLLM(), clock=clock, settings=replace(settings, schedules=True))
+    await client.put("/api/profile", json={"timezone": "Etc/GMT"})
+    await start_conversation(client)
+    await keep_night(settings, time(7), time(23), date(2026, 11, 8))
+
+    status = (await client.get("/api/characters/mano/schedule/now")).json()
+
+    assert status == {"free": True}
+
+
 def rested(wake: str | None, sleep: str | None, day: date) -> Schedule:
     return Schedule(
         day, (Slot(time(10), time(12), "练习", "", "lesson"),), (),

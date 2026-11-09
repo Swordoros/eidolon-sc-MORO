@@ -106,5 +106,5 @@ async def now_of(backend: Backend, user_id: str, character_id: str) -> Now | Non
     if resting == "bedtime":
         return Now(found.now(local.time()) if found else None, bedtime=True, trip=trip)
     if found is None:
-        return Now(free=True, trip=trip) if yesterday is not None else None
+        return Now(trip=trip) if yesterday is not None else None
     return Now(found.now(local.time()), trip=trip)
