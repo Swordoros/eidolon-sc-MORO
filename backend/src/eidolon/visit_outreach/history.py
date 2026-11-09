@@ -51,7 +51,7 @@ def _reached_out(reach_out: ReachOut, timezone: str) -> str:
     as her replies are written in her prompt."""
     at = datetime.fromisoformat(reach_out.created_at).astimezone(ZoneInfo(timezone))
     said = format_reply(reach_out.segments)
-    return f"（{at.month}月{at.day}日 {at:%H:%M}，你先给制作人发了：）{said}"
+    return f"（{at.month}月{at.day}日 {at:%H:%M}，你先给制作人发了：「{said}」）"
 
 
 def _narration_line(

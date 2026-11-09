@@ -77,7 +77,7 @@ def settings(settings: Settings) -> Settings:
 def reached(at: datetime) -> str:
     """The narration of her reach-out at `at`, the producer living in Tokyo."""
     local = at.astimezone(TOKYO)
-    return f"（{local.month}月{local.day}日 {local:%H:%M}，你先给制作人发了：）{WRITTEN}\n"
+    return f"（{local.month}月{local.day}日 {local:%H:%M}，你先给制作人发了：「{WRITTEN}」）\n"
 
 
 def place(database: Path, conversation: str, at: datetime) -> datetime:
