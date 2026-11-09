@@ -11,6 +11,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from weakref import WeakKeyDictionary
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -18,7 +19,14 @@ from eidolon.characters import Character, load_characters
 from eidolon import memory
 from eidolon.data_access import Database
 from eidolon.llm import ChatLLM
-from eidolon.memory import MAX_FOUND, Memories, Memory, MemoryTurn, memory_query
+from eidolon.memory import (  # pyright: ignore[reportPrivateUsage]
+    MAX_FOUND,
+    Memories,
+    Memory,
+    MemoryTurn,
+    _memories_prompt,
+    memory_query,
+)
 from eidolon.store import Conversation, Message, Segment, Store, add_turn
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeReranker
@@ -143,7 +151,24 @@ async def test_what_the_user_told_mano_reaches_kogane_as_hearsay(
 
     line = line_of(section, CAT)
     assert "櫻木真乃" in line and "转述" in line
-    assert "（2026年9月25日，制作人对櫻木真乃说的" in line
+    assert "（今天，制作人对櫻木真乃说的" in line
+
+
+async def test_memory_dates_are_said_relative_to_today(world: World):
+    now = datetime(2026, 11, 10, 12, tzinfo=ZoneInfo(TZ))
+    memory = Memory(
+        1, "u", "mano", "櫻木真乃",
+        "制作人在2026年11月6日开始学做饭，2026-11-09去出差，2026/11/11回来。"
+        "更早的是2026年10月1日。",
+        "2026-11-09T02:00:00+00:00",
+    )
+
+    prompt = _memories_prompt(
+        [memory], world.characters["mano"], TZ, "开头", now
+    )
+
+    assert "制作人在四天前开始学做饭，昨天去出差，明天回来。更早的是2026年10月1日。" in prompt
+    assert "（昨天，制作人对你说的）" in prompt
 
 
 async def test_a_memory_told_to_the_character_herself_is_not_hearsay(

@@ -148,10 +148,10 @@ async def test_each_scenario_is_asked_as_the_background_loop_asks_and_marked_for
     assert "现在是 2026年11月3日（星期二）19:40（东京时间，傍晚）" in told
     assert "东京这会儿的天气：雨，12°C。" in told and "文化の日" in told
     assert JOBS_OPENING in told and "- 杂志拍摄：秋季特辑的外景" in told
-    assert "- 制作人最近在学做饭（2026年10月28日，制作人对你说的）" in told
+    assert "- 制作人最近在学做饭（六天前，制作人对你说的）" in told
     assert "公園でひなたぼっこ（配图：公园的长椅）" in told
     # Dated where the producer is, Asia/Shanghai when the scenario does not say.
-    assert "- 制作人周末回了趟老家（2026年11月2日，制作人对你说的）" in llm.prompts[2][2].content
+    assert "- 制作人周末回了趟老家（前天，制作人对你说的）" in llm.prompts[2][2].content
     assert "## hiori：風野灯織（能一起合照）" in told
     assert "illumination STARS 的伙伴" in told  # what her facts say of Hiori
     assert "- koenji-azuma-dori：" in told and "group" in told

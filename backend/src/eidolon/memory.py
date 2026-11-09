@@ -38,10 +38,11 @@ still list and delete the memories already kept.
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal
 
@@ -431,7 +432,7 @@ class Memories:
     ) -> str | None:
         found = await self._relevant(query_text, candidates)
         character = self._characters[conversation.character_id]
-        return _memories_prompt(found, character, timezone, _FOUND) if found else None
+        return _memories_prompt(found, character, timezone, _FOUND, self._clock()) if found else None
 
     async def _relevant(self, query_text: str, candidates: Sequence[Memory]) -> list[Memory]:
         """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, strongest
@@ -483,7 +484,8 @@ class Memories:
                             exc_info=True)
                 candidates = []
             found = await self._relevant(last_turn, candidates)
-        since = (self._clock() - LATELY).astimezone(UTC)
+        now = self._clock()
+        since = (now - LATELY).astimezone(UTC)
         latest = [
             m for m in _holding(await self.kept(user_id), character_id)
             if datetime.fromisoformat(m.created_at) >= since
@@ -492,7 +494,9 @@ class Memories:
         recalled = [*found, *(m for m in reversed(latest) if m.id not in ids)]
         character = self._characters[character_id]
         return (
-            _memories_prompt(recalled, character, timezone, _POSTING if posting else _REACHING_OUT)
+            _memories_prompt(
+                recalled, character, timezone, _POSTING if posting else _REACHING_OUT, now
+            )
             if recalled else None
         )
 
@@ -1181,20 +1185,69 @@ def _holding(memories: Sequence[Memory], character_id: str | None = None) -> lis
     ]
 
 
+_RELATIVE_DAYS: dict[int, str] = {
+    -6: "六天前",
+    -5: "五天前",
+    -4: "四天前",
+    -3: "三天前",
+    -2: "前天",
+    -1: "昨天",
+    0: "今天",
+    1: "明天",
+    2: "后天",
+    3: "三天后",
+    4: "四天后",
+    5: "五天后",
+    6: "六天后",
+}
+"""How a day within a week of today is said in a prompt, by how many days away it is: the
+absolute date is kept for anything further, which the producer's own day would not make
+clearer."""
+
+_WRITTEN_DATE = re.compile(
+    r"(?<!\d)(\d{4})\s*[年/-]\s*(\d{1,2})\s*[月/-]\s*(\d{1,2})(?!\d)\s*[日号]?"
+)
+"""A date as the background model writes one down: 2026年11月9日, 2026-11-09 or 2026/11/9."""
+
+
+def _relative_day(day: date, today: date) -> str | None:
+    """How `day` is said relative to `today`, or None for a day more than a week away."""
+    return _RELATIVE_DAYS.get((day - today).days)
+
+
+def _relative_dates(text: str, today: date) -> str:
+    """`text` with every written date within a week of `today` said as how long ago or
+    ahead it is, the rest left as written."""
+
+    def written(match: re.Match[str]) -> str:
+        try:
+            day = date(int(match[1]), int(match[2]), int(match[3]))
+        except ValueError:
+            return match.group(0)
+        return _relative_day(day, today) or match.group(0)
+
+    return _WRITTEN_DATE.sub(written, text)
+
+
 def _memories_prompt(
-    memories: Sequence[Memory], character: Character, timezone: str, opening: str
+    memories: Sequence[Memory], character: Character, timezone: str, opening: str,
+    now: datetime,
 ) -> str:
     """The prompt section carrying `memories`, after its heading and `opening`, which says
-    what they are."""
+    what they are; dates within a week of `now`, the producer's, are said as how long ago
+    or ahead they are, so she need not work them out against today."""
+    today = now.astimezone(ZoneInfo(timezone)).date()
     lines = ["# 关于制作人的记忆", opening]
     for memory in memories:
-        when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
+        told = datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone))
+        when = _relative_day(told.date(), today) or _date(told)
+        text = _relative_dates(memory.text, today)
         if memory.source_character_id == character.id:
-            lines.append(f"- {memory.text}（{when}，制作人对你说的）")
+            lines.append(f"- {text}（{when}，制作人对你说的）")
         else:
             name = memory.source_character_name or ANOTHER_IDOL
             lines.append(
-                f"- {memory.text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
+                f"- {text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
                 f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
             )
     return "\n".join(lines)
@@ -1205,8 +1258,9 @@ def _date(moment: datetime) -> str:
 
 
 def posting_memories_prompt(
-    memories: Sequence[Memory], character: Character, timezone: str
+    memories: Sequence[Memory], character: Character, timezone: str, now: datetime
 ) -> str:
     """The prompt section carrying `memories` as she posts a moment with them, in the order
-    given, the user in `timezone`: as `Memories.for_reaching_out` writes it, `posting`."""
-    return _memories_prompt(memories, character, timezone, _POSTING)
+    given, the user in `timezone` and `now`, the producer's: as `Memories.for_reaching_out`
+    writes it, `posting`."""
+    return _memories_prompt(memories, character, timezone, _POSTING, now)

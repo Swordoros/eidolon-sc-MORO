@@ -280,7 +280,8 @@ class _Scenario:
                 i, "eval", self.character.id, self.character.name, text, told.isoformat()
             ))
         return (
-            posting_memories_prompt(memories, self.character, self.timezone) if memories else None
+            posting_memories_prompt(memories, self.character, self.timezone, self.at)
+            if memories else None
         )
 
 
