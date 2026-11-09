@@ -5,13 +5,19 @@ description: "把代码改动部署到服务器 39.105.89.152 的 Docker 环境�
 
 # 部署到服务器（39.105.89.152）
 
-把本地仓库（`D:\WindowsDocument\Desktop\staff\eidolon-sc-Moro`）里的代码改动推到阿里云服务器上的 Docker 环境。
+把本地仓库（`D:\Desktop\staff\eidolon-sc-Moro`）里的代码改动推到阿里云服务器上的 Docker 环境。
+
+## 版本管理
+
+- 本地仓库：`D:\Desktop\staff\eidolon-sc-Moro`，分支 `master`，工作树应保持干净再部署。
+- 远程：`ssh://root@39.105.89.152/root/eidolon.git`（服务器上的裸仓库，约 62MB）。
+- 本仓库已设 `core.sshCommand` 指向 `SC.pem`，`git push`、`git fetch` 可直接用；不要在提交信息里放密钥。
 
 ## 环境速查
 
 | 项 | 值 |
 |---|---|
-| 服务器 | `39.105.89.152`，root，SSH key `D:\WindowsDocument\Desktop\SC.pem`（Git Bash 里写 `/d/WindowsDocument/Desktop/SC.pem`） |
+| 服务器 | `39.105.89.152`，root，SSH key `D:\Documents\EidolonTunnel\SC.pem`（Git Bash 里写 `/d/Documents/EidolonTunnel/SC.pem`） |
 | compose 目录 | `/root/eidolon/`（`docker-compose.yml`，项目名 `eidolon-sc-041`） |
 | 镜像 | `eidolon-sc-041-backend:latest`(1.81GB)、`eidolon-sc-041-frontend:latest`(262MB) |
 | 容器 | `eidolon-sc-041-backend-1`、`eidolon-sc-041-frontend-1` |
@@ -32,14 +38,14 @@ description: "把代码改动部署到服务器 39.105.89.152 的 Docker 环境�
 2. **scp 到服务器**：
 
    ```bash
-   scp -i /d/WindowsDocument/Desktop/SC.pem backend/src/eidolon/<file>.py \
+   scp -i /d/Documents/EidolonTunnel/SC.pem backend/src/eidolon/<file>.py \
      root@39.105.89.152:/root/eidolon/overlay/<file>.py
    ```
 
 3. **服务器上打 overlay 镜像 + 重建**（一次 SSH 跑完）：
 
    ```bash
-   ssh -i /d/WindowsDocument/Desktop/SC.pem root@39.105.89.152 '
+   ssh -i /d/Documents/EidolonTunnel/SC.pem root@39.105.89.152 '
      set -e
      docker tag eidolon-sc-041-backend:latest eidolon-sc-041-backend:pre-fix   # 首次备份，之后跳过
      mkdir -p /root/eidolon/overlay
@@ -74,13 +80,14 @@ overlay 只覆盖 Python 源文件。下面这些情况要**整镜像重建**：
 
 整镜像重建两种方式：
 
-- **本地构建**：Docker Desktop 要开着。`docker compose build backend`（或 `frontend`）→ `docker save <镜像> | gzip > xxx.tar` → scp → 服务器 `docker load < xxx.tar` → `docker compose up -d`。服务器上的 `/root/eidolon/backend.tar`、`frontend.tar` 就是这个 `docker save` 产物。
-- **服务器构建**：`docker compose up -d --build`。大陆服务器下依赖要配代理，慢。
+- **前端（本机没有 Docker 时走这条）**：在 `frontend/` 下 `npm run build`，把 `.next` 和 `public` 上传到服务器的 `/root/eidolon/frontend-build/`（覆盖旧的），再在服务器上 `docker build -t eidolon-sc-041-frontend:latest /root/eidolon/frontend-build/` → `cd /root/eidolon && docker compose up -d`。服务器上的 `frontend-build/Dockerfile` 就是 `FROM node:22-alpine` + COPY 这些产物，和线上镜像同一种做法。
+- **服务器构建**：`docker compose up -d --build`。大陆服务器下依赖要配代理，慢；后端依赖变化用这条。
+- **本地 Docker**：本机目前没装 Docker Desktop，`docker` 不在 PATH；需要 `docker save/load` 时先装 Docker。
 
 ## 验证
 
 ```bash
-ssh -i /d/WindowsDocument/Desktop/SC.pem root@39.105.89.152 '
+ssh -i /d/Documents/EidolonTunnel/SC.pem root@39.105.89.152 '
   docker logs --since 2m eidolon-sc-041-backend-1 | grep -iE "story vectors|uvicorn|error|traceback" | tail
   docker exec eidolon-sc-041-backend-1 python -c "import eidolon.<mod> as m; print(m.__file__)"
 '
@@ -102,7 +109,7 @@ cd /root/eidolon && docker compose up -d
 宿主机 `sqlite3` CLI 太老读不了 schema（报 `malformed database schema`），要用容器里的 Python（3.11 + sqlite 3.46）：
 
 ```bash
-ssh -i /d/WindowsDocument/Desktop/SC.pem root@39.105.89.152 "docker exec -i eidolon-sc-041-backend-1 python -" <<'PY'
+ssh -i /d/Documents/EidolonTunnel/SC.pem root@39.105.89.152 "docker exec -i eidolon-sc-041-backend-1 python -" <<'PY'
 import sqlite3, json
 db = sqlite3.connect('file:/data/eidolon.db?mode=ro', uri=True)
 db.row_factory = sqlite3.Row
