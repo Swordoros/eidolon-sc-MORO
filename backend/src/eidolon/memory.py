@@ -1042,7 +1042,7 @@ def _extraction_prompt(
 ) -> list[ChatMessage]:
     # 星期几也写上：约定（promises）里「下周六」这类说法要靠它算出是哪一天。
     weekday = "一二三四五六日"[now.weekday()]
-    lines = [f"今天是 {_date(now)}，星期{weekday}（制作人所在时区）。"]
+    lines = [f"今天是 {_date(now)}，星期{weekday}。"]
     if unit_hint:
         lines.append(unit_hint)
     lines += ["", "# 已经记住的事"]

@@ -213,7 +213,7 @@ def now_prompt(
     lines = [
         "# 此刻",
         f"现在是 {local.year}年{local.month}月{local.day}日"
-        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。",
+        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}。",
         _TALKING[talking],
     ]
     if last_contact is not None:

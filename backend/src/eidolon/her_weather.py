@@ -111,7 +111,7 @@ def weather_lines(known: KnownWeather) -> list[str]:
     whereabouts = [city_line(known.city)] if known.city is not None else []
     lines: list[str] = []
     if known.tokyo is not None:
-        where = "你和制作人都在东京一带，东京" if known.same_place else "东京（你这边）"
+        where = "你和制作人都在东京一带，东京" if known.same_place else "东京"
         lines.append(f"{where}这会儿：{_day(known.tokyo)}")
     if known.city is not None and known.there is not None:
         lines.append(f"制作人那边（{known.city.name}）这会儿：{_day(known.there)}")

@@ -114,9 +114,10 @@ async def test_she_is_told_tokyos_day_and_after_long_apart_may_bring_it_up(
 
     [told], *_ = await talk(make_client, weather)
 
-    assert "东京（你这边）这会儿：晴，18°C；今天 15～21°C。" in told
+    assert "东京这会儿：晴，18°C；今天 15～21°C。" in told
     assert MAY_BRING_UP in told and KEEP_IN_MIND not in told
-    assert told.index("# 此刻") < told.index("东京（你这边）")
+    assert "制作人所在时区" not in told and "（你这边）" not in told
+    assert told.index("# 此刻") < told.index("东京")
     [asked] = weather.days_asked()
     assert (asked["latitude"], asked["longitude"], asked["models"]) == (
         "35.6895", "139.6917", "jma_msm"
@@ -135,7 +136,7 @@ async def test_soon_after_they_last_talked_on_a_day_like_any_other_she_only_keep
     await send_turn(client, conversation, "还在吗")
 
     second = context_of(llm.prompts[-1])
-    assert "东京（你这边）这会儿" in second
+    assert "东京这会儿" in second
     assert KEEP_IN_MIND in second and MAY_BRING_UP not in second
     assert len(weather.days_asked()) == 1  # kept
 
@@ -190,7 +191,7 @@ async def test_rain_later_is_rain_to_come_not_the_rain_now_about_to_stop(
 ):
     [told], *_ = await talk(make_client, weather)
 
-    assert f"东京（你这边）这会儿：{said}" in told
+    assert f"东京这会儿：{said}" in told
 
 
 async def test_a_swing_under_eight_degrees_does_not_stand_out(
@@ -234,7 +235,7 @@ async def test_with_a_city_she_knows_where_the_producer_is_and_the_weather_and_w
     assert "解除" not in told
     # a warning in force there, though they talked just now; Tokyo's day is like any other
     assert may_bring_up_only(THERE_SIDE, TOKYO_SIDE) in told.splitlines()
-    assert told.index("制作人在哈尔滨") < told.index("东京（你这边）") < told.index("制作人那边（")
+    assert told.index("制作人在哈尔滨") < told.index("东京") < told.index("制作人那边（")
     assert len(weather.days_asked()) == 1  # Tokyo's alone: there, QWeather's
     for path in ("/v7/weather/now", "/v7/weather/24h", "/v7/weather/3d"):
         assert qweather.asked(path) == [{"location": "126.54,45.80"}]  # kept an hour
@@ -302,7 +303,7 @@ async def test_in_tokyo_too_tokyos_weather_is_told_once_as_theirs_both(
     [told], *_ = await talk(make_client, weather, qweather, city=city_of(SHINJUKU))
 
     assert "你和制作人都在东京一带，东京这会儿：晴" in told
-    assert "制作人那边（" not in told and "东京（你这边）" not in told
+    assert "制作人那边（" not in told and "（你这边）" not in told
     assert len(weather.days_asked()) == 1 and qweather.asked("/v7/weather/now") == []
 
 
@@ -318,7 +319,7 @@ async def test_without_the_deployers_qweather_the_city_is_neither_told_nor_used(
     )
 
     assert "东城" not in told and "制作人那边" not in told
-    assert "东京（你这边）这会儿" in told
+    assert "东京这会儿" in told
     assert len(weather.days_asked()) == 1 and qweather.requests == []
 
 

@@ -906,7 +906,7 @@ class Groups:
         weekday = "一二三四五六日"[local.weekday()]
         lines = [
             f"现在是 {local.year}年{local.month}月{local.day}日（星期{weekday}）"
-            f"{local:%H:%M}（制作人所在时区）。",
+            f"{local:%H:%M}。",
         ]
         for member in members:
             state = await self._member_now(user_id, member.id, local)

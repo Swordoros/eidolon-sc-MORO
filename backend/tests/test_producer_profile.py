@@ -215,7 +215,7 @@ async def test_prompt_tells_the_current_time_in_the_devices_timezone(
     assert "2026年9月25日" in prompt
     assert "星期五" in prompt
     assert "21:30" in prompt
-    assert "Asia/Tokyo" in prompt
+    assert "Asia/Tokyo" not in prompt
 
 
 async def test_a_timezone_set_in_the_profile_overrides_the_device(make_client: ClientFactory):
@@ -228,7 +228,7 @@ async def test_a_timezone_set_in_the_profile_overrides_the_device(make_client: C
 
     assert "2026年9月25日" in prompt
     assert "05:30" in prompt
-    assert "America/Los_Angeles" in prompt
+    assert "America/Los_Angeles" not in prompt
 
 
 @pytest.mark.parametrize(
@@ -245,7 +245,7 @@ async def test_without_a_usable_timezone_the_time_is_given_in_shanghai(
     prompt = await system_prompt(client, llm)
 
     assert "20:30" in prompt
-    assert "Asia/Shanghai" in prompt
+    assert "Asia/Shanghai" not in prompt
 
 
 async def test_a_saved_timezone_no_longer_known_falls_back_instead_of_failing(
@@ -260,7 +260,7 @@ async def test_a_saved_timezone_no_longer_known_falls_back_instead_of_failing(
 
     prompt = await system_prompt(client, llm)
 
-    assert "21:30" in prompt and "Asia/Tokyo" in prompt
+    assert "21:30" in prompt and "Asia/Tokyo" not in prompt
 
 
 async def test_a_profile_saved_before_birthdays_keeps_working(
