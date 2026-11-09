@@ -36,6 +36,9 @@ deploy/event-names.toml
 /.scratch/milimil-fork/
 /.scratch/milimil-main/
 
+# 部署产物（镜像 tar、数据库副本）不进仓库；服务器 /root/eidolon 下有副本
+/.scratch/deploy/
+
 # 酒吧音频：部署者自己的 MP3（版权素材），不进仓库
 /bar-music/
 
