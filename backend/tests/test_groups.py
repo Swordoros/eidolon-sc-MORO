@@ -114,3 +114,37 @@ async def test_the_next_topic_waits_until_they_all_wake():
     awake_at = await groups._next_awake_at("u", members, local)
 
     assert awake_at == datetime(2026, 11, 9, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+async def test_the_topic_is_told_the_time_and_what_members_are_doing():
+    from datetime import time as clock_time
+
+    from eidolon.schedules import Schedule, Slot
+
+    groups = object.__new__(Groups)
+    day = datetime(2026, 11, 9, tzinfo=ZoneInfo("Asia/Shanghai")).date()
+
+    class FakeDaily:
+        async def of(self, user_id, character_id, when):
+            if when == day:
+                return Schedule(
+                    day,
+                    (Slot(clock_time(9), clock_time(16), "上学", "学校", "school"),),
+                    (), wake=clock_time(7), sleep=clock_time(23),
+                )
+            return None
+
+    class FakeStore:
+        async def get_profile(self, user_id):
+            return type("P", (), {"timezone": "Asia/Shanghai"})()
+
+    groups._daily = FakeDaily()  # type: ignore[attr-defined]
+    groups._store = FakeStore()  # type: ignore[attr-defined]
+    members = [Member("mano", "櫻木真乃", "i", "s", "樱木真乃")]
+
+    told = await groups._now_told(
+        "u", members, datetime(2026, 11, 9, 2, 0, tzinfo=timezone.utc)  # 10:00 Shanghai
+    )
+
+    assert "10:00" in told
+    assert "现在在上学" in told

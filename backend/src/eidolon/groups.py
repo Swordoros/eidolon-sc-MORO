@@ -643,7 +643,7 @@ class Groups:
         past = [entry["topic"]["text"] for entry in reversed(state["history"])][:TOPIC_RECALL]
         raiser = members[secrets.randbelow(len(members))]
         try:
-            said = await self._raise(user_id, members, raiser, recent, past)
+            said = await self._raise(user_id, members, raiser, recent, past, now)
         except Exception:
             log.warning("a member could not raise a topic", exc_info=True)
             return None
@@ -663,13 +663,14 @@ class Groups:
 
     async def _raise(
         self, user_id: str, members: Sequence[Member], raiser: Member, recent: Sequence[dict],
-        past: Sequence[str],
+        past: Sequence[str], now: datetime,
     ) -> Said:
         system = await self._system(user_id, raiser)
         material = await self._material(user_id, raiser)
+        now_told = await self._now_told(user_id, members, now)
         prompt = _topic_prompt(
             system, raiser, members, recent,
-            self._names_block(members), past, material,
+            self._names_block(members), past, material, now_told,
         )
         answer = await self._ask(prompt)
         said = _parse_line(answer) or Said("今天想聊点什么呢。", "今天想聊点什么好呢。")
@@ -889,6 +890,56 @@ class Groups:
             if not await self._asleep(user_id, member.id, now):
                 awake.append(member)
         return awake
+
+    async def _now_told(self, user_id: str, members: Sequence[Member], now: datetime) -> str:
+        """The time and what each member is doing now, for the topic raiser, so it does not
+        raise something out of place (e.g. 「放学后」 in the morning). Empty without the
+        schedules or a store to read the producer's time zone."""
+        if self._daily is None or self._store is None:
+            return ""
+        try:
+            zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
+            local = now.astimezone(zone)
+        except Exception:
+            log.warning("reading the time for the group failed", exc_info=True)
+            return ""
+        weekday = "一二三四五六日"[local.weekday()]
+        lines = [
+            f"现在是 {local.year}年{local.month}月{local.day}日（星期{weekday}）"
+            f"{local:%H:%M}（制作人所在时区）。",
+        ]
+        for member in members:
+            state = await self._member_now(user_id, member.id, local)
+            if state:
+                lines.append(f"- {member.name_zh or member.name}：{state}")
+        return "\n".join(lines)
+
+    async def _member_now(self, user_id: str, character_id: str, local: datetime) -> str:
+        """What she is doing now, one short phrase, by her daily schedule (GLOSSARY.md「行程」);
+        the topic raiser only needs the broad stroke, not the minute-by-minute slots."""
+        try:
+            today = await self._daily.of(user_id, character_id, local.date())
+            yesterday = await self._daily.of(
+                user_id, character_id, local.date() - timedelta(days=1)
+            )
+        except Exception:
+            log.warning("reading her schedule for the group failed", exc_info=True)
+            return ""
+        resting = rest(today, yesterday, local)
+        if resting == "bath":
+            return "在洗澡"
+        if resting == "asleep":
+            return "在睡觉"
+        if resting == "bedtime":
+            return "快到睡觉时间了"
+        if today is None or not today.slots:
+            return ""
+        current = today.now(local.time())
+        if current is not None and current.what:
+            return f"现在在{current.what}"
+        if local.time() < today.slots[0].start:
+            return "今天的安排还没开始"
+        return "现在没安排"
 
     async def _next_awake_at(
         self, user_id: str, members: Sequence[Member], local: datetime
@@ -1167,18 +1218,21 @@ def _sheet(character: Character) -> str:
 
 def _topic_prompt(
     system: str, raiser: Member, members: Sequence[Member], recent: Sequence[dict],
-    names: str, past: Sequence[str], material: str,
+    names: str, past: Sequence[str], material: str, now_told: str = "",
 ) -> list[ChatMessage]:
     context = _context(recent)
     others = "、".join(m.name for m in members if m.id != raiser.id)
     tired = "".join(f"- {text}\n" for text in past)
     user = (
-        (f"# 她手边的素材\n{material}\n\n" if material else "")
+        (f"# 现在\n{now_told}\n\n" if now_told else "")
+        + (f"# 她手边的素材\n{material}\n\n" if material else "")
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
         + "现在请你主动开一个新话题：像在群里随口说一句，引出你想聊的事。\n"
         "- 说一件**具体**的事：今天遇到的、看到的、听到的、想到的一个细节。"
         "不要只是感想、感慨、「今天也要加油」这种空话。\n"
+        "- 话题要符合**现在**的时间和大家的处境：早上别聊放学后、晚上别聊还没发生的事，"
+        "她正在上课/工作/练习时别假定她有空。\n"
         "- 上面那些话头都聊过了，别回头再说它们；也别用「说到…」「…话说回来」把上一个"
         "话题接着往下拖——这次自己另起一件不相干的事。\n"
         "- 不要问「有人在吗」，不要提「换个话题」，不要解释。\n"
