@@ -9,9 +9,7 @@ description: "把代码改动部署到服务器 39.105.89.152 的 Docker 环境�
 
 ## 版本管理
 
-- 本地仓库：`D:\Desktop\staff\eidolon-sc-Moro`，分支 `master`，工作树应保持干净再部署。
-- 远程：`ssh://root@39.105.89.152/root/eidolon.git`（服务器上的裸仓库，约 62MB）。
-- 本仓库已设 `core.sshCommand` 指向 `SC.pem`，`git push`、`git fetch` 可直接用；不要在提交信息里放密钥。
+提交、推送、打标签、回滚见 `repo-versioning` 技能。部署前先确认 `git status -sb` 干净、改动已推到 `origin`。
 
 ## 环境速查
 
