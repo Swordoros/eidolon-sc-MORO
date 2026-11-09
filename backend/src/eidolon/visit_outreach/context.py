@@ -1,10 +1,11 @@
 """Host context adapters. No imports from or calls into ConversationEngine."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from eidolon.affinity import affinity_prompt
 from eidolon.memory import last_turn_query
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
+from eidolon.schedules import lines as schedule_lines, rest as schedule_rest
 from eidolon.store import Message, read_record, read_last_contact, read_profile
 from .history import chat_history, narrations, since_last_turn
 
@@ -56,11 +57,26 @@ class LegacyContext:
             world = b.world.prompt(character.name, local_date(now, zone))
             if world:
                 shared.append(world)
+        extra.extend(await self.daily_told(c, now, zone))
         about_now = now_prompt(profile, now, zone, 'apart',
                                affinity_prompt(affinity.tier, None) if affinity else [], contact)
         return VisitContext(character, producer_prompt(profile), chat_history(messages, b.config.history_turns),
                             told, shared, '\n'.join([about_now, *extra]), memory,
                             affinity.tier if affinity else 'trust')
+
+    async def daily_told(self, c, now, zone):
+        """What she is told of her daily schedule for the reach-out, the day as she has it in
+        `zone`: the whole day in a sentence, then, emphasised, what she is doing now
+        (`schedules.lines`). Empty without a schedule. The reach-out never fires while she is
+        asleep or in the bath (that is blocked in `runtime`), so `resting` here is at most her
+        bedtime, which she is told of."""
+        local = now.astimezone(ZoneInfo(zone))
+        daily = self.backend.daily
+        today = await daily.of(c.user_id, c.character_id, local.date())
+        yesterday = await daily.of(c.user_id, c.character_id, local.date() - timedelta(days=1))
+        resting = schedule_rest(today, yesterday, local)
+        names = {ch.id: ch.name for ch in self.backend.characters.values()}
+        return schedule_lines(today, local, names, resting, woken=False, in_call=False)
 
 class V020Context(LegacyContext):
     """Schedules can settle affinity, so fetch them before the conversation snapshot."""
@@ -71,5 +87,5 @@ class V020Context(LegacyContext):
         from eidolon.schedule import schedule_lines
         from eidolon.today import her_birthday, today_lines
         return ([her_birthday(character)],
-                [*today_lines(now, character, self.backend.characters.values(), 'apart'),
+                [*today_lines(now, character, self.backend.characters.values(), self.backend.world),
                  *(schedule_lines(jobs) if jobs is not None else [])])
