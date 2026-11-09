@@ -53,6 +53,7 @@ from eidolon.data_access import Database
 from eidolon.embedding import Document, Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.promises import Promise, Promises, parse_promise_changes, parse_promises
+from eidolon.reply_format import names_instructions
 from eidolon.rerank import DEFAULT_THRESHOLDS, Reranker, RerankError
 from eidolon.store import Conversation, Message
 
@@ -1024,21 +1025,6 @@ promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没
 例如「冬优子第一次听制作人说她不用一直逞强」。大多数回合都没有这样的事，写 null；平常的闲聊、\
 普通的开心不算。"""
 
-_NAMES = """\
-# 名字怎么译
-写记忆时提到人，照下面的中文名写，不要自己音译，也不要把两个角色的名字拼在一起：
-{names}
-- 她们以外的人名，按常见的中文习惯音译；拿不准就保留原文的假名。"""
-
-
-def _names_section(names: Mapping[str, str]) -> str:
-    """How the characters' names are written in a memory, each as the deployment has it
-    (`characters.Character.name_zh`), so that 「ルカ」 is 「路加」 and not a name made up from
-    two characters' names."""
-    written = "\n".join(f"- {ja} → {zh}" for ja, zh in names.items())
-    return _NAMES.format(names=written)
-
-
 def _extraction_prompt(
     character: Character,
     history: Sequence[Message],
@@ -1066,7 +1052,10 @@ def _extraction_prompt(
         else:
             lines.append(f"{character.name}：{_said(message)}")
     lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
-    instructions = f"{_names_section(names)}\n\n{_INSTRUCTIONS}" if names else _INSTRUCTIONS
+    instructions = (
+        f"{names_instructions(names, where='记忆')}\n\n{_INSTRUCTIONS}"
+        if names else _INSTRUCTIONS
+    )
     return [ChatMessage("system", instructions), ChatMessage("user", "\n".join(lines))]
 
 

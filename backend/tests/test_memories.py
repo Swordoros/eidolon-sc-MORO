@@ -320,6 +320,7 @@ async def test_the_background_model_is_told_how_to_write_the_other_characters_na
     instructions = next(m.content for m in background.prompts[0] if m.role == "system")
     assert "斑鳩ルカ → 斑鸠路加" in instructions
     assert "ルカ → 路加" in instructions
+    assert "记忆里一律照它写" in instructions
     assert "不要自己音译" in instructions
     assert "不要把两个角色的名字拼在一起" in instructions
 

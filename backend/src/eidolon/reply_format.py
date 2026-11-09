@@ -80,18 +80,18 @@ directions as long as a director's (`delivery_cues.TAG_READERS`)."""
 
 _NAMES = """\
 # 名字怎么译
-这些名字有定好的中文译名，字幕里一律照它写，不要自己音译：
+这些名字有定好的中文译名，{where}里一律照它写，不要自己音译，也不要把两个角色的名字拼在一起：
 {names}
 - 她们以外的人名，按常见的中文习惯音译；拿不准就保留原文的假名。
-- 同一个名字在整段对话里写法要一致，不要一会儿一个译法。"""
+- 同一个名字在整段里写法要一致，不要一会儿一个译法。"""
 
 
-def names_instructions(names: Mapping[str, str]) -> str:
-    """How the names in her subtitles are written: `names`, each as the deployment has it
-    (`characters.Character.name_zh`), so that 「ルカ」 is 「路加」 and not what the model makes
-    of the romaji."""
+def names_instructions(names: Mapping[str, str], where: str = "字幕") -> str:
+    """How the names are written in `where` — her subtitles, or the memories written down
+    beside them — each as the deployment has it (`characters.Character.name_zh`), so that
+    「ルカ」 is 「路加」 and not a name made up from two characters' names."""
     written = "\n".join(f"- {ja} → {zh}" for ja, zh in names.items())
-    return _NAMES.format(names=written)
+    return _NAMES.format(where=where, names=written)
 
 
 def format_instructions(
