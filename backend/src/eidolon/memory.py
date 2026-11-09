@@ -46,7 +46,7 @@ from zoneinfo import ZoneInfo
 from typing import Literal
 
 from eidolon.activity import detached
-from eidolon.characters import Character
+from eidolon.characters import Character, chinese_name_map
 from eidolon.clock import Clock
 from eidolon.corpus import REEMBED_BATCH
 from eidolon.data_access import Database
@@ -258,6 +258,7 @@ class Memories:
         self._db = db
         db.prepare(_open)
         self._characters = characters
+        self._names = chinese_name_map(characters.values())
         self._clock = clock
         self._promises = promises
         self._share_group = share_group
@@ -629,7 +630,8 @@ class Memories:
                 f"你的「群组」（unit 记忆的可见范围）是：{'、'.join(share)}。" if share else None
             )
             prompt = _extraction_prompt(
-                character, history, text, reply, shown, now, standing, unit_hint=unit_hint
+                character, history, text, reply, shown, now, standing, unit_hint=unit_hint,
+                names=self._names,
             )
             answer = "".join([
                 chunk async for chunk in llm.stream(prompt)
@@ -1022,6 +1024,20 @@ promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没
 例如「冬优子第一次听制作人说她不用一直逞强」。大多数回合都没有这样的事，写 null；平常的闲聊、\
 普通的开心不算。"""
 
+_NAMES = """\
+# 名字怎么译
+写记忆时提到人，照下面的中文名写，不要自己音译，也不要把两个角色的名字拼在一起：
+{names}
+- 她们以外的人名，按常见的中文习惯音译；拿不准就保留原文的假名。"""
+
+
+def _names_section(names: Mapping[str, str]) -> str:
+    """How the characters' names are written in a memory, each as the deployment has it
+    (`characters.Character.name_zh`), so that 「ルカ」 is 「路加」 and not a name made up from
+    two characters' names."""
+    written = "\n".join(f"- {ja} → {zh}" for ja, zh in names.items())
+    return _NAMES.format(names=written)
+
 
 def _extraction_prompt(
     character: Character,
@@ -1032,6 +1048,7 @@ def _extraction_prompt(
     now: datetime,
     promised: Sequence[Promise] = (),
     unit_hint: str | None = None,
+    names: Mapping[str, str] | None = None,
 ) -> list[ChatMessage]:
     # 星期几也写上：约定（promises）里「下周六」这类说法要靠它算出是哪一天。
     weekday = "一二三四五六日"[now.weekday()]
@@ -1049,7 +1066,8 @@ def _extraction_prompt(
         else:
             lines.append(f"{character.name}：{_said(message)}")
     lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
-    return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
+    instructions = f"{_names_section(names)}\n\n{_INSTRUCTIONS}" if names else _INSTRUCTIONS
+    return [ChatMessage("system", instructions), ChatMessage("user", "\n".join(lines))]
 
 
 def memory_query(history: Sequence[Message], text: str) -> str:

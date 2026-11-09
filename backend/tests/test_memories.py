@@ -7,6 +7,7 @@ import asyncio
 import json
 import sqlite3
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from weakref import WeakKeyDictionary
@@ -293,6 +294,34 @@ async def test_the_background_model_is_told_to_keep_only_what_still_matters_late
     # …what is over by the end of the day is not.
     assert "当天就会过去" in instructions
     assert all(state in instructions for state in ("累", "困", "心情不好"))
+
+
+async def test_the_background_model_is_told_how_to_write_the_other_characters_names(
+    world: World,
+):
+    background = FakeBackgroundLLM(memorized())
+    luca = replace(
+        world.characters["mano"], id="luca", name="斑鳩ルカ", short_name="ルカ",
+        name_zh="斑鸠路加",
+    )
+    memories = writing_with(
+        Memories(
+            world.db, {**world.characters, "luca": luca}, lambda: NOW,
+            embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+        ),
+        background,
+    )
+    try:
+        await tell(memories, world, await world.conversation("luca"), "我收藏了路加以前 solo 的 CD")
+        await memories.entries(world.producer)
+    finally:
+        await memories.aclose()
+
+    instructions = next(m.content for m in background.prompts[0] if m.role == "system")
+    assert "斑鳩ルカ → 斑鸠路加" in instructions
+    assert "ルカ → 路加" in instructions
+    assert "不要自己音译" in instructions
+    assert "不要把两个角色的名字拼在一起" in instructions
 
 
 async def test_irrelevant_memories_are_not_found(world: World, make_memories: MemoriesFactory):
