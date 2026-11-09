@@ -332,26 +332,38 @@ def sleep_began(today: Schedule | None, yesterday: Schedule | None, at: datetime
 
 def rest(today: Schedule | None, yesterday: Schedule | None, at: datetime) -> Rest | None:
     """Whether she is asleep at `at` (in the producer's time zone), in the bath, or it is her
-    bedtime, by her schedules of the day and the day before; None awake, or not known. Before
-    today's is written she gets up as she did yesterday."""
+    bedtime, by her schedules of the day and the day before; None awake, or not known.
+
+    Until today's schedule is written, the morning is the night before's: her bedtime and
+    waking are yesterday's, or today's once it has been written. In the evening only today's
+    bedtime is known; yesterday's has already gone by."""
     if bath_began(today, yesterday, at) is not None:
         return "bath"
     now = at.time()
-    if yesterday is not None and yesterday.sleeps_after_midnight:
-        assert yesterday.sleep is not None
-        if now < yesterday.sleep:
-            return "bedtime" if _within(now, yesterday.sleep) else None
-    known = today or yesterday
-    wake = known.wake if known is not None else None
-    if wake is not None and now < wake:
-        return "asleep"
-    if today is not None and today.sleep is not None:
-        if today.sleeps_after_midnight:
-            return "bedtime" if _within(now, today.sleep) else None
-        if now >= today.sleep:
+    if now < time(12):
+        sleep = yesterday.sleep if yesterday is not None else None
+        wake = (
+            today.wake if today is not None and today.wake is not None
+            else yesterday.wake if yesterday is not None else None
+        )
+        if sleep is not None:
+            if yesterday is not None and yesterday.sleeps_after_midnight and now < sleep:
+                return "bedtime" if _within(now, sleep) else None
+            if wake is not None and now >= wake:
+                return None
             return "asleep"
-        if _within(now, today.sleep):
-            return "bedtime"
+        if wake is not None and now < wake:
+            return "asleep"
+        return None
+    sleep = today.sleep if today is not None else None
+    if sleep is None:
+        return None
+    if sleep < time(12):
+        return "bedtime" if _within(now, sleep) else None
+    if now >= sleep:
+        return "asleep"
+    if _within(now, sleep):
+        return "bedtime"
     return None
 
 

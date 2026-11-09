@@ -265,6 +265,20 @@ async def test_what_she_is_up_to_now_is_told_for_the_line_under_her_name(
     assert free == {"free": True}
 
 
+async def test_before_sleep_with_no_slot_she_is_free(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(datetime(2026, 11, 9, 20, 0, tzinfo=UTC))
+    client = make_client(FakeLLM(), clock=clock, settings=replace(settings, schedules=True))
+    await client.put("/api/profile", json={"timezone": "Etc/GMT"})
+    await start_conversation(client)
+    await keep_night(settings, time(7), time(23), date(2026, 11, 9))
+
+    status = (await client.get("/api/characters/mano/schedule/now")).json()
+
+    assert status == {"free": True}
+
+
 def rested(wake: str | None, sleep: str | None, day: date) -> Schedule:
     return Schedule(
         day, (Slot(time(10), time(12), "练习", "", "lesson"),), (),
@@ -292,6 +306,26 @@ def test_she_is_asleep_from_bedtime_to_waking_and_her_bedtime_comes_first():
     assert rest(early, night_owl, at(2, 30)) == "asleep"
     assert rest(None, before, at(5)) == "asleep"  # today's not written: up as yesterday
     assert rest(None, None, at(3)) is None
+
+
+def test_after_midnight_sleep_stays_asleep_until_waking_even_without_todays_schedule():
+    day = date(2026, 10, 22)
+    yesterday_late = rested("07:00", "00:30", day - timedelta(days=1))
+    yesterday_early = rested("07:00", "23:00", day - timedelta(days=1))
+    today_without_wake = Schedule(day, (), (), None, time(23))
+
+    def at(hour: int, minute: int = 0) -> datetime:
+        return datetime.combine(day, time(hour, minute))
+
+    assert rest(None, yesterday_late, at(0, 10)) == "bedtime"
+    assert rest(None, yesterday_late, at(0, 35)) == "asleep"
+    assert rest(None, yesterday_late, at(4)) == "asleep"
+    assert rest(None, yesterday_late, at(7)) is None
+    assert rest(None, yesterday_early, at(0, 10)) == "asleep"
+    assert rest(None, yesterday_early, at(4)) == "asleep"
+    # Today's waking is not written: yesterday's still tells when she gets up.
+    assert rest(today_without_wake, yesterday_early, at(0, 10)) == "asleep"
+    assert rest(today_without_wake, yesterday_early, at(7, 30)) is None
 
 
 def test_when_she_gets_up_and_goes_to_bed_is_read_within_their_hours():
