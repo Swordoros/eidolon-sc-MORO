@@ -315,6 +315,21 @@ def bath_began(today: Schedule | None, yesterday: Schedule | None, at: datetime)
     return None
 
 
+def sleep_began(today: Schedule | None, yesterday: Schedule | None, at: datetime) -> datetime | None:
+    """When the sleep she is in at `at` (in the producer's time zone) began, by her schedules
+    of the day and the day before; None if neither has a bedtime before then, or she is not
+    known to have gone to bed."""
+    latest: datetime | None = None
+    for schedule in (today, yesterday):
+        if schedule is None or schedule.sleep is None:
+            continue
+        day = schedule.day + timedelta(days=1) if schedule.sleeps_after_midnight else schedule.day
+        began = datetime.combine(day, schedule.sleep, at.tzinfo)
+        if began <= at and (latest is None or began > latest):
+            latest = began
+    return latest
+
+
 def rest(today: Schedule | None, yesterday: Schedule | None, at: datetime) -> Rest | None:
     """Whether she is asleep at `at` (in the producer's time zone), in the bath, or it is her
     bedtime, by her schedules of the day and the day before; None awake, or not known. Before

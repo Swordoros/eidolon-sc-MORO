@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from eidolon.assembly import Backend
 from eidolon.engine import WOKEN_FOR
 from eidolon.producer import effective_timezone
-from eidolon.schedules import Slot, bath_began, rest
+from eidolon.schedules import Slot, bath_began, rest, sleep_began
 from eidolon.sessions import UserId
 from eidolon.store import read_last_contact
 
@@ -96,9 +96,15 @@ async def now_of(backend: Backend, user_id: str, character_id: str) -> Now | Non
             return Now(bath=True, trip=trip)
     if resting == "asleep":
         contact = await backend.database.read(read_last_contact, user_id, character_id)
-        return Now(
-            asleep=True, woken=contact is not None and now - contact <= WOKEN_FOR, trip=trip
+        began = sleep_began(found, yesterday, local)
+        woken = (
+            contact is not None
+            and now - contact <= WOKEN_FOR
+            and (began is None or contact >= began)
         )
+        return Now(asleep=True, woken=woken, trip=trip)
+    if resting == "bedtime":
+        return Now(found.now(local.time()) if found else None, bedtime=True, trip=trip)
     if found is None:
-        return None
-    return Now(found.now(local.time()), bedtime=resting == "bedtime", trip=trip)
+        return Now(free=True, trip=trip) if yesterday is not None else None
+    return Now(found.now(local.time()), trip=trip)

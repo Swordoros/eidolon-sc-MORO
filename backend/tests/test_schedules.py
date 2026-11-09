@@ -14,7 +14,7 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIClientMessageFrame
 from pipecat.tests.utils import SleepFrame
 
 from eidolon.config import Settings
-from eidolon.engine import ANSWERING, BATCH_SCHEDULE_RULES, SCHEDULE_RULES, WANTS_TO_PLAN
+from eidolon.engine import ANSWERING, BATCH_SCHEDULE_RULES, WANTS_TO_PLAN
 from eidolon.llm import LLMError
 from eidolon.schedules import (
     TWISTS,
@@ -31,7 +31,7 @@ from tests.fakes import FakeClock, FakeLLM, FakeRandom, context_of
 from tests.test_call_turns import CallUnderTest
 from tests.test_call_turns import mano_call  # noqa: F401  # the fixture
 from tests.test_delete_account import user_id
-from tests.test_reach_outs import backend_of
+from tests.test_reach_outs import backend_of, last_contact
 from tests.test_text_turn import send_turn, start_conversation
 from tests.test_world_setting import write_world
 
@@ -329,6 +329,44 @@ async def test_a_message_while_she_sleeps_wakes_her_and_after_that_she_is_up(
     assert "是被制作人的消息吵醒的" in woken
     assert "你们已经聊了一会儿" in up and "被制作人的消息吵醒" not in up
     assert status == {"asleep": True, "woken": True}
+
+
+async def test_before_todays_schedule_is_written_a_message_before_sleep_is_not_waking_her(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(datetime(2026, 11, 9, 23, 46, tzinfo=UTC))
+    client = make_client(
+        FakeLLM(REPLY), clock=clock, settings=replace(settings, schedules=True)
+    )
+    await client.put("/api/profile", json={"timezone": "Etc/GMT"})
+    conversation = await start_conversation(client)
+    await keep_night(settings, time(7), time(0), date(2026, 11, 9))
+    await send_turn(client, conversation, "晚安")
+    last_contact(
+        settings.database_path, conversation, datetime(2026, 11, 9, 23, 46, tzinfo=UTC)
+    )
+
+    clock.now = datetime(2026, 11, 10, 0, 7, tzinfo=UTC)
+
+    status = (await client.get("/api/characters/mano/schedule/now")).json()
+
+    # Asleep by yesterday's bedtime; the last message was before she went to sleep, so it did
+    # not wake her.
+    assert status == {"asleep": True, "woken": False}
+
+
+async def test_before_todays_schedule_is_written_shes_bedtime_not_without_a_status(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(datetime(2026, 11, 10, 0, 7, tzinfo=UTC))
+    client = make_client(FakeLLM(), clock=clock, settings=replace(settings, schedules=True))
+    await client.put("/api/profile", json={"timezone": "Etc/GMT"})
+    await start_conversation(client)
+    await keep_night(settings, time(7), time(0, 30), date(2026, 11, 9))
+
+    status = (await client.get("/api/characters/mano/schedule/now")).json()
+
+    assert status == {"free": True, "bedtime": True}
 
 
 async def test_woken_by_a_call_she_answers_it_first(
