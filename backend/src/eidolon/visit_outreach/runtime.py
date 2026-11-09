@@ -1,6 +1,6 @@
 """Native async host wiring. The browser owns visibility; the service owns work."""
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 import hashlib
@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from eidolon.sessions import UserId
 from eidolon.producer import effective_timezone
+from eidolon.schedules import rest as schedule_rest
 from eidolon.store import Conversation
 from .host import EidolonHost, Eligibility
 from .repository import Repository
@@ -85,10 +86,21 @@ class Host(EidolonHost):
         limits = await self.backend.usage.user_limits(c.user_id)
         if limits is not None and limits.turns_per_hour == 0:
             return 'restricted', None, None
+        # 睡觉或泡澡时不主动搭话：搭话是她自己先开口，不能在她睡着/洗澡时发生。
+        if await self._resting(c, now) in ('asleep', 'bath'):
+            return 'asleep', None, None
         reason, current, relationship = await super().eligibility(c, now)
         if reason == 'recent_contact' and await self.prefer_opening(c):
             reason = 'busy' if self.store.is_taking_turn(c.id) or self.calls.in_call(c.id) else None
         return reason, current, relationship
+
+    async def _resting(self, c: Conversation, now: datetime) -> str | None:
+        """Whether she is asleep or in the bath at `now` (in the producer's zone), by her
+        daily schedule (`schedules.rest`); None awake, or not known."""
+        daily = self.backend.daily
+        today = await daily.of(c.user_id, c.character_id, now.date())
+        yesterday = await daily.of(c.user_id, c.character_id, now.date() - timedelta(days=1))
+        return schedule_rest(today, yesterday, now)
 
     async def valid(self, c, contact):
         return await self.enabled(c.user_id) and await super().valid(c, contact)
