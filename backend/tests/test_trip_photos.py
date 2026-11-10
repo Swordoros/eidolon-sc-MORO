@@ -79,7 +79,7 @@ async def talked(
 async def on_a_trip(client: httpx.AsyncClient, settings: Settings, trip_with: tuple[str, ...] = ()) -> None:
     schedules: Schedules = backend_of(client).daily
     me = user_id(settings.database_path, "producer")
-    slot = Slot(time(9), time(18), "拍外景", "京都", "work", ())
+    slot = Slot(time(11), time(18), "拍外景", "京都", "work", ())
     await schedules.keep(me, "mano", TODAY, [slot], [], trip="京都", trip_with=trip_with)
 
 
@@ -88,6 +88,15 @@ async def on_a_late_trip(client: httpx.AsyncClient, settings: Settings) -> None:
     me = user_id(settings.database_path, "producer")
     slot = Slot(time(16), time(18), "横滨外景拍摄", "横滨", "work", ())
     await schedules.keep(me, "mano", TODAY, [slot], [], trip="横滨")
+
+
+async def on_a_trip_after_bedtime(client: httpx.AsyncClient, settings: Settings) -> None:
+    schedules: Schedules = backend_of(client).daily
+    me = user_id(settings.database_path, "producer")
+    slot = Slot(time(22, 30), time(23, 30), "横滨外景拍摄", "横滨", "work", ())
+    await schedules.keep(
+        me, "mano", TODAY, [slot], [], wake=time(7), sleep=time(22), trip="横滨"
+    )
 
 
 def test_the_trip_begins_with_the_shoot_not_the_meeting_or_the_travel():
@@ -136,6 +145,20 @@ async def test_a_trip_later_in_the_day_sends_nothing_before_it_starts(
 
     assert before == 1 and len(llm.prompts) == 2
     assert sent["photo"]["status"] == "ready"
+
+
+async def test_a_trip_after_her_bedtime_sends_no_photo(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(at(22, 31))
+    client, llm, _ = await talked(
+        make_client, settings, SENDS, clock=clock, numbers=(0,)
+    )
+    await on_a_trip_after_bedtime(client, settings)
+
+    await backend_of(client).trip_photos.run_due()
+
+    assert len(llm.prompts) == 1
 
 
 async def test_a_due_time_planned_before_the_trip_moves_to_its_start(

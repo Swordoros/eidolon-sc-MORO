@@ -5,8 +5,9 @@ Only where the deployer has schedules on and image generation, and the user has 
 them off (GLOSSARY.md「玩法开关」, off with her schedule too); for one who has her photo tags.
 Every `TICK`, each user's current conversation with each character is looked at, if it has a
 turn, she has not ended it, and they were last in touch in it within `WINDOW`: a day her
-schedule has her on a trip, a time is drawn for it once, between `FROM` and `UNTIL` of the
-producer's day, by five minutes. Once it has come she sends one, one trip one photo: not
+schedule has her on a trip, a time is drawn for it once, between the trip's start and
+`UNTIL` (or her bedtime, wherever that is earlier) of the producer's day, by five minutes.
+Once it has come she sends one, one trip one photo: not
 while she is cold or distant to the user, or in a cooldown, nor while a text turn is under
 way or a call, when it is looked at again at the next tick; one the model fails on is tried
 again `RETRY_AFTER` later, `TRIES` times in all, then let go.
@@ -51,10 +52,9 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=5)
 WINDOW = timedelta(days=14)
 """How long after they were last in touch she still sends one."""
-FROM = time(11)
-UNTIL = time(17)
-"""Between when in the producer's day she sends one, and no earlier than the trip's shoot
-starts, wherever that is later."""
+UNTIL = time(22)
+"""The latest, in the producer's day, she sends one: earlier if she goes to bed before it,
+and never before the trip's shoot starts."""
 TRIES = 3
 RETRY_AFTER = timedelta(hours=1)
 NOT_NOW = frozenset({"cold", "distant"})
@@ -201,11 +201,13 @@ class TripPhotos:
             trip_start = _trip_start(schedule)
             if trip_start is None:
                 continue
-            first = max(
-                datetime.combine(day, FROM, zone),
-                datetime.combine(day, trip_start, zone),
-            )
-            last = max(datetime.combine(day, UNTIL, zone), first)
+            first = datetime.combine(day, trip_start, zone)
+            end = UNTIL
+            if schedule.sleep is not None and not schedule.sleeps_after_midnight:
+                end = min(end, schedule.sleep)
+            last = datetime.combine(day, end, zone)
+            if last < first:
+                continue
             row = await self._db.read(_row, conversation.user_id, character.id, day)
             if row is None:
                 at = first
