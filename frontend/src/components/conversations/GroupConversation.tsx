@@ -79,9 +79,9 @@ const POLL_IDLE_MS = 15_000;
 
 /**
  * 一个群的页面（`/conversation/group/<id>`），和私聊同一套界面：页首是群名、成员头像和人数，
- * 下面是全部历史（每个话题一条分隔，台词按时间排），底部是输入栏。页首可以改群名（铅笔）；
- * 拉人和解散在三个点的更多菜单里（解散确认后回到对话列表）。台词在后台一句一句生成，所以这里
- * 隔几秒重读一次，用户随时能在中间插话。
+ * 下面是全部历史（每个话题一条分隔，台词按时间排），底部是输入栏。改群名、拉人和解散都在
+ * 三个点的更多菜单里（解散确认后回到对话列表）。台词在后台一句一句生成，所以这里隔几秒重读
+ * 一次，用户随时能在中间插话。
  */
 export function GroupConversation({
   groupId,
@@ -237,15 +237,7 @@ export function GroupConversation({
           </button>
         )}
         <div className="flex min-w-0 flex-1 flex-col px-2">
-          <button
-            type="button"
-            onClick={openRename}
-            className="flex min-w-0 items-center gap-1.5 text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-            title={t.rename}
-          >
-            <span className="truncate text-header">{group?.name ?? t.title}</span>
-            <EditRecordIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          </button>
+          <h1 className="truncate text-header">{group?.name ?? t.title}</h1>
           <p className="truncate text-meta text-muted-foreground">
             {group ? t.status(group.members.length) : ""}
           </p>
@@ -264,6 +256,10 @@ export function GroupConversation({
             <MoreIcon className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem disabled={busy !== null || !group} onClick={openRename}>
+              <EditRecordIcon aria-hidden />
+              {t.rename}
+            </DropdownMenuItem>
             <DropdownMenuItem disabled={busy !== null} onClick={openPicker}>
               <UsersIcon aria-hidden />
               {t.addMembers}
