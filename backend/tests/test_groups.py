@@ -11,6 +11,7 @@ from eidolon.groups import Groups, Member, _seven_am
 from eidolon.memory import NewMemory
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
+from tests.test_reach_outs import backend_of
 
 
 async def test_a_group_is_created_listed_read_and_dissolved(make_client: ClientFactory):
@@ -31,6 +32,24 @@ async def test_a_group_is_created_listed_read_and_dissolved(make_client: ClientF
     assert (await client.delete(f"/api/group/{group_id}")).status_code == 204
     assert (await client.get("/api/groups")).json() == []
     assert (await client.get(f"/api/group/{group_id}")).status_code == 404
+
+
+async def test_the_groups_last_prompt_is_read_only_with_the_development_switch(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM())
+    created = await client.post(
+        "/api/groups", json={"name": "群聊", "character_ids": ["mano", "kogane"]}
+    )
+    group_id = created.json()["id"]
+    backend_of(client).groups._last_prompts[group_id] = "PROMPT"
+
+    off = (await client.get(f"/api/group/{group_id}/last-prompt")).json()
+    await client.put("/api/account/dev", json={"on": True})
+    on = (await client.get(f"/api/group/{group_id}/last-prompt")).json()
+
+    assert off == {"prompt": None}
+    assert on == {"prompt": "PROMPT"}
 
 
 async def test_a_group_with_no_members_picked_gets_the_default_ones(make_client: ClientFactory):

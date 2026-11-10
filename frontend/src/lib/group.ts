@@ -67,6 +67,16 @@ export async function getGroup(groupId: string): Promise<GroupDetail> {
   return json(await api(`/api/group/${encodeURIComponent(groupId)}`));
 }
 
+/** The group's last prompt, for the development tools: null when the switch is off or no
+ * line has been generated since the backend started. */
+export async function lastGroupPrompt(groupId: string): Promise<string | null> {
+  return (
+    await json<{ prompt: string | null }>(
+      await api(`/api/group/${encodeURIComponent(groupId)}/last-prompt`),
+    )
+  ).prompt;
+}
+
 /** Start a group with these members (拉群), the first topic raised right away. */
 export async function createGroup(name: string, characterIds: string[]): Promise<GroupDetail> {
   return json(

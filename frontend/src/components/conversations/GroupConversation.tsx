@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -25,8 +25,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import {
+  MessageScroller,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,6 +49,7 @@ import type { Character } from "@/lib/api";
 import {
   dissolveGroup,
   getGroup,
+  lastGroupPrompt,
   renameGroup,
   sayInGroup,
   setGroupMembers,
@@ -45,7 +59,15 @@ import {
 } from "@/lib/group";
 import { formatTimestamp } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
-import { BackIcon, SendIcon } from "@/theme/icons";
+import {
+  BackIcon,
+  DevIcon,
+  EditRecordIcon,
+  MoreIcon,
+  SendIcon,
+  TrashIcon,
+  UsersIcon,
+} from "@/theme/icons";
 
 import { useDirectory } from "./ConversationDirectory";
 
@@ -57,9 +79,9 @@ const POLL_IDLE_MS = 15_000;
 
 /**
  * 一个群的页面（`/conversation/group/<id>`），和私聊同一套界面：页首是群名、成员头像和人数，
- * 下面是全部历史（每个话题一条分隔，台词按时间排），底部是输入栏。页首可以改群名（铅笔）、
- * 拉人（「成员」）和解散（确认后回到对话列表）。台词在后台一句一句生成，所以这里隔几秒重读一次，
- * 用户随时能在中间插话。
+ * 下面是全部历史（每个话题一条分隔，台词按时间排），底部是输入栏。页首可以改群名（铅笔）；
+ * 拉人和解散在三个点的更多菜单里（解散确认后回到对话列表）。台词在后台一句一句生成，所以这里
+ * 隔几秒重读一次，用户随时能在中间插话。
  */
 export function GroupConversation({
   groupId,
@@ -69,7 +91,7 @@ export function GroupConversation({
   onBack?: () => void;
 }) {
   const router = useRouter();
-  const { characters } = useDirectory();
+  const { account, characters } = useDirectory();
   const isFullScreen = !useMediaQuery("(min-width: 768px)", true);
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [failed, setFailed] = useState(false);
@@ -83,7 +105,8 @@ export function GroupConversation({
   const [rosterOpen, setRosterOpen] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
   const [askingDissolve, setAskingDissolve] = useState(false);
-  const bottom = useRef<HTMLDivElement | null>(null);
+  const [devPromptOpen, setDevPromptOpen] = useState(false);
+  const [devPrompt, setDevPrompt] = useState<string | null | undefined>(undefined);
   const byId = useMemo(
     () => new Map((characters ?? []).map((c) => [c.id, c])),
     [characters],
@@ -103,22 +126,6 @@ export function GroupConversation({
   useEffect(() => {
     load();
   }, [load]);
-
-  const count = group ? group.history.reduce((n, entry) => n + entry.lines.length, 0) : 0;
-  // 第一次进来直接落到底，别从上头一路滑下去（那一段看着像在加载）；此后再有新消息，
-  // 才顺着滑过去。换了一个群聊，就当又是一次第一次。
-  const beenThere = useRef(false);
-  useEffect(() => {
-    beenThere.current = false;
-  }, [groupId]);
-  useEffect(() => {
-    if (count === 0) return;
-    bottom.current?.scrollIntoView({
-      behavior: beenThere.current ? "smooth" : "auto",
-      block: "end",
-    });
-    beenThere.current = true;
-  }, [count]);
 
   useEffect(() => {
     const id = window.setInterval(load, open ? POLL_UNDER_WAY_MS : POLL_IDLE_MS);
@@ -167,6 +174,12 @@ export function GroupConversation({
     setPicking(true);
   }, [group?.members]);
 
+  const openDevPrompt = useCallback(() => {
+    setDevPromptOpen(true);
+    setDevPrompt(undefined);
+    lastGroupPrompt(groupId).then(setDevPrompt, () => setDevPrompt(null));
+  }, [groupId]);
+
   const confirmMembers = useCallback(() => {
     if (chosen.length === 0 || busy) return;
     setPicking(false);
@@ -192,76 +205,124 @@ export function GroupConversation({
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+      <header className="flex h-14 shrink-0 items-center gap-1 px-2">
         {isFullScreen && (
-          <Button variant="ghost" size="icon" onClick={back} aria-label="返回">
-            <BackIcon aria-hidden />
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="max-md:size-11"
+            onClick={back}
+            aria-label="返回"
+          >
+            <BackIcon className="size-6" />
           </Button>
         )}
-        <button
-          type="button"
-          onClick={() => setRosterOpen(true)}
-          className="flex shrink-0 -space-x-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          title={t.roster}
-        >
-          {(group?.members ?? []).slice(0, 4).map((member) => (
-            <MarkedAvatar
-              key={member.id}
-              name={member.name}
-              src={byId.get(member.id)?.avatar_url ?? null}
-              size="sm"
-            />
-          ))}
-        </button>
-        <div className="min-w-0 flex-1">
+        {group && group.members.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setRosterOpen(true)}
+            className="flex shrink-0 items-center rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            title={t.roster}
+            aria-label={t.roster}
+          >
+            {group.members.slice(0, 4).map((member, index) => (
+              <span key={member.id} className={cn("rounded-full", index > 0 && "-ml-2")}>
+                <MarkedAvatar
+                  name={member.name}
+                  src={byId.get(member.id)?.avatar_url ?? null}
+                  size="sm"
+                />
+              </span>
+            ))}
+          </button>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col px-2">
           <button
             type="button"
             onClick={openRename}
-            className="flex max-w-full items-center gap-1 truncate text-left text-body font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="flex min-w-0 items-center gap-1.5 text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
             title={t.rename}
           >
-            <span className="truncate">{group?.name ?? t.title}</span>
-            <span className="text-meta text-muted-foreground">✎</span>
+            <span className="truncate text-header">{group?.name ?? t.title}</span>
+            <EditRecordIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </button>
           <p className="truncate text-meta text-muted-foreground">
             {group ? t.status(group.members.length) : ""}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={openPicker} disabled={busy !== null}>
-          {t.members}
-        </Button>
-        {group?.on && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setAskingDissolve(true)}
-            disabled={busy !== null}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-lg"
+                className="max-md:size-11"
+                aria-label={copy.conversation.menu}
+              />
+            }
           >
-            {t.dissolve}
-          </Button>
-        )}
+            <MoreIcon className="size-5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem disabled={busy !== null} onClick={openPicker}>
+              <UsersIcon aria-hidden />
+              {t.addMembers}
+            </DropdownMenuItem>
+            {account?.dev && (
+              <DropdownMenuItem onClick={openDevPrompt}>
+                <DevIcon aria-hidden />
+                {copy.conversation.devPrompt}
+              </DropdownMenuItem>
+            )}
+            {group?.on && (
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={busy !== null}
+                onClick={() => setAskingDissolve(true)}
+              >
+                <TrashIcon aria-hidden />
+                {t.dissolve}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40 px-3 py-4">
-        {failed && <FailureNotice failure={{ message: t.failed, signedOut: false }} />}
+      <div className="min-h-0 flex-1 bg-background">
+        {failed && (
+          <div className="px-3 pt-3">
+            <FailureNotice failure={{ message: t.failed, signedOut: false }} />
+          </div>
+        )}
         {!group ? (
           <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
         ) : group.history.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>{group.name}</EmptyTitle>
-              <EmptyDescription>{t.noHistory}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-            {group.history.map((entry) => (
-              <TopicBlock key={entry.topic.id} entry={entry} byId={byId} />
-            ))}
-            <div ref={bottom} />
+          <div className="flex h-full items-center justify-center px-3">
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>{group.name}</EmptyTitle>
+                <EmptyDescription>{t.noHistory}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           </div>
+        ) : (
+          <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+            <MessageScroller>
+              <MessageScrollerViewport>
+                <MessageScrollerContent className="gap-4 px-3 pt-4 pb-4">
+                  {group.history.map((entry) => (
+                    <MessageScrollerItem key={entry.topic.id}>
+                      <div className="mx-auto w-full max-w-3xl">
+                        <TopicBlock entry={entry} byId={byId} />
+                      </div>
+                    </MessageScrollerItem>
+                  ))}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
+            </MessageScroller>
+          </MessageScrollerProvider>
         )}
       </div>
 
@@ -326,16 +387,6 @@ export function GroupConversation({
             ))}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRosterOpen(false);
-                openPicker();
-              }}
-              disabled={busy !== null}
-            >
-              {t.members}
-            </Button>
             <Button onClick={() => setRosterOpen(false)}>关闭</Button>
           </DialogFooter>
         </DialogContent>
@@ -412,6 +463,24 @@ export function GroupConversation({
               {busy === "picking" ? t.creating : t.create}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={devPromptOpen} onOpenChange={setDevPromptOpen}>
+        <DialogContent className="max-w-[min(48rem,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{copy.conversation.devPrompt}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {copy.conversation.devPrompt}
+            </DialogDescription>
+          </DialogHeader>
+          {devPrompt === undefined ? (
+            <p className="text-body text-muted-foreground">…</p>
+          ) : (
+            <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
+              {devPrompt ?? copy.conversation.devPromptNone}
+            </pre>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -39,6 +39,7 @@ from eidolon.affinity import Affinities, tier_prompt
 from eidolon.characters import Character, chinese_name_map
 from eidolon.clock import Clock
 from eidolon.data_access import Database
+from eidolon.engine import _dump_prompt
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
@@ -330,6 +331,8 @@ class Groups:
         self._delay = delay
         self._busy: set[str] = set()
         """Groups whose topic is being talked through right now."""
+        self._last_prompts: dict[str, str] = {}
+        """The last prompt each group asked the chat model with, for the development tools."""
         self._tasks: dict[str, asyncio.Task[None]] = {}
         """Each group's conversation under way, to cancel as it is dissolved or the backend closes."""
         self._task: asyncio.Task[None] | None = None
@@ -420,6 +423,11 @@ class Groups:
         if state is not None:
             await self._db.write(self._mark_seen, group_id, self._clock())
         return state
+
+    def last_prompt(self, group_id: str) -> str | None:
+        """The last prompt `group_id` asked the chat model with, for the development tools;
+        None before any line since the backend started."""
+        return self._last_prompts.get(group_id)
 
     def _mark_seen(self, db: sqlite3.Connection, group_id: str, now: datetime) -> None:
         db.execute(
@@ -552,6 +560,7 @@ class Groups:
         """Dissolve the group (解散): it leaves the list, its topics close and its history is
         hidden. The conversations under way end with it."""
         await self._db.write(self._dissolve, user_id, group_id, self._clock())
+        self._last_prompts.pop(group_id, None)
         task = self._tasks.pop(group_id, None)
         if task is not None:
             task.cancel()
@@ -643,7 +652,7 @@ class Groups:
         past = [entry["topic"]["text"] for entry in reversed(state["history"])][:TOPIC_RECALL]
         raiser = members[secrets.randbelow(len(members))]
         try:
-            said = await self._raise(user_id, members, raiser, recent, past, now)
+            said = await self._raise(user_id, group_id, members, raiser, recent, past, now)
         except Exception:
             log.warning("a member could not raise a topic", exc_info=True)
             return None
@@ -662,8 +671,8 @@ class Groups:
         )
 
     async def _raise(
-        self, user_id: str, members: Sequence[Member], raiser: Member, recent: Sequence[dict],
-        past: Sequence[str], now: datetime,
+        self, user_id: str, group_id: str, members: Sequence[Member], raiser: Member,
+        recent: Sequence[dict], past: Sequence[str], now: datetime,
     ) -> Said:
         system = await self._system(user_id, raiser)
         material = await self._material(user_id, raiser)
@@ -672,7 +681,7 @@ class Groups:
             system, raiser, members, recent,
             self._names_block(members), past, material, now_told,
         )
-        answer = await self._ask(prompt)
+        answer = await self._ask(prompt, group_id)
         said = _parse_line(answer) or Said("今天想聊点什么呢。", "今天想聊点什么好呢。")
         return said if said.zh else await self._subtitle(said)
 
@@ -805,7 +814,7 @@ class Groups:
                     self._names_block([*members, *outsiders]),
                 )
                 try:
-                    answer = await self._ask(prompt)
+                    answer = await self._ask(prompt, group_id)
                 except Exception:
                     log.warning("a member could not answer in the group", exc_info=True)
                     break
@@ -978,9 +987,12 @@ class Groups:
         log.info("group relevance for %r: %s", topic[:40], scores)
         return scores
 
-    async def _ask(self, messages: Sequence[ChatMessage]) -> str:
+    async def _ask(self, messages: Sequence[ChatMessage], group_id: str | None = None) -> str:
         """One model answer; asked twice when the first comes back empty, which happens
-        now and then and would otherwise end a conversation on the spot."""
+        now and then and would otherwise end a conversation on the spot. With `group_id`,
+        the prompt is kept as the group's last one for the development tools."""
+        if group_id is not None:
+            self._last_prompts[group_id] = _dump_prompt(messages)
         for attempt in range(2):
             lease = self._lease_of()
             try:

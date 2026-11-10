@@ -2168,6 +2168,8 @@ export const zh = {
       on: "群聊开着",
       off: "群聊关着",
       members: "成员",
+      /** 更多菜单里改成员、拉人进群。 */
+      addMembers: "拉人",
       /** 成员数。 */
       status: (n: number) => `${n} 位成员`,
       raise: "抛个话题",

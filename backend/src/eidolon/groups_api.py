@@ -43,6 +43,7 @@ class MembersInput(BaseModel):
 
 def add_group_routes(app: FastAPI, backend: Backend) -> None:
     groups = backend.groups
+    store = backend.store
 
     async def shown(user_id: str, group_id: str) -> dict:
         group = await groups.read(user_id, group_id)
@@ -85,6 +86,16 @@ def add_group_routes(app: FastAPI, backend: Backend) -> None:
         """Set who is in the group."""
         await groups.set_members(user_id, group_id, body.character_ids)
         return await shown(user_id, group_id)
+
+    @app.get("/api/group/{group_id}/last-prompt")
+    async def last_prompt(group_id: str, user_id: UserId) -> dict:
+        """The group's last prompt, for the development tools (GLOSSARY.md「开发」): None
+        when the user's development switch is off or no line has been generated since the
+        backend started."""
+        await shown(user_id, group_id)
+        if not await store.get_dev(user_id):
+            return {"prompt": None}
+        return {"prompt": groups.last_prompt(group_id)}
 
     @app.post("/api/group/{group_id}/messages")
     async def say(group_id: str, body: SayInput, user_id: UserId) -> dict:
