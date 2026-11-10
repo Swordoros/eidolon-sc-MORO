@@ -5,6 +5,7 @@ members go on a trip with her now and then, and their days have them on it. Off 
 user's switch, with image generation's, or with her schedule's."""
 
 import json
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, time
 
@@ -17,7 +18,8 @@ from eidolon.engine import WANTS_TO_SEND_TRIP_PHOTO
 from eidolon.image_generation import generation_request, openai_request
 from eidolon.photo_prompt import GROUP_SIZE, group_prompt, read_tag
 from eidolon.producer import Birthday
-from eidolon.schedules import TRIP_WITH_TWIST, Schedules, Slot
+from eidolon.schedules import TRIP_WITH_TWIST, Schedules, Schedule, Slot
+from eidolon.trip_photos import _trip_start  # pyright: ignore[reportPrivateUsage]
 from tests.conftest import AVATAR, KOGANE_SHEET, MANO_PHOTO, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeClock, FakeImageService, FakeLLM, FakeRandom
 from tests.test_delete_account import user_id
@@ -79,6 +81,95 @@ async def on_a_trip(client: httpx.AsyncClient, settings: Settings, trip_with: tu
     me = user_id(settings.database_path, "producer")
     slot = Slot(time(9), time(18), "拍外景", "京都", "work", ())
     await schedules.keep(me, "mano", TODAY, [slot], [], trip="京都", trip_with=trip_with)
+
+
+async def on_a_late_trip(client: httpx.AsyncClient, settings: Settings) -> None:
+    schedules: Schedules = backend_of(client).daily
+    me = user_id(settings.database_path, "producer")
+    slot = Slot(time(16), time(18), "横滨外景拍摄", "横滨", "work", ())
+    await schedules.keep(me, "mano", TODAY, [slot], [], trip="横滨")
+
+
+def test_the_trip_begins_with_the_shoot_not_the_meeting_or_the_travel():
+    schedule = Schedule(
+        TODAY,
+        (
+            Slot(time(9), time(9, 30), "关于横滨外景的短会", "事务所", "work"),
+            Slot(time(9, 30), time(13), "前往横滨外景地（移动·飞行）", "东京→横滨", "work"),
+            Slot(time(16), time(18), "横滨外景拍摄", "横滨", "work"),
+        ),
+        (), trip="横滨",
+    )
+    assert _trip_start(schedule) == time(16)
+
+
+def test_a_trip_whose_only_slot_is_the_travel_begins_then():
+    schedule = Schedule(
+        TODAY,
+        (Slot(time(14, 30), time(20, 30), "前往大阪拍摄外景", "大阪", "work"),),
+        (), trip="大阪",
+    )
+    assert _trip_start(schedule) == time(14, 30)
+
+
+def test_a_trip_with_no_slot_saying_when_has_no_photo_time():
+    schedule = Schedule(TODAY, (Slot(time(10), time(12), "练习", "事务所", "work"),), (), trip="横滨")
+    assert _trip_start(schedule) is None
+
+
+async def test_a_trip_later_in_the_day_sends_nothing_before_it_starts(
+    make_client: ClientFactory, settings: Settings
+):
+    image = FakeImageService()
+    clock = FakeClock(at(12))
+    client, llm, conversation = await talked(
+        make_client, settings, SENDS, image=image, clock=clock, numbers=(0,)
+    )
+    await on_a_late_trip(client, settings)
+    trips = backend_of(client).trip_photos
+
+    await trips.run_due()
+    before = len(llm.prompts)
+    clock.now = at(16, 5)
+    await trips.run_due()
+    [sent] = reach_outs(await record(client, conversation))
+
+    assert before == 1 and len(llm.prompts) == 2
+    assert sent["photo"]["status"] == "ready"
+
+
+async def test_a_due_time_planned_before_the_trip_moves_to_its_start(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(at(12, 5))
+    client, llm, conversation = await talked(
+        make_client, settings, SENDS, clock=clock, numbers=(0,)
+    )
+    await on_a_late_trip(client, settings)
+    me = user_id(settings.database_path, "producer")
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "INSERT INTO trip_photo_due (user_id, character_id, day, due_at)"
+            " VALUES (?, ?, ?, ?)",
+            (me, "mano", TODAY.isoformat(), at(12).isoformat()),
+        )
+    trips = backend_of(client).trip_photos
+
+    await trips.run_due()
+    with sqlite3.connect(settings.database_path) as db:
+        [due] = db.execute(
+            "SELECT due_at FROM trip_photo_due WHERE user_id = ? AND character_id = 'mano'",
+            (me,),
+        ).fetchone()
+
+    assert datetime.fromisoformat(due) >= at(16)
+    assert len(llm.prompts) == 1
+
+    clock.now = at(16, 5)
+    await trips.run_due()
+    [sent] = reach_outs(await record(client, conversation))
+
+    assert len(llm.prompts) == 2 and sent["photo"]["status"] == "ready"
 
 
 async def test_on_a_trip_she_sends_one_photo_from_there_once_its_time_comes(

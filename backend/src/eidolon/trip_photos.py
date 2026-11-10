@@ -43,7 +43,7 @@ from eidolon.live_config import LiveConfig
 from eidolon.photo_prompt import ProducerLook, group_prompt, read_tag
 from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
-from eidolon.schedules import Schedules
+from eidolon.schedules import Schedule, Schedules
 from eidolon.store import Conversation, NewPhoto, PhotoFailure, Store
 
 log = logging.getLogger(__name__)
@@ -53,12 +53,40 @@ WINDOW = timedelta(days=14)
 """How long after they were last in touch she still sends one."""
 FROM = time(11)
 UNTIL = time(17)
-"""Between when in the producer's day she sends one."""
+"""Between when in the producer's day she sends one, and no earlier than the trip's shoot
+starts, wherever that is later."""
 TRIES = 3
 RETRY_AFTER = timedelta(hours=1)
 NOT_NOW = frozenset({"cold", "distant"})
 """The tiers she sends none in."""
 _GROUP = re.compile(r"^\s*group\s*:\s*yes\b", re.IGNORECASE | re.MULTILINE)
+_SHOOT = re.compile(r"外景|拍攝|拍摄|摄影|撮影|ロケ")
+_NOT_SHOOT = re.compile(
+    r"短会|会议|集合|确认|前往|出发|移動|移动|机场|空港|新干线|新幹線|飞机|飛行機|返回|回东京|回東京"
+)
+
+
+def _trip_start(schedule: Schedule) -> time | None:
+    """When the day's trip's shooting begins, from the slot that reads as it: a work or live
+    slot mentioning 外景/拍摄 rather than the meeting or the travel to it; a slot naming the
+    trip's place where none reads so. None where no slot says it, so no photo is sent before
+    a trip whose time is not known."""
+    shoot = [
+        slot for slot in schedule.slots
+        if slot.kind in ("work", "live")
+        and _SHOOT.search(f"{slot.what} {slot.where}")
+        and not _NOT_SHOOT.search(slot.what)
+    ]
+    if not shoot:
+        near = [
+            slot for slot in schedule.slots
+            if slot.kind in ("work", "live")
+            and schedule.trip is not None
+            and schedule.trip in f"{slot.what} {slot.where}"
+        ]
+        shoot = [slot for slot in near if not _NOT_SHOOT.search(slot.what)] or near
+    return min((slot.start for slot in shoot), default=None)
+
 
 _SCHEMA = """
 -- When she sends the producer a photo from her trip on a day (GLOSSARY.md「外景照片」), once
@@ -170,13 +198,27 @@ class TripPhotos:
             schedule = await self._schedules.of(conversation.user_id, character.id, day)
             if schedule is None or schedule.trip is None:
                 continue
+            trip_start = _trip_start(schedule)
+            if trip_start is None:
+                continue
+            first = max(
+                datetime.combine(day, FROM, zone),
+                datetime.combine(day, trip_start, zone),
+            )
+            last = max(datetime.combine(day, UNTIL, zone), first)
             row = await self._db.read(_row, conversation.user_id, character.id, day)
             if row is None:
-                minutes = (UNTIL.hour - FROM.hour) * 60
-                at = datetime.combine(day, FROM, zone) + timedelta(
-                    minutes=5 * self._random(minutes // 5)
-                )
+                at = first
+                minutes = int((last - first).total_seconds() // 60)
+                if minutes >= 5:
+                    at += timedelta(minutes=5 * self._random(minutes // 5 + 1))
                 row = await self._db.write(_planned, conversation.user_id, character.id, day, at)
+            elif not row["sent"] and datetime.fromisoformat(row["due_at"]) < first:
+                # Planned before this deploy, or before the trip's time was known: send no
+                # earlier than the trip begins.
+                row = await self._db.write(
+                    _rescheduled, conversation.user_id, character.id, day, first
+                )
             if row["sent"] or row["tries"] >= TRIES:
                 continue
             if datetime.fromisoformat(row["due_at"]) > now:
@@ -315,6 +357,19 @@ def _planned(
         "INSERT OR IGNORE INTO trip_photo_due (user_id, character_id, day, due_at)"
         " VALUES (?, ?, ?, ?)",
         (user_id, character_id, day.isoformat(), at.astimezone(UTC).isoformat()),
+    )
+    row = _row(db, user_id, character_id, day)
+    assert row is not None
+    return row
+
+
+def _rescheduled(
+    db: sqlite3.Connection, user_id: str, character_id: str, day: date, at: datetime
+) -> sqlite3.Row:
+    db.execute(
+        "UPDATE trip_photo_due SET due_at = ?, tries = 0, last_at = NULL"
+        " WHERE user_id = ? AND character_id = ? AND day = ?",
+        (at.astimezone(UTC).isoformat(), user_id, character_id, day.isoformat()),
     )
     row = _row(db, user_id, character_id, day)
     assert row is not None
