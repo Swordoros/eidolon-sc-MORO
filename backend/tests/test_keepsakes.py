@@ -13,7 +13,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from eidolon.config import Settings
+from eidolon.config import GptImageSettings, Settings
 from eidolon.engine import EmptyReply, WANTS_TO_GIVE, read_keepsake
 from eidolon.keepsakes import PER_DAY
 from eidolon.photo_prompt import keepsake_prompt
@@ -36,6 +36,7 @@ GIVES = [
     "<ja>[softly] これ、プロデューサーさんに</ja><zh>这个，送给制作人</zh>"
 ]
 TODAY = datetime.now(UTC).date()
+GPT = GptImageSettings("gpt-key", "https://api.openai.test/v1")
 
 
 def at(hour: int, minute: int = 0, day: date = TODAY) -> datetime:
@@ -99,7 +100,8 @@ def test_words_written_on_it_are_drawn_in_quotes_where_it_says_and_text_is_let_i
 
 async def talked(
     make_client: ClientFactory, settings: Settings, *replies, clock: FakeClock | None = None,
-    image: FakeImageService | None = None, random: FakeRandom | None = None, **switches,
+    image: FakeImageService | None = None, gpt_service: FakeImageService | None = None,
+    random: FakeRandom | None = None, **switches,
 ) -> tuple[httpx.AsyncClient, FakeLLM, str]:
     llm = FakeLLM(REPLY, *replies)
     client = make_client(
@@ -108,6 +110,7 @@ async def talked(
             settings, keepsakes=True, image=IMAGE if image else None, **switches
         ),
         image_transport=image.transport() if image else None,
+        gpt_image_transport=gpt_service.transport() if gpt_service else None,
         **({"random": random} if random else {}),
     )
     res = await client.put("/api/profile", json={"timezone": "Etc/GMT"})
@@ -161,6 +164,31 @@ async def test_with_image_generation_its_picture_is_drawn_square(
 
     assert given["has_image"] is True
     assert image.requests[0]["body"]["input"].startswith("background dataset, no humans, still life")
+    with Image.open(io.BytesIO(picture.content)) as webp:
+        assert (webp.format, webp.size) == ("WEBP", (1024, 1024))
+
+
+async def test_with_gpt_image_its_picture_is_drawn_by_gpt_image(
+    make_client: ClientFactory, settings: Settings
+):
+    gpt = FakeImageService()
+    novelai = FakeImageService()
+    client, _, _ = await talked(
+        make_client, settings, GIVES, image=novelai, gpt_service=gpt, gpt_image=GPT
+    )
+
+    await client.post("/api/keepsakes/give-now", json={"character_id": "mano"})
+    [given] = (await cabinet(client))["keepsakes"]
+    picture = await client.get(f"/api/keepsakes/{given['id']}/image")
+
+    [request] = gpt.requests
+    prompt = request["body"]["prompt"]
+    assert novelai.requests == []
+    assert request["url"].endswith("/images/generations")
+    assert request["body"]["size"] == "1024x1024"
+    assert "Subject: a close-up still life of bookmark, four-leaf clover" in prompt
+    assert "nude" not in prompt and "1girl" not in prompt
+    assert given["has_image"] is True
     with Image.open(io.BytesIO(picture.content)) as webp:
         assert (webp.format, webp.size) == ("WEBP", (1024, 1024))
 

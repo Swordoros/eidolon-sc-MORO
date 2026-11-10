@@ -49,7 +49,8 @@ from eidolon.data_access import Database
 from eidolon.database import by_name
 from eidolon.engine import ConversationEngine, KeepsakeDraft, describe_keepsake
 from eidolon.features import AllOn, Switches
-from eidolon.image_generation import TIME_LIMIT, ImageFailed
+from eidolon.gpt_image_prompt import gpt_keepsake_prompt
+from eidolon.image_generation import GPT_TIME_LIMIT, TIME_LIMIT, ImageFailed
 from eidolon.live_config import LiveConfig
 from eidolon.photo_prompt import SCENE_MARK, keepsake_prompt
 from eidolon.producer import effective_timezone, is_birthday
@@ -426,18 +427,37 @@ class Keepsakes:
                 log.exception("telling of keepsake %s failed", keepsake_id)
 
     async def can_draw(self, user_id: str) -> bool:
-        """Whether the user's keepsakes' pictures are drawn: on the deployer's image generation,
-        the user not having switched them off (GLOSSARY.md「玩法开关」)."""
+        """Whether the user's keepsakes' pictures are drawn: on the deployer's GPT Image where
+        it is configured, else on image generation, the user not having switched them off
+        (GLOSSARY.md「玩法开关」)."""
         return (
-            self._config.image_generator() is not None
+            (
+                self._config.gpt_image_generator() is not None
+                or self._config.image_generator() is not None
+            )
             and await self._features.on(user_id, "keepsake_images")
         )
 
     async def _draw(self, user_id: str, tags: str) -> bytes | None:
-        """Its picture, on the deployer's image generation; None without one, the user having
-        switched them off, or failing."""
+        """Its picture, at the deployer's GPT Image where it is configured, else on image
+        generation; None without either, the user having switched them off, or failing."""
+        if not await self._features.on(user_id, "keepsake_images"):
+            return None
+        gpt = self._config.gpt_image_generator()
+        if gpt is not None:
+            settings = gpt.settings
+            prompt, stripped = gpt_keepsake_prompt(tags, settings.style)
+            until = asyncio.get_running_loop().time() + GPT_TIME_LIMIT
+            try:
+                image = await timed(
+                    self._activity, image_origin(settings), gpt.generate(prompt, until), stripped
+                )
+            except (ImageFailed, TimeoutError) as e:
+                log.warning("a keepsake's picture was not drawn: %s", e)
+                return None
+            return image.webp
         generator = self._config.image_generator()
-        if generator is None or not await self._features.on(user_id, "keepsake_images"):
+        if generator is None:
             return None
         settings = generator.settings
         prompt, stripped = keepsake_prompt(tags, settings.style)

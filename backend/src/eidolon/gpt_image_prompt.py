@@ -18,7 +18,16 @@ the others portrait, at the sizes NovelAI draws them at.
 from dataclasses import dataclass
 from datetime import datetime
 
-from eidolon.photo_prompt import LANDSCAPE, PORTRAIT, UNPEOPLED, Composition, PictureTag
+from eidolon.photo_prompt import (
+    KEEPSAKE_SIZE,
+    LANDSCAPE,
+    PORTRAIT,
+    UNPEOPLED,
+    Composition,
+    Crossing,
+    PictureTag,
+    keepsake_details,
+)
 from eidolon.place_pool import Place
 from eidolon.today import TOKYO
 from eidolon.weather import Kind, Weather
@@ -91,6 +100,28 @@ def gpt_picture_prompt(
     lines.append(f"{VIEWS[composition]} {NO_TEXT}")
     size = LANDSCAPE if composition == "scenery" else PORTRAIT
     return GptPrompt("\n".join(line for line in lines if line), size)
+
+
+def gpt_keepsake_prompt(tags: str, style: str = "") -> tuple[GptPrompt, tuple[Crossing, ...]]:
+    """The prompt GPT Image is sent for a keepsake's picture (GLOSSARY.md「纪念品」): the thing
+    alone, a close-up still life, square, in the art style `style`, from the English tags
+    written for it (`tags`, comma-separated), cleaned as they are for image generation."""
+    kept, scene, words, stripped = keepsake_details(tags)
+    subject = ", ".join(kept[:6]) or "a small keepsake"
+    lines = [
+        style.strip(),
+        f"Subject: a close-up still life of {subject}, a keepsake the producer was given.",
+        "No people in the frame. Seen from close by, as if she took it herself.",
+    ]
+    if scene:
+        lines.append(f"What the picture shows (follow this): {scene}")
+    if words:
+        lines.append(f"Words written in the picture: {words.replace(' @ ', ' on ')}")
+    lines.append(
+        "No other text, captions or watermarks."
+        if words else "No added text, captions or watermarks."
+    )
+    return GptPrompt("\n".join(line for line in lines if line), KEEPSAKE_SIZE), stripped
 
 
 def time_of_day(hour: int) -> str:

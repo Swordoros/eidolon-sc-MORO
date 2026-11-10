@@ -694,11 +694,11 @@ def _finish(style: str, words: str, adult: bool = False) -> tuple[str, ...]:
     return (*rating, *complexity, *quality, *((after,) if after else ()))
 
 
-def keepsake_prompt(tags: str, style: str = "") -> tuple[ImagePrompt, tuple[Crossing, ...]]:
-    """The prompts a keepsake's picture (GLOSSARY.md「纪念品」) is generated from: the thing
-    alone, no one in it, square, in the art style `style`, from the English tags written for
-    it (`tags`, comma-separated), cleaned and stripped as a photo's are, `KEEPSAKE_TAGS` at
-    most; and which part of the line each stripped crossed."""
+def keepsake_details(tags: str) -> tuple[list[str], str, str, tuple[Crossing, ...]]:
+    """What a keepsake's picture is of, from the English tags written for it (`tags`,
+    comma-separated): the tags kept, cleaned and stripped as a photo's are; her sentence
+    describing it; the words written on it, if any; and which part of the line each stripped
+    crossed."""
     seen = {*_FIXED, *_KEEPSAKE_START}
     stripped: list[Crossing] = []
     kept: list[str] = []
@@ -718,13 +718,22 @@ def keepsake_prompt(tags: str, style: str = "") -> tuple[ImagePrompt, tuple[Cros
             stripped.append(crossing)
             continue
         kept.append(tag)
+    return kept, scene, words, tuple(stripped)
+
+
+def keepsake_prompt(tags: str, style: str = "") -> tuple[ImagePrompt, tuple[Crossing, ...]]:
+    """The prompts a keepsake's picture (GLOSSARY.md「纪念品」) is generated from: the thing
+    alone, no one in it, square, in the art style `style`, from the English tags written for
+    it (`tags`, comma-separated), cleaned and stripped as a photo's are, `KEEPSAKE_TAGS` at
+    most; and which part of the line each stripped crossed."""
+    kept, scene, words, stripped = keepsake_details(tags)
     positive = (
         *_KEEPSAKE_START, *_styled(style), *(kept[:KEEPSAKE_TAGS] or ["gift box"]),
         *_said(scene, words), *_finish(style, words),
     )
     negative = KEEPSAKE_NEGATIVE if not words else KEEPSAKE_NEGATIVE.replace(", text,", ",")
     negative = _negative(negative, style, words)
-    return ImagePrompt(", ".join(positive), negative, KEEPSAKE_SIZE), tuple(stripped)
+    return ImagePrompt(", ".join(positive), negative, KEEPSAKE_SIZE), stripped
 
 
 def keepsake_words(words: str, on: str) -> str:

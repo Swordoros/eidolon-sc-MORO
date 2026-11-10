@@ -36,7 +36,10 @@ def add_keepsake_routes(app: FastAPI, backend: Backend) -> None:
     keepsakes, clock = backend.keepsakes, backend.clock
 
     async def drawing(user_id: str) -> dict:
-        drawn = await keepsakes.can_draw(user_id) or backend.config.image_generator() is None
+        drawn = await keepsakes.can_draw(user_id) or (
+            backend.config.image_generator() is None
+            and backend.config.gpt_image_generator() is None
+        )
         return {  # pictures switched off: none missing, none to draw (GLOSSARY.md「玩法开关」)
             "missing": await keepsakes.missing(user_id) if drawn else 0,
             "filling": keepsakes.filling(user_id),
