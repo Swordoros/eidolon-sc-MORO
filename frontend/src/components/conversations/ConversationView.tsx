@@ -839,7 +839,7 @@ function Bubbled({
     );
   }
   // 她还在写时，只显示 backend 已确认写完的段；正在写的半段留到转圈后面。
-  const shownSegments = entry.pending && !entry.reachOut
+  const shownSegments = entry.pending
     ? entry.segments.filter((segment, index) => index < (entry.completed ?? 0) && segment)
     : entry.segments;
   return (
@@ -884,7 +884,7 @@ function Bubbled({
           </HerBubble>
           {last && !entry.pending && time}
         </div>
-        {entry.pending && !entry.reachOut && shownSegments.length > 0 && (
+        {entry.pending && shownSegments.length > 0 && (
           <Spinner
             className="mx-1 my-1 size-4 text-muted-foreground"
             aria-label={t.replying(character.name)}
