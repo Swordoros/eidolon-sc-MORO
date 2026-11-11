@@ -109,6 +109,11 @@ Subject = Literal["producer", "self"]
 SUBJECTS: tuple[Subject, ...] = ("producer", "self")
 """Every subject, the producer's first."""
 
+_TRANSIENT_SELF = re.compile(
+    r"正在|正准备|在准备|刚刚|刚才|现在|今天|今晚|等下|待会|明天|这周|本周"
+)
+"""A self memory about the current day's doings, not something to keep."""
+
 # `memories` predates this module and keeps the columns and constraints it had in the
 # store; `memory_vectors` holds each memory's embedding, per embedding model.
 _SCHEMA = """
@@ -592,7 +597,8 @@ class Memories:
         release = hold() if hold is not None else None
         task = asyncio.create_task(
             self._write(
-                services, llm, conversation, clearings, history, text, reply, query_vector, now
+                services, llm, conversation, clearings, history, text, reply, query_vector, now,
+                timezone,
             ),
             context=detached(),  # after the turn, not part of it (see `activity`)
         )
@@ -623,6 +629,7 @@ class Memories:
         reply: Message,
         query_vector: Sequence[float] | None,
         now: datetime,
+        timezone: str,
     ) -> None:
         user_id = conversation.user_id
         try:
@@ -644,8 +651,8 @@ class Memories:
                 f"你的「群组」（unit 记忆的可见范围）是：{'、'.join(share)}。" if share else None
             )
             prompt = _extraction_prompt(
-                character, history, text, reply, shown, now, standing, unit_hint=unit_hint,
-                names=self._names,
+                character, history, text, reply, shown, now, standing,
+                timezone=timezone, unit_hint=unit_hint, names=self._names,
             )
             answer = "".join([
                 chunk async for chunk in llm.stream(prompt)
@@ -659,12 +666,18 @@ class Memories:
                 )
                 return
             said = [part for part in (reply.zh, reply.ja) if part]
-            written = [
-                memory for memory in written
-                if memory.subject != "self"
-                or (memory.evidence is not None
-                    and any(memory.evidence in part for part in said))
-            ]
+
+            def worth_keeping(memory: NewMemory) -> bool:
+                if memory.evidence is None:
+                    return False
+                if memory.subject == "producer":
+                    return memory.evidence in text
+                return (
+                    any(memory.evidence in part for part in said)
+                    and _TRANSIENT_SELF.search(memory.text) is None
+                )
+
+            written = [memory for memory in written if worth_keeping(memory)]
             if self._promises is not None:
                 changes = parse_promise_changes(answer, standing)
                 if changes:
@@ -1001,7 +1014,8 @@ class MemoryTurn:
 _INSTRUCTIONS = """\
 你负责替《偶像大师 闪耀色彩》283 事务所的偶像们（还有事务员）记住两类事：制作人的事，以及这位角色自己的事。制作人就是正在和她们对话的用户。
 
-读下面的对话。制作人最新的一句话是制作人主题的来源；这位角色最新的回复是她自己主题的来源。
+读下面的对话。制作人最新的一句话是制作人主题的唯一来源；这位角色最新的回复是她自己主题的唯一来源。
+今天早些时候的对话只用于理解「那件事」「他」之类的指代，不能从那里提取新记忆；旧日期的内容也不要写成今天发生的事。
 
 只记过后仍有意义的事。
 制作人主题：制作人自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望偶像记住的事；\
@@ -1009,13 +1023,17 @@ _INSTRUCTIONS = """\
 她自己主题：她明确说过的自己的经历、稳定的偏好、自己的计划、对某件事持续的感受；只限以后对话仍有意义的事。
 不要记的：当天就会过去的状态（例如累、困、饿、无聊、心情不好）和一时的情绪；寒暄；原作剧情和角色设定；\
 演戏、玩笑、幻想、梦里说的话；模型推断出来、她没有明确说过的事；制作人向偶像提的问题。
+她自己主题尤其不要记正在做、今天要做、明天要做的事，例如「正在准备明天的资料」「今天和日花约好做饭」\
+「刚刚收到糖果」「现在在事务所工作」「明天要交资料」「这周很忙」；这些不是长期记忆。
 同一句话里还说了值得记的事时，只记那件事、不记一时的状态。
 
 每条记忆是一句能单独看懂的中文第三人称陈述。
 - 制作人主题以「制作人」开头，例如「制作人养了一只叫小白的猫」。
 - 她自己主题以这位角色的中文名开头，例如「角色名小时候在祖母家见过这种花」，实际写她的名字；不要用「我」，因为这条记忆可能被别的角色看到。
-- 她自己主题必须带 evidence：从她最新回复里原样摘一句连续的话，证明这件事是她亲口说的。写不出原话就不要写这条。
-- 制作人主题的 evidence 可以写制作人最新一句话里的原话，也可以省略。
+- 每条记忆都必须带 evidence，写原样连续的一段话，不要改写：
+  - 制作人主题从制作人最新一句话里摘；
+  - 她自己主题从她最新回复里摘。
+  写不出原话就不要写这条记忆。
 提到「明天」「下周六」这样的相对时间时，换算成具体日期写下来。
 
 「已经记住的事」按编号列出了和这轮对话最相关的记忆，每条前面的 [producer] 或 [self] 是它的主题，写之前先对照：
@@ -1051,7 +1069,7 @@ _INSTRUCTIONS = """\
 拿不准就写 medium。
 - subject 只能是 producer（关于制作人）或 self（关于她自己）。
 
-只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self", "evidence": "……或省略", \
+只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self", "evidence": "原话……", \
 "supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
 "promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；\
 没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
@@ -1072,12 +1090,15 @@ def _extraction_prompt(
     shown: Sequence[Memory],
     now: datetime,
     promised: Sequence[Promise] = (),
+    timezone: str = "Asia/Tokyo",
     unit_hint: str | None = None,
     names: Mapping[str, str] | None = None,
 ) -> list[ChatMessage]:
     # 星期几也写上：约定（promises）里「下周六」这类说法要靠它算出是哪一天。
     weekday = "一二三四五六日"[now.weekday()]
     name = character.name_zh or character.name
+    zone = ZoneInfo(timezone)
+    today = now.astimezone(zone).date()
     lines = [
         f"今天是 {_date(now)}，星期{weekday}。",
         f"这位角色是：{name}。",
@@ -1091,13 +1112,21 @@ def _extraction_prompt(
     ] or ["（还没有）"]
     lines += ["", "# 已经记着的约定"]
     lines += [f"{n}. {p.due.isoformat()}：{p.text}" for n, p in enumerate(promised, 1)] or ["（还没有）"]
-    lines += ["", f"# 制作人和{character.name}的对话"]
+    lines += ["", "# 最近的对话（只用于理解指代，不是记忆来源）"]
+    earlier = 0
     for message in history[-EXCHANGE_HISTORY:]:
+        said_at = datetime.fromisoformat(message.created_at).astimezone(zone)
+        earlier += 1
+        when = said_at.strftime("%H:%M")
+        day = _relative_day(said_at.date(), today) or _date(said_at)
         if message.role == "user":
-            lines.append(f"制作人：{message.text}")
+            lines.append(f"（{day} {when}，上下文，不是来源）制作人：{message.text}")
         else:
-            lines.append(f"{character.name}：{_said(message)}")
-    lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
+            lines.append(f"（{day} {when}，上下文，不是来源）{character.name}：{_said(message)}")
+    if not earlier:
+        lines.append("（没有）")
+    lines += [f"# 最新的一句话（producer 记忆的唯一来源）\n制作人：{text}"]
+    lines += [f"# 最新的一条回复（self 记忆的唯一来源）\n{character.name}：{_said(reply)}"]
     instructions = (
         f"{names_instructions(names, where='记忆')}\n\n{_INSTRUCTIONS}"
         if names else _INSTRUCTIONS

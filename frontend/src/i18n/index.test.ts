@@ -25,9 +25,9 @@ describe("界面文案", () => {
   });
 
   it("带参数的文案把参数放进句子里", () => {
-    // scopeName 和 strengthTier 是「按值取名字」的选择器，不是把参数插进句子里的文案。
+    // scopeName 和 strengthValue 是「按值取名字」的选择器，不是把参数插进句子里的文案。
     const withArgs = leaves(zh).filter(
-      ([path, , called]) => called && path !== "memories.scopeName" && path !== "memories.strengthTier",
+      ([path, , called]) => called && path !== "memories.scopeName" && path !== "memories.strengthValue",
     );
     for (const [path, text] of withArgs) expect(text, path).toMatch(/甲/);
   });

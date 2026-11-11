@@ -584,11 +584,44 @@ def build_faked(
     return build(settings, clients=clients, **services)
 
 
+def _with_evidence(reply: str, prompt: str) -> str:
+    """Give a scripted memory the evidence the real rules now require, taken from the
+    prompt's latest producer line or her latest reply."""
+    try:
+        body = json.loads(reply)
+        memories = body["memories"]
+    except (ValueError, KeyError, TypeError):
+        return reply
+    if not isinstance(memories, list):
+        return reply
+    user = prompt.split("# 最新的一句话（producer 记忆的唯一来源）", 1)
+    said = user[1].split("# 最新的一条回复（self 记忆的唯一来源）", 1)[0] if len(user) == 2 else ""
+    said = said.split("\n", 1)[1].strip() if "\n" in said else ""
+    said = said.split("：", 1)[1].strip() if "：" in said else said
+    replied = prompt.split("# 最新的一条回复（self 记忆的唯一来源）", 1)
+    reply_text = replied[1].split("\n", 1)[1].strip() if len(replied) == 2 and "\n" in replied[1] else ""
+    reply_text = reply_text.split("：", 1)[1].strip() if "：" in reply_text else reply_text
+    changed = False
+    for index, memory in enumerate(memories):
+        if isinstance(memory, str):
+            memory = {"text": memory}
+            memories[index] = memory
+            changed = True
+        if not isinstance(memory, dict) or memory.get("evidence"):
+            continue
+        evidence = reply_text if memory.get("subject") == "self" else said
+        if evidence:
+            memory["evidence"] = evidence
+            changed = True
+    return json.dumps(body, ensure_ascii=False) if changed else reply
+
+
 class FakeBackgroundLLM:
     """Stands in for the background model: answers each request with the next scripted
     reply, and with no memories once the script runs out; a reply that is an exception
     is raised instead, one that is a function is called with the prompt, as one text, for
-    the answer. Records every prompt it receives. With a `gate`, it answers only once the
+    the answer. Scripted JSON memories get the evidence the production rules require from
+    the prompt. Records every prompt it receives. With a `gate`, it answers only once the
     gate is open, like a slow model."""
 
     NOTHING = '{"memories": []}'
@@ -609,8 +642,11 @@ class FakeBackgroundLLM:
     ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
         reply = self._replies.pop(0) if self._replies else self.NOTHING
+        prompt = "\n".join(m.content for m in messages)
         if callable(reply):
-            reply = reply("\n".join(m.content for m in messages))
+            reply = reply(prompt)
+        if isinstance(reply, str):
+            reply = _with_evidence(reply, prompt)
         if self._gate is not None:
             await self._gate.wait()
         if isinstance(reply, Exception):

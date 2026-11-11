@@ -298,7 +298,7 @@ async def test_the_background_model_reads_the_exchange_and_what_is_already_remem
     assert "我家的猫叫小白哦" in first and "櫻木真乃" in first
     assert "2026年9月25日" in first  # so relative dates can be written down as dates
     assert "我家的猫叫小白哦" in second and "下周六我要去北海道出差" in second
-    assert CAT in second.split("# 制作人和")[0]  # already remembered, not written down again
+    assert CAT in second.split("# 最近的对话")[0]  # already remembered, not written down again
     # Written down twice, remembered once, newest first.
     assert [m.text for m in listed] == [TRIP, CAT]
 
@@ -540,10 +540,12 @@ def test_memories_have_a_subject_and_self_memories_carry_evidence():
 
 def known(prompt: str) -> dict[str, int]:
     """The number of each memory the background model was shown as already remembered."""
-    section = prompt.split("# 已经记住的事")[1].split("# 制作人和")[0]
-    numbered = (line.partition(". ") for line in section.splitlines())
+    section = prompt.split("# 已经记住的事")[1]
     found = {}
-    for number, _, text in numbered:
+    for line in section.splitlines():
+        if line.startswith("#"):
+            break
+        number, _, text = line.partition(". ")
         if not number.isdigit():
             continue
         if text.startswith("[") and "] " in text:
