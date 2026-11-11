@@ -18,7 +18,7 @@ from eidolon.engine import EmptyReply, WANTS_TO_GIVE, read_keepsake
 from eidolon.keepsakes import PER_DAY
 from eidolon.photo_prompt import keepsake_prompt
 from eidolon.promises import Promise
-from eidolon.schedules import TRIP_TWIST, Slot
+from eidolon.schedules import Bath, TRIP_TWIST, Slot
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeImageService, FakeLLM, FakeRandom, context_of
 from tests.test_delete_account import user_id
@@ -281,7 +281,7 @@ async def test_her_birthday_keepsake_comes_with_her_letter_and_not_in_the_conver
     assert len((await cabinet(client))["keepsakes"]) == 1
 
 
-async def test_no_more_than_a_few_a_day_the_rest_the_next_day(
+async def test_one_at_a_time_and_a_character_waits_three_days(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock(at(12))
@@ -299,7 +299,12 @@ async def test_no_more_than_a_few_a_day_the_rest_the_next_day(
     await keepsakes.run_due()
     await keepsakes.run_due()
 
-    assert len((await cabinet(client))["keepsakes"]) == PER_DAY
+    assert len((await cabinet(client))["keepsakes"]) == 1
+
+    clock.advance(days=3)
+    await keepsakes.run_due()
+
+    assert len((await cabinet(client))["keepsakes"]) == 2
 
 
 async def test_the_day_after_a_trip_she_brings_something_from_there(
@@ -318,6 +323,36 @@ async def test_the_day_after_a_trip_she_brings_something_from_there(
 
     await backend_of(client).keepsakes.run_due()
 
+    assert len((await cabinet(client))["keepsakes"]) == 1
+    assert "你刚从大阪回来" in context_of(llm.prompts[-1])
+
+
+async def test_a_trip_gives_at_the_end_of_the_day_and_not_while_she_is_asleep_or_bathing(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(at(23, 0))
+    client, llm, conversation = await talked(
+        make_client, settings, GIVES, clock=clock, schedules=True,
+    )
+    last_contact(settings.database_path, conversation, at(9))
+    me = user_id(settings.database_path, "producer")
+    keepsakes = backend_of(client).keepsakes
+    await backend_of(client).daily.keep(
+        me, "mano", TODAY,
+        [Slot(time(10), time(16), "外景", "大阪", "work")],
+        [], wake=time(7), sleep=time(23, 30),
+        bath=Bath(time(22, 50), 30), trip="大阪",
+    )
+
+    await keepsakes.run_due()
+    assert len((await cabinet(client))["keepsakes"]) == 0
+
+    clock.advance(minutes=30)  # bath over, asleep
+    await keepsakes.run_due()
+    assert len((await cabinet(client))["keepsakes"]) == 0
+
+    clock.now = at(9, 1, TODAY + timedelta(days=1))
+    await keepsakes.run_due()
     assert len((await cabinet(client))["keepsakes"]) == 1
     assert "你刚从大阪回来" in context_of(llm.prompts[-1])
 

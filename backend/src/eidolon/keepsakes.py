@@ -10,15 +10,18 @@ them off (GLOSSARY.md「玩法开关」). She gives one:
   else from `MORNING` of it in the conversation;
 - now and then for a gift she liked (`gift_given`, one in `GIFT_ODDS`), the next day;
 - now and then for a promise kept (`promise_settled`, one in `PROMISE_ODDS`), soon after;
-- the day after a trip by her schedule (GLOSSARY.md「行程」), something from where she went;
+- after her schedule's last arrangement on a trip day (GLOSSARY.md「行程」), something from
+  where she went; if that is missed, the next day;
 - now and then with a holiday's letter (one in `HOLIDAY_ODDS`).
 
 Each is put down as due (`keepsake_due`), once for what it is for, and given at a tick once
-its time has come: `PER_TICK` at a tick, `PER_DAY` a day to a user at most, the rest put off to
-the next day, but for her scene's and a birthday's. She chooses it and says what she says
-giving it on the deployer's chat model (`ConversationEngine.write_keepsake`), each with an
-activity record of its own (`keepsake`); one the model fails on is tried again `RETRY_AFTER`
-later, `TRIES` times in all, then let go. Its picture is drawn on the deployer's image
+its time has come: one at a tick, `PER_DAY` a day to a user at most, the rest put off to the
+next day, but for her scene's and a birthday's. One character waits `COOLDOWN` after giving
+one before she gives another; while she is asleep or in the bath she gives none and the due
+is tried again later. She chooses it and says what she says giving it on the deployer's chat
+model (`ConversationEngine.write_keepsake`), each with an activity record of its own
+(`keepsake`); one the model fails on is tried again `RETRY_AFTER` later, `TRIES` times in
+all, then let go. Its picture is drawn on the deployer's image
 generation, square, the thing alone (`photo_prompt.keepsake_prompt`), where there is one; where
 there is none, or it fails, it is kept without, an emoji standing for it, and the tags written
 for it kept, for its picture to be drawn later (`fill_images`), all the user's missing ones in
@@ -57,7 +60,7 @@ from eidolon.producer import effective_timezone, is_birthday
 from eidolon.promises import Promise
 from eidolon.randomness import Random
 from eidolon.reply_format import Segment
-from eidolon.schedules import Schedules
+from eidolon.schedules import Schedule, Schedules, rest
 from eidolon.store import Store, give_keepsake
 
 log = logging.getLogger(__name__)
@@ -70,9 +73,13 @@ she liked, a promise kept, a trip she came back from, a holiday's letter, being 
 with the producer, a party the producer had thrown for her (GLOSSARY.md「拜托」)."""
 
 TICK = timedelta(minutes=5)
-PER_TICK = 3
+PER_TICK = 1
 PER_DAY = 3
 """How many keepsakes a user is given a day at most, but for her scene's and a birthday's."""
+COOLDOWN = timedelta(days=3)
+"""How long one character waits after a keepsake before giving another."""
+REST_RETRY = timedelta(hours=1)
+"""How long a keepsake waits when she is asleep or in the bath."""
 TRIES = 3
 RETRY_AFTER = timedelta(hours=1)
 WINDOW = timedelta(days=14)
@@ -308,7 +315,8 @@ class Keepsakes:
                 continue
             profile = await self._store.get_profile(user_id)
             timezone = effective_timezone(profile, None)
-            local = now.astimezone(ZoneInfo(timezone))
+            zone = ZoneInfo(timezone)
+            local = now.astimezone(zone)
             if local.time() < MORNING:
                 continue
             today = local.date()
@@ -330,6 +338,12 @@ class Keepsakes:
                 await self._put_down(user_id, character_id, f"birthday:{today.year}", "birthday",
                                      "", now)
             if self._schedules is not None and await self._features.on(user_id, "schedules"):
+                duty = await self._schedules.of(user_id, character_id, today)
+                if duty is not None and duty.trip:
+                    await self._put_down(
+                        user_id, character_id, f"souvenir:{today}", "souvenir", duty.trip,
+                        _trip_end(duty, zone),
+                    )
                 yesterday = await self._schedules.of(
                     user_id, character_id, today - timedelta(days=1)
                 )
@@ -387,6 +401,16 @@ class Keepsakes:
         ):
             await self._db.write(_drop, due.id)
             return
+        if not anyway:
+            last = await self._db.read(_last_given, due.user_id, due.character_id)
+            if last is not None:
+                until = datetime.fromisoformat(last) + COOLDOWN
+                if now < until:
+                    await self._db.write(_put_off, due.id, until)
+                    return
+            if await self._resting(due.user_id, due.character_id, now):
+                await self._db.write(_put_off, due.id, now + REST_RETRY)
+                return
         if (
             not anyway and due.occasion not in ANYWAY
             and await self._given_today(due.user_id, now) >= PER_DAY
@@ -470,6 +494,22 @@ class Keepsakes:
             log.warning("a keepsake's picture was not drawn: %s", e)
             return None
         return image.webp
+
+    async def _resting(self, user_id: str, character_id: str, now: datetime) -> bool:
+        """Whether her schedule has her asleep or in the bath now, when schedules can say."""
+        if self._schedules is None:
+            return False
+        try:
+            zone = await self._zone(user_id)
+            local = now.astimezone(zone)
+            today = await self._schedules.of(user_id, character_id, local.date())
+            yesterday = await self._schedules.of(
+                user_id, character_id, local.date() - timedelta(days=1)
+            )
+            return rest(today, yesterday, local) in ("asleep", "bath")
+        except Exception:
+            log.warning("reading her rest for a keepsake failed", exc_info=True)
+            return False
 
     async def _given_today(self, user_id: str, now: datetime) -> int:
         zone = await self._zone(user_id)
@@ -583,6 +623,13 @@ class Keepsakes:
             task.cancel()
 
 
+def _trip_end(schedule: Schedule, zone: ZoneInfo) -> datetime:
+    """When the day's last arrangement ends: the first moment she is back from it. A day
+    with no arrangement at all falls back to its midnight."""
+    end = max((slot.end for slot in schedule.slots), default=time(0))
+    return datetime.combine(schedule.day, end, zone)
+
+
 def _open(db: sqlite3.Connection) -> None:
     db.executescript(_SCHEMA)
     if "drawn" not in {r[1] for r in db.execute("PRAGMA table_info(keepsakes)")}:
@@ -650,6 +697,14 @@ def _tried(db: sqlite3.Connection, due_id: int, now: datetime) -> None:
         "UPDATE keepsake_due SET tries = tries + 1, last_at = ? WHERE id = ?",
         (now.isoformat(), due_id),
     )
+
+
+def _last_given(db: sqlite3.Connection, user_id: str, character_id: str) -> str | None:
+    row = db.execute(
+        "SELECT MAX(given_at) FROM keepsakes WHERE user_id = ? AND character_id = ?",
+        (user_id, character_id),
+    ).fetchone()
+    return row[0] if row is not None else None
 
 
 def _given_since(db: sqlite3.Connection, user_id: str, start: datetime) -> int:
