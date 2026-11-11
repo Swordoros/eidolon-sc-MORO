@@ -684,6 +684,10 @@ class Memories:
         is being written down (`entries` does)."""
         return await self._db.read(self.read_kept, user_id)
 
+    async def visible(self, user_id: str, character_id: str) -> list[Memory]:
+        """The user's memories `character_id` may recall, by the same scope rules as a turn."""
+        return self._visible(await self.kept(user_id), character_id)
+
     def read_kept(self, db: sqlite3.Connection, user_id: str) -> list[Memory]:
         """What `kept` reads, read through `db`: for a data package too."""
         rows = db.execute(

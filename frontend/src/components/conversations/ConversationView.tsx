@@ -36,6 +36,7 @@ import {
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -83,6 +84,7 @@ import { PastConversations } from "./PastConversations";
 import { SchedulePanel } from "./SchedulePanel";
 import { PhotoBlock } from "./PhotoBlock";
 import { ReadAloudBar, ReadAloudMenu } from "./ReadAloud";
+import { RelationshipTab } from "./RelationshipTab";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
 import { useHerAchievements } from "./useHerAchievements";
@@ -541,18 +543,29 @@ export function ConversationView({
         unseen={achievements.unseenRows}
       />
       <Dialog open={devPromptOpen} onOpenChange={setDevPromptOpen}>
-        <DialogContent className="max-w-[min(48rem,92vw)]">
+        <DialogContent className="flex max-h-[82dvh] max-w-[min(48rem,92vw)] flex-col">
           <DialogHeader>
             <DialogTitle>{t.devPrompt}</DialogTitle>
             <DialogDescription className="sr-only">{t.devPrompt}</DialogDescription>
           </DialogHeader>
-          {devPrompt === undefined ? (
-            <p className="text-body text-muted-foreground">…</p>
-          ) : (
-            <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
-              {devPrompt ?? t.devPromptNone}
-            </pre>
-          )}
+          <Tabs defaultValue="prompt" className="min-h-0 flex-1">
+            <TabsList>
+              <TabsTrigger value="prompt">{t.devTabs.prompt}</TabsTrigger>
+              <TabsTrigger value="relationship">{t.devTabs.relationship}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="prompt" className="min-h-0 overflow-auto">
+              {devPrompt === undefined ? (
+                <p className="text-body text-muted-foreground">…</p>
+              ) : (
+                <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
+                  {devPrompt ?? t.devPromptNone}
+                </pre>
+              )}
+            </TabsContent>
+            <TabsContent value="relationship" className="min-h-0 overflow-auto">
+              <RelationshipTab characterId={character.id} isOpen={devPromptOpen} />
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
       {live && (

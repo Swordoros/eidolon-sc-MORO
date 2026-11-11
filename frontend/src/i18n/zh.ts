@@ -304,6 +304,27 @@ export const zh = {
     asmrCall: "ASMR 模式",
     /** 开发开关打开时更多菜单里查看上一次完整提示词的项（GLOSSARY.md「开发」）。 */
     devPrompt: "提示词",
+    /** 提示词窗口的两个标签页。 */
+    devTabs: {
+      prompt: "提示词",
+      relationship: "关系",
+    },
+    /** 「关系」标签页：只给开发者看，文本可编辑。 */
+    devRelationship: {
+      title: "与制作人最近的关系",
+      empty: "今天还没有关系总结。",
+      affinity: (tier: string) => `当前好感阶段：${tier}`,
+      cooling: "冷却中",
+      generatedAt: (at: string) => `生成于 ${at}`,
+      hint: "文本会作为今天对话的提示词，并参与下一天的关系总结。格式：关系状态、最近气氛，以及可选的她现在的倾向、还没解决的事、最近的温暖、不要。",
+      save: "保存",
+      saved: "已保存",
+      regenerate: "重新生成",
+      regenerating: "生成中…",
+      saveFailed: "保存失败",
+      regenerateFailed: "生成失败",
+      retry: "重试",
+    },
     /** 还没有生成过提示词时，那项打开后显示的字。 */
     devPromptNone: "none",
     placeholder: "用中文或日语说点什么",

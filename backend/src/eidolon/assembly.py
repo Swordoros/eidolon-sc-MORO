@@ -88,6 +88,7 @@ from eidolon.reach_outs import ReachOuts
 from eidolon.read_aloud import ReadAloud
 from eidolon.readings import load_readings, readings_path
 from eidolon.recent_moments import RecentMoments
+from eidolon.relationships import Relationships
 from eidolon.rerank import (
     FALLBACK_MODEL,
     KNOWN_THRESHOLDS,
@@ -192,6 +193,8 @@ class Backend:
     """Has characters keep a diary of the days that mattered."""
     keepsakes: Keepsakes
     """Has characters give keepsakes, and shows the cabinet."""
+    relationships: Relationships
+    """Writes and reads the recent relationship between each character and the producer."""
     moments: Moments
     """Has characters post moments to users once their time comes, and shows them."""
     groups: Groups
@@ -229,6 +232,7 @@ class Backend:
     _watching: asyncio.Task[None] | None = field(default=None, repr=False)
     _loading_stories: asyncio.Task[None] | None = field(default=None, repr=False)
     _planning: asyncio.Task[None] | None = field(default=None, repr=False)
+    _relationship_writing: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
@@ -251,6 +255,7 @@ class Backend:
         self._giving = asyncio.create_task(self.keepsakes.keep_giving())
         self._sending = asyncio.create_task(self.trip_photos.keep_sending())
         self._planning = asyncio.create_task(self.schedule_writer.keep_writing())
+        self._relationship_writing = asyncio.create_task(self.relationships.keep_writing())
         self._talking = asyncio.create_task(self.groups.keep_going())
         self._sweeping = asyncio.create_task(self.bar.keep_sweeping())
         self._decaying = asyncio.create_task(self.memories.keep_decaying())
@@ -267,7 +272,7 @@ class Backend:
             task
             for task in (
                 self._keeping_fresh, self._probing, self._reaching_out, self._posting, self._writing,
-                self._talking,
+                self._relationship_writing, self._talking,
                 self._sweeping,
                 self._tidying, self._watching, self._loading_stories,
             )
@@ -541,11 +546,14 @@ def build(
         RecentMoments(database, clock, lambda: config.moments.enabled),
         her_weather,
     )
+    relationships = Relationships(
+        database, store, memories, affinities, config, clock, characters,
+    )
     engine = ConversationEngine(
         database, store, characters, gift_catalog, memories, titles, clock, her_now, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
         happenings, schedules=daily, promises=promises,
-        promise_judge=config.promise_judge(),
+        promise_judge=config.promise_judge(), relationships=relationships,
     )
     admissions = Admissions(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until
@@ -655,6 +663,7 @@ def build(
         trip_photos=trip_photos,
         diary=diary,
         keepsakes=keepsakes,
+        relationships=relationships,
         special_days=special_days,
         moments=moments,
         groups=groups,

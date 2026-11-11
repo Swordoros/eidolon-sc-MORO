@@ -155,6 +155,7 @@ from eidolon.schedules import lines as schedule_lines
 from eidolon.schedules import rest as schedule_rest
 from eidolon.schedules import summary as schedule_summary
 from eidolon.recent_moments import moments_section
+from eidolon.relationships import Relationships
 from eidolon.reply_format import (
     format_instructions,
     PhotoTagged,
@@ -1004,6 +1005,7 @@ class ConversationEngine:
         schedules: "Schedules | None" = None,
         promises: "Promises | None" = None,
         promise_judge: "PromiseJudge | None" = None,
+        relationships: Relationships | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
@@ -1034,6 +1036,7 @@ class ConversationEngine:
         self._schedules = schedules
         self._promises = promises
         self._promise_judge = promise_judge
+        self._relationships = relationships
         self._her_now = her_now
         self._ended_listeners: list[Callable[[str, EndsFor], None]] = []
         self._cooled_listeners: list[Callable[[str, str, datetime], None]] = []
@@ -1554,6 +1557,12 @@ class ConversationEngine:
             character, conversation.user_id, now, timezone, last_contact, in_call is not None,
             in_bath,
         )
+        relationship = (
+            await self._relationships.prompt(
+                conversation.user_id, conversation.character_id, now, timezone, read.affinity,
+            )
+            if self._relationships is not None else None
+        )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, turns),
@@ -1571,7 +1580,7 @@ class ConversationEngine:
                 *([about_photo] if about_photo else []),
                 *([asmr_rules(voiced_by)] if in_call is not None and in_call.asmr else []),
             ],
-            [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
+            [p for p in (retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text, voiced_by,
         )
         self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
