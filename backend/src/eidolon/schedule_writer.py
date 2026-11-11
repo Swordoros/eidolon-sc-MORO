@@ -10,12 +10,15 @@ on from. One the model fails on, or writes nothing usable in, is kept as none an
 again that day. Written on the deployer's chat model as letters are, each with an activity
 record of its own (`schedule`). A turn never waits for one: without it, she has none that day.
 A night she goes to bed, her bath before it is drawn on `random` too (`schedules.draw_bath`),
-in the tub unless her heart says she showers (GLOSSARY.md「洗澡」). A unit has a trip on one day in `UNIT_TRIP_ODDS`, drawn once for the whole unit: one of its
-members is picked to send the trip's content and keeps the day's `trip`/`trip_with`, while
-the others' schedules still have the group trip. A unit with no such trip has a solo trip for
-one member on one day in `SOLO_TRIP_ODDS`. A live away from Tokyo is left to the world
-setting's live, not counted as a trip by itself (GLOSSARY.md「纪念品」「外景照片」); a day the
-producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of its own.
+in the tub unless her heart says she showers (GLOSSARY.md「洗澡」). A day's units are planned
+together: each has a trip on one day in `UNIT_TRIP_ODDS`, drawn once for the whole unit, and
+one member is picked to send its content and keeps the day's `trip`/`trip_with`. When two or
+more units trip, one pair may go together on one day in `JOINT_TRIP_ODDS`; they share a
+place and one owner, so the pair sends one photo and brings one souvenir. A unit with no such
+trip has a solo trip for one member on one day in `SOLO_TRIP_ODDS`. A live away from Tokyo is
+left to the world setting's live, not counted as a trip by itself (GLOSSARY.md「纪念品」
+「外景照片」); a day the producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of
+its own.
 """
 
 import asyncio
@@ -33,6 +36,7 @@ from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
 from eidolon.schedules import (
+    JOINT_TRIP_ODDS,
     SOLO_TRIP_ODDS,
     TRIP_PLACES,
     TRIP_TWIST,
@@ -68,35 +72,81 @@ async def _no_favors(*_: object) -> list[str]:
     return []
 
 
-def _plan_trips(
-    unit: list[str], names: Mapping[str, str], random: Random
-) -> tuple[dict[str, list[str]], dict[str, tuple[str | None, tuple[str, ...]]]]:
-    """The day's trip twists and trip metadata for `unit`: a unit trip on one day in
-    `UNIT_TRIP_ODDS`, one member picked to hold its `trip`, or, with no unit trip, a solo
-    trip on one day in `SOLO_TRIP_ODDS`. Only a trip's chosen member has `trip`; the rest of
-    a unit trip have the group twist in their schedules but send no trip content."""
+TripPlan = tuple[
+    dict[str, list[str]], dict[str, tuple[str | None, tuple[str, ...]]]
+]
+
+
+def _plan_group(
+    members: list[str], names: Mapping[str, str], random: Random
+) -> tuple[str, TripPlan]:
+    """One trip for `members`, all of them away together: a place, a chosen member to hold
+    the trip's content, and the group twist for everyone else. Only the owner has `trip`;
+    the others' schedules still say they went, but they send no content."""
+    place = TRIP_PLACES[random(len(TRIP_PLACES))]
+    owner = members[0] if len(members) == 1 else members[random(len(members))]
+    others = tuple(cid for cid in members if cid != owner)
     twists: dict[str, list[str]] = {}
-    trips: dict[str, tuple[str | None, tuple[str, ...]]] = {cid: (None, ()) for cid in unit}
-    if random(UNIT_TRIP_ODDS) == 0:
-        place = TRIP_PLACES[random(len(TRIP_PLACES))]
-        owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
-        others = tuple(cid for cid in unit if cid != owner)
-        if others:
-            for cid in unit:
-                going = [c for c in unit if c != cid]
-                twists.setdefault(cid, []).append(TRIP_WITH_TWIST.format(
-                    names="、".join(names.get(c, c) for c in going), place=place
-                ))
-            trips[owner] = (place, others)
-        else:
-            twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
-            trips[owner] = (place, ())
-    elif random(SOLO_TRIP_ODDS) == 0:
-        owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
-        place = TRIP_PLACES[random(len(TRIP_PLACES))]
+    if others:
+        for cid in members:
+            going = [c for c in members if c != cid]
+            twists.setdefault(cid, []).append(TRIP_WITH_TWIST.format(
+                names="、".join(names.get(c, c) for c in going), place=place
+            ))
+    else:
         twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
-        trips[owner] = (place, ())
-    return twists, trips
+    trips: dict[str, tuple[str | None, tuple[str, ...]]] = {
+        cid: (None, ()) for cid in members
+    }
+    trips[owner] = (place, others)
+    return place, (twists, trips)
+
+
+def _plan_day_trips(
+    units: list[list[str]], names: Mapping[str, str], random: Random
+) -> tuple[list[TripPlan], tuple[int, int] | None, TripPlan | None]:
+    """Draw one day's trips for all units due together. Every unit draws a unit trip; when
+    at least two different units of two or more have one, two of them are picked and one
+    `JOINT_TRIP_ODDS` roll decides whether they go together. Only one pair can join; any
+    other unit trips stay separate. A unit without a unit trip may instead get one solo
+    trip. A joint pair is returned as one plan for the combined members, with one owner, so
+    it produces one photo and one souvenir."""
+    group = [random(UNIT_TRIP_ODDS) == 0 for _ in units]
+    group_units = [
+        i for i, (is_group, unit) in enumerate(zip(group, units))
+        if is_group and len(unit) >= 2
+    ]
+    joint: tuple[int, int] | None = None
+    if len(group_units) >= 2:
+        first = group_units[random(len(group_units))]
+        rest = [i for i in group_units if i != first]
+        second = rest[random(len(rest))]
+        if random(JOINT_TRIP_ODDS) == 0:
+            joint = (first, second)
+    plans: list[TripPlan] = [
+        ({}, {cid: (None, ()) for cid in unit}) for unit in units
+    ]
+    joint_plan: TripPlan | None = None
+    if joint is not None:
+        members = [*units[joint[0]], *units[joint[1]]]
+        _, joint_plan = _plan_group(members, names, random)
+    for index, unit in enumerate(units):
+        if joint is not None and index in joint:
+            continue
+        if group[index]:
+            _, plans[index] = _plan_group(unit, names, random)
+        elif random(SOLO_TRIP_ODDS) == 0:
+            owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
+            _, solo = _plan_group([owner], names, random)
+            plans[index][0].setdefault(owner, []).extend(solo[0].get(owner, []))
+            plans[index][1][owner] = solo[1][owner]
+    return plans, joint, joint_plan
+
+
+def _plan_trips(unit: list[str], names: Mapping[str, str], random: Random) -> TripPlan:
+    """One unit's trip plan, the same draw a day of one due unit gets."""
+    plans, _, _ = _plan_day_trips([unit], names, random)
+    return plans[0]
 
 
 class ScheduleWriter:
@@ -147,11 +197,26 @@ class ScheduleWriter:
             return
         now = self._clock()
         due = await self._due(now)
+        names = {c.id: c.name for c in self._characters.values()}
+        by_day: dict[tuple[str, date], list[list[str]]] = {}
         for user_id, unit, day in due:
-            try:
-                await self._write_unit(user_id, unit, day)
-            except Exception:
-                log.exception("writing the schedules of %s for %s failed", unit, user_id)
+            by_day.setdefault((user_id, day), []).append(unit)
+        for (user_id, day), units in by_day.items():
+            plans, joint, joint_plan = _plan_day_trips(units, names, self._random)
+            if joint is not None:
+                members = [*units[joint[0]], *units[joint[1]]]
+                assert joint_plan is not None
+                try:
+                    await self._write_unit(user_id, members, day, joint_plan, all_or_nothing=True)
+                except Exception:
+                    log.exception("writing the joint schedules of %s for %s failed", members, user_id)
+            for index, unit in enumerate(units):
+                if joint is not None and index in joint:
+                    continue
+                try:
+                    await self._write_unit(user_id, unit, day, plans[index])
+                except Exception:
+                    log.exception("writing the schedules of %s for %s failed", unit, user_id)
         await self._schedules.sweep(now.date())
 
     async def write_now(self, user_id: str, character_id: str) -> bool:
@@ -199,12 +264,19 @@ class ScheduleWriter:
             drawn.append(left.pop(self._random(len(left))))
         return drawn
 
-    async def _write_unit(self, user_id: str, unit: list[str], day: date) -> None:
+    async def _write_unit(
+        self, user_id: str, unit: list[str], day: date,
+        plan: TripPlan | None = None, all_or_nothing: bool = False,
+    ) -> None:
         """Write the day's schedules of the unit's members together, in one call, so that
-        they do not conflict; a member whose part cannot be read is left to be retried."""
+        they do not conflict; a member whose part cannot be read is left to be retried.
+        `plan` is a day's trip draw when several units were planned together; a joint pair
+        passes all its members as one unit and writes none unless all their parts are read."""
         names = {c.id: c.name for c in self._characters.values()}
         twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
-        trip_twists, trips = _plan_trips(unit, names, self._random)
+        if plan is None:
+            plan = _plan_trips(unit, names, self._random)
+        trip_twists, trips = plan
         for cid, additions in trip_twists.items():
             twists[cid].extend(additions)
         for cid in unit:
@@ -223,6 +295,9 @@ class ScheduleWriter:
                     unit, lease.keys.chat_llm, day, twists, yesterday
                 )
             parsed = parse_schedules_batched(answer, self._characters)
+            if all_or_nothing and any(cid not in parsed for cid in unit):
+                await recording.finish("failed")
+                return
             for cid in unit:
                 if cid not in parsed:
                     continue

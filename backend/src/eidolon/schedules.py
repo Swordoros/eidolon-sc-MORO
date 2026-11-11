@@ -69,6 +69,9 @@ SOLO_TRIP_ODDS = 20
 """One day in so many otherwise has a solo trip for one member of the unit: 5%, after the
 10% unit draw, so a unit has a trip on about 14.5% of days."""
 
+JOINT_TRIP_ODDS = 5
+"""One pair in so many of the units with a unit trip on a day go together instead."""
+
 TRIP_TWIST = "今天你要去{place}出外景（离开东京），当天来回，必须排进当天的行程"
 """The twist a trip is to the model writing the day."""
 

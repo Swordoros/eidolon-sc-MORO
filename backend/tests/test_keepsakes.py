@@ -377,7 +377,7 @@ async def test_a_day_now_and_then_has_a_trip_away_from_tokyo(
 ):
     # No twist (0), a unit trip (0), to the third place (2).
     client, _, clock = await schedule_talked(
-        make_client, settings, [MANO_PLAN], numbers=(0, 0, 2)
+        make_client, settings, [MANO_PLAN], numbers=(0, 0, 2, 1, 0)
     )
     clock.now = schedule_today_at(6)
 

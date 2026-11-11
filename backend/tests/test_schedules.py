@@ -23,7 +23,7 @@ from eidolon.engine import (
     _student_line,
 )
 from eidolon.llm import LLMError
-from eidolon.schedule_writer import _plan_trips
+from eidolon.schedule_writer import _plan_day_trips, _plan_trips
 from eidolon.schedules import (
     SOLO_TRIP_ODDS,
     TRIP_PLACES,
@@ -112,7 +112,7 @@ def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
 
 async def talked(
     make_client: ClientFactory, settings: Settings, *replies,
-    numbers=(1, 0, 1, 1, 1, 0, 1, 1),
+    numbers=(1, 1, 1, 1, 1, 0, 1, 0),
 ) -> tuple[httpx.AsyncClient, FakeLLM, FakeClock]:
     llm = FakeLLM(REPLY, *replies, REPLY)
     clock = FakeClock(today_at(3))
@@ -190,6 +190,52 @@ def test_a_unit_of_one_draws_once_for_her_trip_without_an_owner_index():
     assert UNIT_TRIP_ODDS == 10 and SOLO_TRIP_ODDS == 20
 
 
+def test_two_tripping_units_can_go_together_with_one_owner():
+    units = [["mano", "hiori"], ["kogane", "mamimi"]]
+    names = {"mano": "真乃", "hiori": "灯織", "kogane": "恋鐘", "mamimi": "摩美美"}
+
+    plans, joint, joint_plan = _plan_day_trips(
+        units, names, FakeRandom(0, 0, 0, 0, 0, 0, 1),
+    )
+
+    place = TRIP_PLACES[0]
+    assert joint == (0, 1)
+    assert joint_plan is not None
+    owner = "hiori"
+    assert joint_plan[1][owner] == (place, ("mano", "kogane", "mamimi"))
+    assert [cid for cid, (trip, _) in joint_plan[1].items() if trip is not None] == [owner]
+    assert plans == [({}, {cid: (None, ()) for cid in unit}) for unit in units]
+    assert TRIP_WITH_TWIST.format(names="真乃、恋鐘、摩美美", place=place) in joint_plan[0][owner]
+
+
+def test_only_one_pair_joins_when_three_units_trip():
+    units = [["a1", "a2"], ["b1", "b2"], ["c1", "c2"]]
+    names = {cid: cid.upper() for unit in units for cid in unit}
+
+    plans, joint, joint_plan = _plan_day_trips(
+        units, names, FakeRandom(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    )
+
+    assert joint == (0, 1) and joint_plan is not None
+    assert [cid for cid, (trip, _) in joint_plan[1].items() if trip is not None] == ["a1"]
+    assert plans[0] == ({}, {"a1": (None, ()), "a2": (None, ())})
+    assert plans[1] == ({}, {"b1": (None, ()), "b2": (None, ())})
+    assert plans[2][1]["c1"][0] == TRIP_PLACES[0]
+
+
+def test_a_failed_joint_roll_leaves_the_units_apart():
+    units = [["mano", "hiori"], ["kogane", "mamimi"]]
+    names = {"mano": "真乃", "hiori": "灯織", "kogane": "恋鐘", "mamimi": "摩美美"}
+
+    plans, joint, joint_plan = _plan_day_trips(
+        units, names, FakeRandom(0, 0, 0, 0, 1, 0, 1, 0, 1),
+    )
+
+    assert joint is None and joint_plan is None
+    assert [cid for cid, (trip, _) in plans[0][1].items() if trip is not None] == ["hiori"]
+    assert [cid for cid, (trip, _) in plans[1][1].items() if trip is not None] == ["mamimi"]
+
+
 async def test_hers_for_today_is_written_once_from_the_early_morning(
     make_client: ClientFactory, settings: Settings
 ):
@@ -224,7 +270,7 @@ async def test_a_day_the_model_fails_is_none_and_not_tried_again(
 ):
     client, llm, clock = await talked(
         make_client, settings, LLMError("挂了"), LLMError("挂了"),
-        numbers=(0, 1, 1) * 4,
+        numbers=(1, 1, 1, 1, 0, 0) * 2,
     )
     writer = backend_of(client).schedule_writer
     clock.now = today_at(6)

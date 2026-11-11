@@ -311,7 +311,7 @@ async def test_her_unit_mates_days_do_not_get_her_trip_content(
     llm = FakeLLM(REPLY, [batch], REPLY)
     clock = FakeClock(datetime.combine(TODAY, time(6), UTC))
     client = make_client(
-        llm, clock=clock, random=FakeRandom(*((0, 1, 1) * 8)),
+        llm, clock=clock, random=FakeRandom(*((1, 1, 1, 1, 0, 0) * 8)),
         settings=replace(settings, schedules=True),
     )
     await client.put("/api/profile", json={"timezone": "Etc/GMT"})
