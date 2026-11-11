@@ -187,7 +187,7 @@ def test_a_unit_of_one_draws_once_for_her_trip_without_an_owner_index():
 
     assert trips == {"mano": (TRIP_PLACES[0], ())}
     assert TRIP_TWIST.format(place=TRIP_PLACES[0]) in twists["mano"]
-    assert UNIT_TRIP_ODDS == 10 and SOLO_TRIP_ODDS == 50
+    assert UNIT_TRIP_ODDS == 10 and SOLO_TRIP_ODDS == 20
 
 
 async def test_hers_for_today_is_written_once_from_the_early_morning(
