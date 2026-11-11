@@ -439,8 +439,9 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       const keptLive = kept.current.get(characterId);
       if (keptLive && !ended.current.has(keptLive.live)) {
         // 她那边还在生成，或者刚生成完还没来得及卸下：把原来那一份连未记录的回合一起接回来。
+        // 离开列表后它又归当前页持有；下次切走时再按那时是否还在生成重新挂上收尾的监听。
         keptLive.stop?.();
-        keptLive.stop = undefined;
+        kept.current.delete(characterId);
         heldRef.current = keptLive.live;
         setHeld(keptLive.live);
         refresh();
