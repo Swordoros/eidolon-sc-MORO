@@ -399,10 +399,11 @@ export class LiveConversation {
     return () => this.listeners.delete(listener);
   };
 
-  /** The page is left: hang up the call, even one still dialing, and stop her voice. A
-   * text turn under way is not stopped; its reply is still recorded, just no longer shown.
-   * A conversation still opening is not shown either. */
-  dispose(): void {
+  /** The page is left: hang up the call, even one still dialing, and, with `releaseAudio`,
+   * stop her voice. A text turn under way is not stopped; its reply is still recorded, just
+   * no longer shown. A conversation still opening is not shown either. The shell owns the
+   * shared voice, so a conversation kept only for a turn still being generated leaves it be. */
+  dispose(releaseAudio = true): void {
     this.disposed = true;
     this.cancelNightVisit();
     if (this.pacing !== null) clearTimeout(this.pacing);
@@ -414,8 +415,10 @@ export class LiveConversation {
     this.holding?.();
     this.call?.leave().catch(() => {});
     this.call = null;
-    this.ports.tones.silence();
-    this.ports.voice.dispose();
+    if (releaseAudio) {
+      this.ports.tones.silence();
+      this.ports.voice.dispose();
+    }
   }
 
   /** Leave this conversation for a new, empty one, with an empty input box. Not over a

@@ -127,11 +127,12 @@ export type Directory = {
   showPast: (shown: boolean) => void;
   /**
    * 她的对话页打开时取她的实时状态：外壳里那一份正是她的，就用那一份（记录、通话层收没收起都和离开时一样）；
-   * 否则新建一份，外壳里原来那一份（另一位角色的）就此结束，通话一并挂断。`userId` 是登录的用户：
-   * 发回合、打电话时带上浏览器里存的、他的自带密钥。
+   * 否则新建一份。外壳里原来那一份（另一位角色的）如果还有文字回合在生成，先留着，生成完再结束；
+   * 正在通话的照旧挂断。`userId` 是登录的用户：发回合、打电话时带上浏览器里存的、他的自带密钥。
    */
   open: (characterId: string, userId: string) => LiveConversation;
-  /** 她的对话页卸下：通话还在进行（或者因故结束、结束卡还开着）就留在外壳里，否则就此结束。 */
+  /** 她的对话页卸下：通话还在进行（或者因故结束、结束卡还开着），或者文字回合还在生成，就留在外壳里；
+   * 否则就此结束。 */
   close: (live: LiveConversation) => void;
   /**
    * 在本标签页去 `href`，按外壳的去处规则（lib/navShell）：外壳里换页直接去，通话留着；
@@ -200,6 +201,9 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const heldRef = useRef<LiveConversation | null>(null);
   // 已经结束（dispose）的还留着画最后一刻（通话层收起、滑下去），下一次打开时换新的。
   const ended = useRef(new WeakSet<LiveConversation>());
+  // 切到别的角色时，她那边还在生成的文字回合不能随着页面一起丢掉：先把那一份留在外壳里，
+  // 等回合结束（或者她重新被打开）再决定 dispose。
+  const kept = useRef(new Map<string, { live: LiveConversation; stop?: () => void }>());
   const [isHeldShown, setHeldShown] = useState(false);
   const [isPastShown, setPastShown] = useState(false);
   // 给回调在拉回摘要这一刻读：她的当前对话在不在屏幕上。
@@ -395,23 +399,67 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   );
 
   /** 结束这一份：挂断通话（还在拨号的也算），停下她的声音；留着它画最后一刻。 */
-  const end = useCallback((live: LiveConversation) => {
+  const end = useCallback((live: LiveConversation, releaseAudio = false) => {
+    const keptLive = kept.current.get(live.characterId);
+    if (keptLive?.live === live) {
+      keptLive.stop?.();
+      kept.current.delete(live.characterId);
+    }
     if (ended.current.has(live)) return;
     ended.current.add(live);
-    live.dispose();
+    live.dispose(releaseAudio);
   }, []);
+
+  /** Keep a conversation whose text turn is still being generated while another character is
+   * opened; it is ended as soon as that turn is over and it is off screen again. */
+  const stow = useCallback(
+    (live: LiveConversation) => {
+      if (ended.current.has(live)) return;
+      const characterId = live.characterId;
+      const already = kept.current.get(characterId);
+      if (already?.live === live) return;
+      const entry: { live: LiveConversation; stop?: () => void } = { live };
+      entry.stop = live.subscribe(() => {
+        const snapshot = live.snapshot();
+        if (snapshot.busy || isLive(snapshot.call)) return;
+        entry.stop?.();
+        entry.stop = undefined;
+        if (kept.current.get(characterId)?.live === live) kept.current.delete(characterId);
+        end(live);
+      });
+      kept.current.set(characterId, entry);
+      live.offScreen();
+    },
+    [end],
+  );
 
   const open = useCallback(
     (characterId: string, userId: string) => {
-      const current = heldRef.current;
       showHeld(true);
+      const keptLive = kept.current.get(characterId);
+      if (keptLive && !ended.current.has(keptLive.live)) {
+        // 她那边还在生成，或者刚生成完还没来得及卸下：把原来那一份连未记录的回合一起接回来。
+        keptLive.stop?.();
+        keptLive.stop = undefined;
+        heldRef.current = keptLive.live;
+        setHeld(keptLive.live);
+        refresh();
+        return keptLive.live;
+      }
+      if (keptLive) kept.current.delete(characterId);
+      const current = heldRef.current;
       if (current && current.characterId === characterId && !ended.current.has(current)) {
         // 外壳里那一份可能落后了（例如离开期间她搭了话）：马上拉一次摘要，有新的就重读。
         refresh();
         return current;
       }
-      // 同一时间只和一位角色说话：外壳里原来那一份就此结束（要问的，在来这里之前已经问过了）。
-      if (current) end(current);
+      // 同一时间只和一位角色说话：另一位的文字回合还在生成时留在外壳里，生成完再卸下；
+      // 正在通话的照旧结束（要问的，在来这里之前已经问过了）。
+      if (current && !ended.current.has(current)) {
+        const snapshot = current.snapshot();
+        if (snapshot.busy && !isLive(snapshot.call)) stow(current);
+        else end(current);
+      }
       const live = new LiveConversation(characterId, {
         listConversations,
         createConversation,
@@ -434,29 +482,41 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       setHeld(live);
       return live;
     },
-    [end, refresh, rewarded, seen, showHeld, voice, tones],
+    [end, refresh, rewarded, seen, showHeld, stow, voice, tones],
   );
 
   const close = useCallback(
     (live: LiveConversation) => {
-      if (heldRef.current !== live) return;
-      showHeld(false);
-      const { call } = live.snapshot();
-      if (!isLive(call) && call.phase !== "ended") end(live);
-      else live.offScreen();
+      if (heldRef.current === live) showHeld(false);
+      const { busy, call } = live.snapshot();
+      if (isLive(call) || call.phase === "ended") {
+        live.offScreen();
+        return;
+      }
+      if (busy) {
+        // 她的文字回合还在生成：先留着，换回来时还能看到用户刚发的那句和已经生成的段。
+        stow(live);
+        return;
+      }
+      end(live);
     },
-    [end, showHeld],
+    [end, showHeld, stow],
   );
 
   // 不在她的对话页上时，留在外壳里的通话结束了（挂断，或者看完了结束卡）：这一份就此结束，通话条随之消失。
   useEffect(() => {
-    if (held && !isHeldShown && snapshot.call.phase === "idle") end(held);
+    if (held && !isHeldShown && !snapshot.busy && snapshot.call.phase === "idle") end(held);
   }, [held, isHeldShown, snapshot, end]);
 
   // 外壳卸下（离开外壳，或者退出登录、删除全部数据之后整页跳走）：通话挂断。
   useEffect(
     () => () => {
-      if (heldRef.current) end(heldRef.current);
+      for (const keptLive of kept.current.values()) {
+        keptLive.stop?.();
+        end(keptLive.live, true);
+      }
+      kept.current.clear();
+      if (heldRef.current) end(heldRef.current, true);
     },
     [end],
   );

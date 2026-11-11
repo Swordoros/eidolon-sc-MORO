@@ -435,6 +435,14 @@ describe("LiveConversation: a call", () => {
     expect(voice.disposed).toBe(1);
   });
 
+  it("leaves the shell's shared voice alone when only this conversation is put away", async () => {
+    const { live, voice } = await conversation();
+
+    live.dispose(false);
+
+    expect(voice.disposed).toBe(0);
+  });
+
   it("stops showing what it is hearing once the backend takes the words up", async () => {
     const { live, attempts } = await conversation();
     await connected(live, attempts);
