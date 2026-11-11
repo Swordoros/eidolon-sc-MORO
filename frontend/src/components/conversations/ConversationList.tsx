@@ -24,7 +24,7 @@ import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
-import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
+import { arrange, dayOf, previewOf, withPendingTurns, type ListRow, type Preview } from "@/lib/conversationList";
 import { createGroup, listGroups, type GroupSummary } from "@/lib/group";
 import { unreadFrom } from "@/lib/letter";
 import { keepPinnedGroups, pin, pinnedGroups, pinGroup, setShown, unpin, unpinGroup } from "@/lib/listPreferences";
@@ -53,7 +53,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const router = useRouter();
   const pathname = usePathname();
   const { groupId: openGroupId } = useParams<{ groupId?: string }>();
-  const { account, characters, latest, preferences, tidy, failure, reload, call, go, onScreen } = useDirectory();
+  const { account, characters, latest, pending, preferences, tidy, failure, reload, call, go, onScreen } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
   const [isFilterOpen, setFilterOpen] = useState(false);
@@ -108,7 +108,9 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const { letters } = useLetters();
   const keep = [selectedId, call?.characterId].filter((id): id is string => !!id);
   const unreadLetters = unreadFrom(letters);
-  const shown = characters && arrange(characters, latest, { preferences, query, keep, onScreen, unreadLetters });
+  // 刚发出、还没记下的那轮先当最后一句，列表马上显示「你：…」；记下后摘要把它换掉。
+  const effectiveLatest = useMemo(() => withPendingTurns(latest, pending), [latest, pending]);
+  const shown = characters && arrange(characters, effectiveLatest, { preferences, query, keep, onScreen, unreadLetters });
   const hiddenCount = shown?.hiddenCount ?? 0;
   // 搜索时隐藏的人照样出现，「已隐藏 n 位」和全部隐藏的空状态只在没有搜索时出现。
   const showsHidden = query.trim() === "" && hiddenCount > 0;
@@ -129,7 +131,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         .filter((row) => !row.isPinned)
         .map((row) => ({
           kind: "character" as const,
-          at: previewOf(latest[row.character.id])?.at ?? "",
+          at: previewOf(effectiveLatest[row.character.id])?.at ?? "",
           row,
         })),
       ...groups
@@ -141,7 +143,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         })),
     ].sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
     return [...pinned, ...rest];
-  }, [groups, groupPins, latest, shown]);
+  }, [groups, groupPins, effectiveLatest, shown]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -222,7 +224,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                   <li key={item.row.character.id}>
                     <Row
                       row={item.row}
-                      preview={previewOf(latest[item.row.character.id])}
+                      preview={previewOf(effectiveLatest[item.row.character.id])}
                       call={call?.characterId === item.row.character.id ? call : null}
                       isSelected={item.row.character.id === selectedId}
                       now={now}

@@ -11,6 +11,7 @@ import {
   type CallEvent,
   type Conversation,
   type LatestConversation,
+  type Message,
   type Photo,
   type PhotoStatus,
   type Recorded,
@@ -312,6 +313,13 @@ export type Ports = {
   /** The conversation list's line for her has changed: a turn was recorded, or a
    * conversation was started. Told even after the page is left. */
   onListChanged: () => void;
+  /** The user sent a text turn that is not recorded yet, its words and the time sent: the
+   * list shows them as 「你：…」 until the turn is recorded. */
+  onTurnPending?: (characterId: string, text: string, at: string) => void;
+  /** That turn was recorded: her reply, as the list's last line should show it. */
+  onTurnRecorded?: (characterId: string, message: Message) => void;
+  /** That turn is over: `recorded` tells whether the backend kept it. */
+  onTurnSettled?: (characterId: string, recorded: boolean) => void;
   /** A turn recorded, typed or in a call, was rewarded (lib/rewards): told even after the page
    * is left, for the dot on 「玩法」. */
   onRewarded: (rewarded: Rewarded) => void;
@@ -537,14 +545,19 @@ export class LiveConversation {
       this.moveCard({ type: "interrupted", typed: text }, { stand: this.directed({ type: "typed" }) });
       return;
     }
-    this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
+    const at = this.isoNow();
+    this.apply({ type: "submitted", text, at }, { busy: true });
+    this.ports.onTurnPending?.(this.characterId, text, at);
 
     let failure: Failure | null = null;
     let done = false;
     try {
       for await (const event of this.ports.sendTurn(conversationId, text)) {
         this.applyTurnEvent(event);
-        if (event.type === "done") done = true;
+        if (event.type === "done") {
+          done = true;
+          this.ports.onTurnRecorded?.(this.characterId, event.message);
+        }
         // A turn that failed leaves no record and does not count towards the limit.
         if (event.type === "error")
           failure = { message: event.message, signedOut: false, countsTowardLimit: false };
@@ -555,6 +568,7 @@ export class LiveConversation {
       if (e instanceof ApiError && e.cooldownUntil !== null) {
         // Refused for a cooldown begun elsewhere: shown as one, the text kept for when it ends.
         this.apply({ type: "interrupted" }, { draft: text, busy: false });
+        this.ports.onTurnSettled?.(this.characterId, false);
         this.cooled(e.cooldownUntil);
         return;
       }
@@ -567,6 +581,7 @@ export class LiveConversation {
       this.apply({ type: "interrupted" }, { draft: text, failure });
     }
     this.update({ busy: false });
+    this.ports.onTurnSettled?.(this.characterId, done && !failure);
   }
 
   /**

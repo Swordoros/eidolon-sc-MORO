@@ -30,6 +30,41 @@ export function previewOfOne(conversation: Pick<LatestConversation, "created_at"
   return { from: "her", text: last.zh || last.ja || "", at: last.created_at, photo: last.photo === true };
 }
 
+/** 刚发出、后端还没记下的一轮：列表先把它当成最后一句。 */
+export type PendingTurnPreview = { text: string; at: string };
+
+/** 把还没记下的用户输入叠到摘要上，列表马上显示「你：…」；回合记下后调用方把它移掉。 */
+export function withPendingTurns(
+  latest: Record<string, LatestConversation>,
+  pending: Record<string, PendingTurnPreview>,
+): Record<string, LatestConversation> {
+  const ids = Object.keys(pending);
+  if (ids.length === 0) return latest;
+  const merged: Record<string, LatestConversation> = { ...latest };
+  for (const characterId of ids) {
+    const turn = pending[characterId];
+    const last = {
+      role: "user" as const,
+      text: turn.text,
+      ja: null,
+      zh: null,
+      created_at: turn.at,
+    };
+    const base = merged[characterId];
+    merged[characterId] = base
+      ? { ...base, last_message: last }
+      : {
+          character_id: characterId,
+          conversation_id: "",
+          created_at: turn.at,
+          last_message: last,
+          unseen_reach_out: false,
+          unread_letter: false,
+        };
+  }
+  return merged;
+}
+
 /** 列表里的一行：哪位角色，她是不是置顶的、是不是隐藏的（行菜单和图钉据此显示），有没有没看过的搭话
  * （GLOSSARY.md「没看过的搭话」，时间前面的圆点据此显示），有没有没读过的信（GLOSSARY.md「没读过的信」，名字后面的小信封据此显示）。 */
 export type ListRow<C> = { character: C; isPinned: boolean; isHidden: boolean; isUnseen: boolean; hasUnreadLetter: boolean };

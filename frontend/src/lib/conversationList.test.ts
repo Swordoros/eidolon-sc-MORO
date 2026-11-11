@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { LatestConversation } from "@/lib/api";
-import { arrange, dayOf, hasUnseen, previewOf, unitsOf } from "@/lib/conversationList";
+import { arrange, dayOf, hasUnseen, previewOf, unitsOf, withPendingTurns } from "@/lib/conversationList";
 
 function latest(last: LatestConversation["last_message"]): LatestConversation {
   return {
@@ -13,6 +13,24 @@ function latest(last: LatestConversation["last_message"]): LatestConversation {
     unread_letter: false,
   };
 }
+
+describe("withPendingTurns", () => {
+  it("还没记下的用户输入先成为列表的最后一句", () => {
+    const merged = withPendingTurns(
+      { mano: latest({ role: "character", text: null, ja: "ほわっ", zh: "哇", created_at: "2026-09-28T02:00:00Z" }) },
+      { mano: { text: "在吗", at: "2026-09-28T03:00:00Z" } },
+    );
+
+    expect(previewOf(merged.mano)).toEqual({ from: "you", text: "在吗", at: "2026-09-28T03:00:00Z" });
+    expect(merged.mano.created_at).toBe("2026-09-28T01:00:00Z");
+  });
+
+  it("还没有摘要的角色也能先显示这句", () => {
+    const merged = withPendingTurns({}, { mano: { text: "你好", at: "2026-09-28T03:00:00Z" } });
+
+    expect(previewOf(merged.mano)).toEqual({ from: "you", text: "你好", at: "2026-09-28T03:00:00Z" });
+  });
+});
 
 describe("previewOf", () => {
   it("她的最后一句显示字幕，时间取这句话的", () => {

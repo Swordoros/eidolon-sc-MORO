@@ -1721,6 +1721,32 @@ describe("LiveConversation: typing", () => {
     expect(live.snapshot().draft).toBe("你好");
   });
 
+  it("tells the list the words just sent, then the recorded reply", async () => {
+    const pending: [string, string, string][] = [];
+    const recorded: Message[] = [];
+    const settled: [string, boolean][] = [];
+    const { live } = await conversation({
+      turns: scripted([
+        { type: "user", text: "你好" },
+        { type: "done", message: message(4, "character", "こんにちは"), affinity: null },
+      ]),
+      ports: {
+        onTurnPending: (characterId, text, at) => pending.push([characterId, text, at]),
+        onTurnRecorded: (characterId, reply) => recorded.push(reply),
+        onTurnSettled: (characterId, kept) => settled.push([characterId, kept]),
+      },
+    });
+
+    live.setDraft("你好");
+    await live.submit();
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0].slice(0, 2)).toEqual(["hikari", "你好"]);
+    expect(pending[0][2]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(recorded.map((reply) => [reply.role, reply.ja])).toEqual([["character", "こんにちは"]]);
+    expect(settled).toEqual([["hikari", true]]);
+  });
+
   it("lets a text turn under way finish when the page is left, showing no more of it", async () => {
     const { gate: answered, open: answer } = gate();
     let finished = false;

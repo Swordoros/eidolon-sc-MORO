@@ -43,6 +43,7 @@ import {
   type Account,
   type Character,
   type LatestConversation,
+  type Message,
 } from "@/lib/api";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
@@ -65,6 +66,9 @@ const LIST_POLL_MS = 60_000;
 /** 正在和谁通话，列表那一行和外壳顶上的通话条据此显示「正在呼叫…」「通话中 mm:ss」；从外壳持有的 LiveConversation 的快照算出。 */
 export type CallInList = { characterId: string; state: LiveCall } | null;
 
+/** 用户刚发出、后端还没记下的一轮：列表先把它显示成「你：…」。 */
+export type PendingTurn = { text: string; at: string };
+
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由导航外壳载入一次，设置页也拿得到。 */
 export type Directory = {
   /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存）；和角色一起载入，还在载入时为 null。
@@ -78,6 +82,8 @@ export type Directory = {
   ambience: Ambience;
   /** 和每位最新一次对话的摘要；标签页在前台时每分钟重新拉一次。她的对话一读到，她那一行就先在本地记成搭话都看过了。 */
   latest: Record<string, LatestConversation>;
+  /** 刚发出、还没被后端记下的文字回合：列表先显示「你：…」，回合记下后换回服务器摘要。 */
+  pending: Record<string, PendingTurn>;
   failure: Failure | null;
   /** 重新拉一遍摘要，例如一个回合记下之后、开了新对话之后。拉回来时她的对话页开着，就告诉那一页（`LiveConversation.listed`）。 */
   refresh: () => void;
@@ -184,6 +190,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const userId = account?.id ?? null;
   const [configured, setConfigured] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
+  const [pending, setPending] = useState<Record<string, PendingTurn>>({});
   const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
   const characters = useMemo(() => configured && withAppearance(configured, appearance), [configured, appearance]);
@@ -236,6 +243,50 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /** 她的对话读到了（打开、或者重读）：里面的搭话服务器已经记成看过，她那一行先在本地清掉。 */
+  const turnPending = useCallback((characterId: string, text: string, at: string) => {
+    setPending((current) => ({ ...current, [characterId]: { text, at } }));
+  }, []);
+
+  const turnSettled = useCallback((characterId: string, _recorded: boolean) => {
+    setPending((current) => {
+      if (!(characterId in current)) return current;
+      const { [characterId]: _, ...rest } = current;
+      return rest;
+    });
+  }, []);
+
+  const turnRecorded = useCallback((characterId: string, message: Message) => {
+    setPending((current) => {
+      if (!(characterId in current)) return current;
+      const { [characterId]: _, ...rest } = current;
+      return rest;
+    });
+    setLatest((all) => {
+      const base = all[characterId];
+      const last = {
+        role: message.role,
+        text: message.text,
+        ja: message.ja,
+        zh: message.zh,
+        created_at: message.created_at,
+        ...(message.photo ? { photo: true as const } : {}),
+      };
+      return {
+        ...all,
+        [characterId]: base
+          ? { ...base, last_message: last }
+          : {
+              character_id: characterId,
+              conversation_id: "",
+              created_at: message.created_at,
+              last_message: last,
+              unseen_reach_out: false,
+              unread_letter: false,
+            },
+      };
+    });
+  }, []);
+
   const seen = useCallback((characterId: string) => {
     seenAt.current.set(characterId, ++seenCount.current);
     setLatest((all) => {
@@ -470,6 +521,9 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
             return record;
           }),
         onListChanged: refresh,
+        onTurnPending: turnPending,
+        onTurnRecorded: turnRecorded,
+        onTurnSettled: turnSettled,
         onRewarded: rewarded,
         startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
         sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
@@ -483,7 +537,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       setHeld(live);
       return live;
     },
-    [end, refresh, rewarded, seen, showHeld, stow, voice, tones],
+    [end, refresh, rewarded, seen, showHeld, stow, turnPending, turnRecorded, turnSettled, voice, tones],
   );
 
   const close = useCallback(
@@ -573,6 +627,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         characters,
         ambience: voice.ambience,
         latest,
+        pending,
         preferences,
         tidy,
         appearance,
