@@ -348,10 +348,9 @@ class Relationships:
             "# 近三天她自己的记忆\n" + ("\n".join(memories) if memories else "（没有）"),
             "# 昨天与制作人的全部交流\n" + transcript,
         ]
+        rules = _RULES.replace("{states}", "、".join(STATES)).replace("{affinity}", affinity)
         messages = [
-            ChatMessage("system", _RULES.format(
-                states="、".join(STATES), affinity=affinity,
-            )),
+            ChatMessage("system", rules),
             ChatMessage("user", "\n\n".join(material) + "\n\n" + _WANTS),
         ]
         lease = self._config.lease()
@@ -414,7 +413,7 @@ class Relationships:
             if yesterday <= when < end:
                 chosen[memory.id] = memory
         for memory in entries:
-            if memory.source_character_id != character_id:
+            if memory.source_character_id != character_id or memory.superseded_by is not None:
                 continue
             when = datetime.fromisoformat(memory.created_at)
             if start <= when < end:
