@@ -8,16 +8,29 @@ the store writes when turns were recorded at the time it is."""
 import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
+from types import SimpleNamespace
 
 import httpx
 from pipecat.processors.frameworks.rtvi.frames import RTVIClientMessageFrame
 from pipecat.tests.utils import SleepFrame
 
 from eidolon.config import Settings
-from eidolon.engine import ANSWERING, BATCH_SCHEDULE_RULES, WANTS_TO_PLAN
+from eidolon.engine import (
+    ANSWERING,
+    BATCH_SCHEDULE_RULES,
+    SCHEDULE_RULES,
+    WANTS_TO_PLAN,
+    _student_line,
+)
 from eidolon.llm import LLMError
+from eidolon.schedule_writer import _plan_trips
 from eidolon.schedules import (
+    SOLO_TRIP_ODDS,
+    TRIP_PLACES,
+    TRIP_TWIST,
+    TRIP_WITH_TWIST,
     TWISTS,
+    UNIT_TRIP_ODDS,
     Schedule,
     Schedules,
     Slot,
@@ -98,7 +111,8 @@ def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
 
 
 async def talked(
-    make_client: ClientFactory, settings: Settings, *replies, numbers=(1, 0, 1, 1, 0, 1),
+    make_client: ClientFactory, settings: Settings, *replies,
+    numbers=(1, 0, 1, 1, 1, 0, 1, 1),
 ) -> tuple[httpx.AsyncClient, FakeLLM, FakeClock]:
     llm = FakeLLM(REPLY, *replies, REPLY)
     clock = FakeClock(today_at(3))
@@ -119,10 +133,67 @@ async def schedule(client: httpx.AsyncClient, character: str = "mano") -> dict |
     return res.json()
 
 
+def test_schedule_prompts_write_what_and_where_in_simplified_chinese():
+    for prompt in (SCHEDULE_RULES, BATCH_SCHEDULE_RULES, WANTS_TO_PLAN):
+        assert "简体中文" in prompt
+    assert "東京駅" in BATCH_SCHEDULE_RULES and "东京站" in BATCH_SCHEDULE_RULES
+
+
+def test_student_line_says_what_she_is_without_her_age():
+    def character(character_id: str, age: int, sheet: str = "") -> SimpleNamespace:
+        return SimpleNamespace(id=character_id, age=age, sheet=sheet)
+
+    assert _student_line(character("kaho", 12)) == "你是小学生。"
+    assert _student_line(character("asahi", 14)) == "你是中学生。"
+    assert _student_line(character("mano", 16)) == "你是高中生。"
+    assert _student_line(character("sakuya", 18)) == "你是高中生。"
+    assert _student_line(character("mamimi", 18)) == "你是高中生。"
+    assert _student_line(character("fuyuko", 19)) == "你是专科生。"
+    assert _student_line(character("yuika", 19)) == "你是大学生。"
+    assert _student_line(character("natsuha", 20)) == "你是大学生。"
+    assert _student_line(character("hana", 18)) == "你是成年人。"
+    assert _student_line(character("kogane", 19)) == "你是成年人。"
+
+
+def test_schedule_prompts_have_students_go_to_school_on_weekdays():
+    for prompt in (SCHEDULE_RULES, BATCH_SCHEDULE_RULES, WANTS_TO_PLAN):
+        assert "学生" in prompt
+        assert "学校" in prompt
+        assert "周一到周五" in prompt
+
+
+def test_a_unit_trip_picks_one_member_to_hold_the_trip_and_the_others_go_with_her():
+    names = {"mano": "真乃", "kogane": "恋鐘"}
+    twists, trips = _plan_trips(["mano", "kogane"], names, FakeRandom(0, 0, 1))
+
+    place = TRIP_PLACES[0]
+    assert trips == {"mano": (None, ()), "kogane": (place, ("mano",))}
+    assert TRIP_WITH_TWIST.format(names="恋鐘", place=place) in twists["mano"]
+    assert TRIP_WITH_TWIST.format(names="真乃", place=place) in twists["kogane"]
+
+
+def test_without_a_unit_trip_only_one_member_can_have_a_solo_trip():
+    names = {"mano": "真乃", "kogane": "恋鐘"}
+    twists, trips = _plan_trips(["mano", "kogane"], names, FakeRandom(1, 0, 0, 0))
+
+    place = TRIP_PLACES[0]
+    assert trips == {"mano": (place, ()), "kogane": (None, ())}
+    assert TRIP_TWIST.format(place=place) in twists["mano"]
+    assert "kogane" not in twists
+
+
+def test_a_unit_of_one_draws_once_for_her_trip_without_an_owner_index():
+    twists, trips = _plan_trips(["mano"], {"mano": "真乃"}, FakeRandom(0, 0))
+
+    assert trips == {"mano": (TRIP_PLACES[0], ())}
+    assert TRIP_TWIST.format(place=TRIP_PLACES[0]) in twists["mano"]
+    assert UNIT_TRIP_ODDS == 10 and SOLO_TRIP_ODDS == 50
+
+
 async def test_hers_for_today_is_written_once_from_the_early_morning(
     make_client: ClientFactory, settings: Settings
 ):
-    # One twist (1), the first of them (0); no trip (1).
+    # One twist (1), the first of them (0); no unit or solo trip (1, 1).
     client, llm, clock = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
     writer = backend_of(client).schedule_writer
 
@@ -138,6 +209,7 @@ async def test_hers_for_today_is_written_once_from_the_early_morning(
     told = "\n".join(m.content for m in prompt if m.role == "system")
     assert BATCH_SCHEDULE_RULES in told and TWISTS[0] in told
     assert f"星期{'一二三四五六日'[today_at(6).weekday()]}" in told
+    assert "你是成年人。" in told
     assert prompt[-1].content == WANTS_TO_PLAN
     written = await schedule(client)
     assert written is not None
@@ -151,7 +223,8 @@ async def test_a_day_the_model_fails_is_none_and_not_tried_again(
     make_client: ClientFactory, settings: Settings
 ):
     client, llm, clock = await talked(
-        make_client, settings, LLMError("挂了"), LLMError("挂了"), numbers=(0, 1, 0, 1, 0, 1, 0, 1)
+        make_client, settings, LLMError("挂了"), LLMError("挂了"),
+        numbers=(0, 1, 1) * 4,
     )
     writer = backend_of(client).schedule_writer
     clock.now = today_at(6)

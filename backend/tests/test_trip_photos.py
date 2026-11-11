@@ -304,14 +304,14 @@ async def test_none_with_image_generation_or_trip_photos_switched_off(
     assert reach_outs(await record(client, conversation)) == []
 
 
-async def test_her_unit_mates_days_have_them_on_her_trip(
+async def test_her_unit_mates_days_do_not_get_her_trip_content(
     make_client: ClientFactory, settings: Settings
 ):
     batch = '{"mano": ' + PLAN + ', "kogane": ' + PLAN + '}'
     llm = FakeLLM(REPLY, [batch], REPLY)
     clock = FakeClock(datetime.combine(TODAY, time(6), UTC))
     client = make_client(
-        llm, clock=clock, random=FakeRandom(1, 0, 1, 0, 1, 0, 1),
+        llm, clock=clock, random=FakeRandom(*((0, 1, 1) * 8)),
         settings=replace(settings, schedules=True),
     )
     await client.put("/api/profile", json={"timezone": "Etc/GMT"})
@@ -325,8 +325,8 @@ async def test_her_unit_mates_days_have_them_on_her_trip(
     await backend.schedule_writer.run_due()
     mine = await backend.daily.of(me, "mano", TODAY)
 
-    assert mine is not None and (mine.trip, mine.trip_with) == ("京都", ("kogane",))
-    assert TRIP_WITH_TWIST.format(names="月岡恋鐘", place="京都") in str(llm.prompts[-1])
+    assert mine is not None and (mine.trip, mine.trip_with) == (None, ())
+    assert TRIP_WITH_TWIST.format(names="月岡恋鐘", place="京都") not in str(llm.prompts[-1])
 
 
 def test_a_group_prompt_takes_each_one_her_own_and_openai_gets_them_after():

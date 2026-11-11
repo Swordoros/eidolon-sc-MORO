@@ -62,8 +62,12 @@ TRIP_PLACES = (
 )
 """Where a trip away from Tokyo a day may have takes her (GLOSSARY.md「纪念品」)."""
 
-TRIP_ODDS = 8
-"""One day in so many has a trip, drawn as its twists are."""
+UNIT_TRIP_ODDS = 10
+"""One day in so many has a unit trip, drawn once for the whole unit."""
+
+SOLO_TRIP_ODDS = 50
+"""One day in so many otherwise has a solo trip for one member of the unit: about 2%,
+after the 10% unit draw, so a unit has a trip on about 12% of days."""
 
 TRIP_TWIST = "今天你要去{place}出外景（离开东京），当天来回，必须排进当天的行程"
 """The twist a trip is to the model writing the day."""
@@ -73,9 +77,6 @@ TRIP_WITH_TWIST = "今天你要和{names}一起去{place}出外景（离开东�
 
 DATE_TWIST = "下午两点到五点和制作人约好了一起{what}"
 """The twist a day out with the producer is (GLOSSARY.md「邀约」)."""
-
-TOGETHER_ODDS = 2
-"""One trip in so many, where others of her unit are free that day, they go with her."""
 
 LIVE_CITIES = (
     "横浜", "大阪", "名古屋", "福岡", "札幌", "仙台", "神戸", "京都", "広島", "静岡", "金沢", "新潟",

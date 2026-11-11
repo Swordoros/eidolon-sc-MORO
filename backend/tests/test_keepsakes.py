@@ -18,13 +18,13 @@ from eidolon.engine import EmptyReply, WANTS_TO_GIVE, read_keepsake
 from eidolon.keepsakes import PER_DAY
 from eidolon.photo_prompt import keepsake_prompt
 from eidolon.promises import Promise
-from eidolon.schedules import Slot
+from eidolon.schedules import TRIP_TWIST, Slot
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeImageService, FakeLLM, FakeRandom, context_of
 from tests.test_delete_account import user_id
 from tests.test_photos import IMAGE
 from tests.test_reach_outs import backend_of, last_contact, record
-from tests.test_schedules import PLAN, schedule
+from tests.test_schedules import MANO_PLAN, schedule
 from tests.test_schedules import talked as schedule_talked
 from tests.test_schedules import today_at as schedule_today_at
 from tests.test_text_turn import send_turn, start_conversation
@@ -340,15 +340,17 @@ async def test_switched_off_or_not_turned_on_she_gives_none(
 async def test_a_day_now_and_then_has_a_trip_away_from_tokyo(
     make_client: ClientFactory, settings: Settings
 ):
-    # No twist (0), a trip (0), to the third place (2).
-    client, _, clock = await schedule_talked(make_client, settings, [PLAN], numbers=(0, 0, 2))
+    # No twist (0), a unit trip (0), to the third place (2).
+    client, _, clock = await schedule_talked(
+        make_client, settings, [MANO_PLAN], numbers=(0, 0, 2)
+    )
     clock.now = schedule_today_at(6)
 
     await backend_of(client).schedule_writer.run_due()
 
     written = await schedule(client)
     assert written is not None and written["trip"] == "北海道"
-    assert written["twists"] == ["要去北海道出外景，当天来回"]
+    assert written["twists"] == [TRIP_TWIST.format(place="北海道")]
 
 
 async def test_with_its_pictures_switched_off_it_still_comes_without_one_and_none_are_missing(

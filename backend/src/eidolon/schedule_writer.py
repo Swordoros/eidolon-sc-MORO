@@ -10,12 +10,12 @@ on from. One the model fails on, or writes nothing usable in, is kept as none an
 again that day. Written on the deployer's chat model as letters are, each with an activity
 record of its own (`schedule`). A turn never waits for one: without it, she has none that day.
 A night she goes to bed, her bath before it is drawn on `random` too (`schedules.draw_bath`),
-in the tub unless her heart says she showers (GLOSSARY.md「洗澡」). A day she has a live away
-from Tokyo, or one day in `TRIP_ODDS` otherwise (a twist of its own), she is away on a trip,
-kept with the day, for the souvenir she brings the day after (GLOSSARY.md「纪念品」); a day
-the producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of its own. One trip
-in `TOGETHER_ODDS`, others of her unit whose day is not written yet go with her; their days,
-written after, have them go on it too (GLOSSARY.md「外景照片」).
+in the tub unless her heart says she showers (GLOSSARY.md「洗澡」). A unit has a trip on one day in `UNIT_TRIP_ODDS`, drawn once for the whole unit: one of its
+members is picked to send the trip's content and keeps the day's `trip`/`trip_with`, while
+the others' schedules still have the group trip. A unit with no such trip has a solo trip for
+one member on one day in `SOLO_TRIP_ODDS`. A live away from Tokyo is left to the world
+setting's live, not counted as a trip by itself (GLOSSARY.md「纪念品」「外景照片」); a day the
+producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of its own.
 """
 
 import asyncio
@@ -33,12 +33,12 @@ from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
 from eidolon.schedules import (
-    TRIP_ODDS,
+    SOLO_TRIP_ODDS,
     TRIP_PLACES,
     TRIP_TWIST,
     TRIP_WITH_TWIST,
     DATE_TWIST,
-    TOGETHER_ODDS,
+    UNIT_TRIP_ODDS,
     TWISTS,
     Schedules,
     draw_bath,
@@ -66,6 +66,37 @@ async def _no_date(*_: object) -> str | None:
 
 async def _no_favors(*_: object) -> list[str]:
     return []
+
+
+def _plan_trips(
+    unit: list[str], names: Mapping[str, str], random: Random
+) -> tuple[dict[str, list[str]], dict[str, tuple[str | None, tuple[str, ...]]]]:
+    """The day's trip twists and trip metadata for `unit`: a unit trip on one day in
+    `UNIT_TRIP_ODDS`, one member picked to hold its `trip`, or, with no unit trip, a solo
+    trip on one day in `SOLO_TRIP_ODDS`. Only a trip's chosen member has `trip`; the rest of
+    a unit trip have the group twist in their schedules but send no trip content."""
+    twists: dict[str, list[str]] = {}
+    trips: dict[str, tuple[str | None, tuple[str, ...]]] = {cid: (None, ()) for cid in unit}
+    if random(UNIT_TRIP_ODDS) == 0:
+        place = TRIP_PLACES[random(len(TRIP_PLACES))]
+        owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
+        others = tuple(cid for cid in unit if cid != owner)
+        if others:
+            for cid in unit:
+                going = [c for c in unit if c != cid]
+                twists.setdefault(cid, []).append(TRIP_WITH_TWIST.format(
+                    names="、".join(names.get(c, c) for c in going), place=place
+                ))
+            trips[owner] = (place, others)
+        else:
+            twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
+            trips[owner] = (place, ())
+    elif random(SOLO_TRIP_ODDS) == 0:
+        owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
+        place = TRIP_PLACES[random(len(TRIP_PLACES))]
+        twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
+        trips[owner] = (place, ())
+    return twists, trips
 
 
 class ScheduleWriter:
@@ -173,31 +204,13 @@ class ScheduleWriter:
         they do not conflict; a member whose part cannot be read is left to be retried."""
         names = {c.id: c.name for c in self._characters.values()}
         twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
-        trips: dict[str, tuple[str | None, tuple[str, ...]]] = {}
+        trip_twists, trips = _plan_trips(unit, names, self._random)
+        for cid, additions in trip_twists.items():
+            twists[cid].extend(additions)
         for cid in unit:
             if (what := await self._date_on(user_id, cid, day)) is not None:
                 twists[cid].append(DATE_TWIST.format(what=what))
             twists[cid].extend(await self._favors_on(user_id, cid, day))
-            trip_with: tuple[str, ...] = ()
-            joining = await self._schedules.joining(user_id, cid, day)
-            if joining is not None:
-                trip, trip_with = joining
-                twists[cid].append(TRIP_WITH_TWIST.format(
-                    names="、".join(names.get(c, c) for c in trip_with), place=trip
-                ))
-            else:
-                trip = self._engine.live_away(cid, day)
-            if trip is None and self._random(TRIP_ODDS) == 0:
-                trip = TRIP_PLACES[self._random(len(TRIP_PLACES))]
-                others = [c for c in unit if c != cid]
-                if others and self._random(TOGETHER_ODDS) == 0:
-                    trip_with = tuple(others)
-                    twists[cid].append(TRIP_WITH_TWIST.format(
-                        names="、".join(names.get(c, c) for c in trip_with), place=trip
-                    ))
-                else:
-                    twists[cid].append(TRIP_TWIST.format(place=trip))
-            trips[cid] = (trip, trip_with)
         yesterday: dict[str, str | None] = {}
         for cid in unit:
             before = await self._schedules.of(user_id, cid, day - timedelta(days=1))

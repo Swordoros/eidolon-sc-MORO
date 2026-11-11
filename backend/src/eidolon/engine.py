@@ -842,7 +842,9 @@ SCHEDULE_RULES = """# 写今天的行程
 - kind 只能是 work（工作、拍摄）、lesson（课程、练习）、school（上学）、live、rest（在家休息）、private（自己的安排）之一。
 - with 写和你一起的偶像的标识（只写下面世界设定里有的同伴），没有就写 []。
 - what 不超过 30 个字，where 不超过 30 个字。
-- 照你的人设排：上学的平日白天去学校；世界设定里你今天有 live 的，一定排进去。
+- **what 和 where 一律用简体中文写。** 即使你的人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。地点、车站、店名也写中文，例如「東京駅」写「东京站」。LIVE 和组合名可以保留原文。
+- 人设里明确是学生、或在读的：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE、外景，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 照你的人设排；世界设定里你今天有 live 的，一定排进去。
 - 不要编原作里的大事：组合的变动、和别的偶像起冲突、家里的变故都不写。
 - 写到制作人时称「制作人」。"""
 
@@ -857,11 +859,34 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 - kind 只能是 work、lesson、school、live、rest、private 之一。
 - with 写和她一起的偶像的标识（只写世界设定里有的同伴），没有就写 []。
 - what、where 各不超过 30 个字。
+- **what 和 where 一律用简体中文写。** 即使人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。地点、车站、店名也写中文，例如「東京駅」写「东京站」。LIVE 和组合名可以保留原文。
+- 人设里明确是学生、或在读的成员：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE、外景，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
 - 照各自的人设排；世界设定里今天有 live 的一定排进去。
 - 不要编原作里的大事。
 - 写到制作人时称「制作人」。"""
 
-WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。）"
+WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。学生成员周一到周五白天先排学校；只有 LIVE、外景或必须参加的工作与学校冲突时才调整。）"
+
+
+_ADULT_SCHOOL = {
+    "mamimi": "高中生",
+    "sakuya": "高中生",
+    "mei": "高中生",
+    "yuika": "大学生",
+    "natsuha": "大学生",
+    "fuyuko": "专科生",
+}
+"""Adults whose school is not (or not clearly) in their sheet, by official profile."""
+
+
+def _student_line(character: Character) -> str:
+    """How she is told of school in the schedule prompt: a minor by age; an adult as the
+    official profile says (high school, university, vocational school), else an adult. No
+    age, so the model says what she is rather than doing arithmetic."""
+    if character.age < 18:
+        level = "小学生" if character.age <= 12 else "中学生" if character.age <= 14 else "高中生"
+        return f"你是{level}。"
+    return f"你是{_ADULT_SCHOOL.get(character.id, '成年人')}。"
 
 
 def _staff_lives(world: World, day: date) -> str:
@@ -1109,6 +1134,7 @@ class ConversationEngine:
         sleep habit, and the day's `twists`."""
         character = self._characters[conversation.character_id]
         told: list[str] = [f"今天是 {day.isoformat()}，星期{'一二三四五六日'[day.weekday()]}。"]
+        told.append(_student_line(character))
         if self._world is not None:
             for live, days in self._world.lives_of(character.name):
                 told += [
@@ -1148,7 +1174,7 @@ class ConversationEngine:
         told: list[str] = [f"今天是 {day.isoformat()}，星期{'一二三四五六日'[day.weekday()]}。"]
         for character_id in unit:
             character = self._characters[character_id]
-            own: list[str] = []
+            own: list[str] = [_student_line(character)]
             if self._world is not None:
                 if self._world.is_staff(character.name):
                     own.append(_staff_lives(self._world, day))
