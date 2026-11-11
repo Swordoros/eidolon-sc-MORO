@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from eidolon.relationships import (
     STATES,
+    _active_day,
     _allowed,
     _from_text,
     _parse_text,
@@ -33,6 +37,12 @@ def test_an_edited_relationship_must_follow_the_labels_and_be_compatible_with_af
         _from_text(text, "distant", False)
     with pytest.raises(ValueError, match="缺少"):
         _from_text("最近气氛：只有气氛", "trust", False)
+
+
+def test_a_relationship_written_at_three_stays_until_three_the_next_day():
+    zone = ZoneInfo("Asia/Shanghai")
+    assert _active_day(datetime(2026, 11, 12, 2, 59, tzinfo=zone)).isoformat() == "2026-11-11"
+    assert _active_day(datetime(2026, 11, 12, 3, 0, tzinfo=zone)).isoformat() == "2026-11-12"
 
 
 def test_affinity_is_the_hard_edge_of_the_relationship_states():

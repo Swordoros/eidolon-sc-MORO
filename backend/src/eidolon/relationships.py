@@ -128,6 +128,12 @@ class Relationship:
         return self.edited_text is not None
 
 
+def _active_day(local: datetime) -> date:
+    """The relationship in effect at `local`: the one written at 03:00 until 03:00 the next
+    day. Before 03:00 the previous day's still applies."""
+    return local.date() - timedelta(days=1) if local.time() < START else local.date()
+
+
 def _allowed(tier: Tier | None, cooling: bool) -> frozenset[State]:
     if cooling:
         return frozenset({"cooling"})
@@ -244,14 +250,14 @@ class Relationships:
                       timezone: str) -> Relationship | None:
         local = now.astimezone(ZoneInfo(timezone))
         return await self._db.read(
-            _by_day_row, user_id, character_id, local.date().isoformat()
+            _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
 
     async def prompt(self, user_id: str, character_id: str, now: datetime,
                      timezone: str, status: Status | None) -> str | None:
         local = now.astimezone(ZoneInfo(timezone))
         found = await self._db.read(
-            _latest_row, user_id, character_id, local.date().isoformat()
+            _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
         if found is None:
             return None
@@ -266,27 +272,28 @@ class Relationships:
     async def save(self, user_id: str, character_id: str, text: str, now: datetime,
                    timezone: str) -> Relationship:
         local = now.astimezone(ZoneInfo(timezone))
-        day = local.date()
-        row = await self._db.read(_by_day_row, user_id, character_id, day.isoformat())
+        row = await self._db.read(
+            _latest_row, user_id, character_id, _active_day(local).isoformat()
+        )
         if row is None:
-            raise ValueError("今天还没有关系总结")
+            raise ValueError("当前没有关系总结")
         status = await self._affinities.status(user_id, character_id)
         fields = _from_text(text, status.tier if status else None,
                             bool(status and status.cooldown_until))
         await self._db.write(
-            _save_edit, user_id, character_id, day.isoformat(), text, fields,
+            _save_edit, user_id, character_id, row.day.isoformat(), text, fields,
             now.astimezone(UTC).isoformat(),
         )
-        saved = await self._db.read(_by_day_row, user_id, character_id, day.isoformat())
+        saved = await self._db.read(_by_day_row, user_id, character_id, row.day.isoformat())
         assert saved is not None
         return saved
 
     async def regenerate(self, user_id: str, character_id: str, now: datetime,
                          timezone: str) -> Relationship:
         local = now.astimezone(ZoneInfo(timezone))
-        await self._write(user_id, character_id, local.date(), now, ZoneInfo(timezone),
-                          force=True)
-        found = await self._db.read(_by_day_row, user_id, character_id, local.date().isoformat())
+        day = _active_day(local)
+        await self._write(user_id, character_id, day, now, ZoneInfo(timezone), force=True)
+        found = await self._db.read(_by_day_row, user_id, character_id, day.isoformat())
         assert found is not None
         return found
 
