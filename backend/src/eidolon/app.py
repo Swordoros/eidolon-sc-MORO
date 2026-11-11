@@ -670,6 +670,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "created_at": m.created_at,
                 "superseded": m.superseded_by is not None,
                 "scope": m.scope,
+                "subject": m.subject,
                 "emotion": m.emotion,
                 "strength": m.strength,
             }

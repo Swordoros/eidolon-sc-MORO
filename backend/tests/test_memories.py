@@ -26,6 +26,7 @@ from eidolon.memory import (  # pyright: ignore[reportPrivateUsage]
     MemoryTurn,
     _memories_prompt,
     memory_query,
+    parse_memories,
 )
 from eidolon.store import Conversation, Message, Segment, Store, add_turn
 from tests.conftest import CharacterConfig
@@ -513,7 +514,7 @@ async def test_writing_down_a_turn_embedded_already_embeds_it_no_more(
     await memories.entries(world.producer)
 
     assert embedder.queries == ["我家的猫叫小白哦"]
-    assert f"1. {CAT}" in background.prompts[-1][-1].content
+    assert f"1. [producer] {CAT}" in background.prompts[-1][-1].content
 
 
 # Superseding (ADR-0014): what a new memory updates is superseded by it, found no more but
@@ -525,11 +526,30 @@ KYOTO = "制作人从东京搬到了京都"
 DOG = "制作人养了一只狗"
 
 
+def test_memories_have_a_subject_and_self_memories_carry_evidence():
+    written = parse_memories(json.dumps({"memories": [
+        {"text": "制作人养了一只猫", "subject": "producer"},
+        {"text": "真乃小时候见过这种花", "subject": "self", "evidence": "この花、見たことある"},
+    ]}, ensure_ascii=False))
+
+    assert written is not None
+    assert [m.subject for m in written] == ["producer", "self"]
+    assert written[1].evidence == "この花、見たことある"
+    assert parse_memories('{"memories": [{"text": "制作人喜欢咖啡"}]}')[0].subject == "producer"
+
+
 def known(prompt: str) -> dict[str, int]:
     """The number of each memory the background model was shown as already remembered."""
     section = prompt.split("# 已经记住的事")[1].split("# 制作人和")[0]
     numbered = (line.partition(". ") for line in section.splitlines())
-    return {text: int(number) for number, _, text in numbered if number.isdigit()}
+    found = {}
+    for number, _, text in numbered:
+        if not number.isdigit():
+            continue
+        if text.startswith("[") and "] " in text:
+            text = text.partition("] ")[2]
+        found[text] = int(number)
+    return found
 
 
 def superseding(text: str, *old: str) -> Callable[[str], str]:

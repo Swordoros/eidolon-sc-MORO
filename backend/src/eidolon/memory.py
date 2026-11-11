@@ -104,6 +104,10 @@ Scope = Literal["private", "unit", "shared"]
 with her unit (`unit`), or with every character (`shared`)."""
 SCOPES: tuple[Scope, ...] = ("private", "unit", "shared")
 """Every scope, in the order the frontend offers them."""
+Subject = Literal["producer", "self"]
+"""What a memory is about: the producer, or the source character herself."""
+SUBJECTS: tuple[Subject, ...] = ("producer", "self")
+"""Every subject, the producer's first."""
 
 # `memories` predates this module and keeps the columns and constraints it had in the
 # store; `memory_vectors` holds each memory's embedding, per embedding model.
@@ -120,6 +124,7 @@ CREATE TABLE IF NOT EXISTS memories (
     strength REAL NOT NULL DEFAULT 1,
     maintain_until TEXT,
     kind TEXT NOT NULL DEFAULT 'short',
+    subject TEXT NOT NULL DEFAULT 'producer',
     UNIQUE (user_id, text)
 );
 -- Deleting a conversation clears this from the memories written down in it.
@@ -164,6 +169,8 @@ class Memory:
     written before maintenance existed."""
     kind: str = "short"
     """short, mid or long: what a night's consolidation has made of it (GLOSSARY.md「记忆」)."""
+    subject: Subject = "producer"
+    """What it is about: the producer, or the source character herself."""
 
 
 PackageKey = int | str
@@ -184,6 +191,8 @@ class CarriedMemory:
     """The conversation here it was told in, None if it is not here."""
     scope: Scope = "shared"
     """How widely it is shared (GLOSSARY.md「记忆」), as the package carried it."""
+    subject: Subject = "producer"
+    """What it is about, as the package carried it."""
 
 
 def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedMemory]) -> int:
@@ -204,10 +213,10 @@ def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedM
             continue
         cursor = db.execute(
             "INSERT INTO memories"
-            " (user_id, source_character_id, conversation_id, text, created_at, scope)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " (user_id, source_character_id, conversation_id, text, created_at, scope, subject)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (user_id, memory.source_character_id, memory.conversation_id, memory.text,
-             memory.created_at, memory.scope),
+             memory.created_at, memory.scope, memory.subject),
         )
         assert cursor.lastrowid is not None
         ids[memory.key] = cursor.lastrowid
@@ -649,6 +658,13 @@ class Memories:
                     len(answer), conversation.id,
                 )
                 return
+            said = [part for part in (reply.zh, reply.ja) if part]
+            written = [
+                memory for memory in written
+                if memory.subject != "self"
+                or (memory.evidence is not None
+                    and any(memory.evidence in part for part in said))
+            ]
             if self._promises is not None:
                 changes = parse_promise_changes(answer, standing)
                 if changes:
@@ -692,7 +708,7 @@ class Memories:
         """What `kept` reads, read through `db`: for a data package too."""
         rows = db.execute(
             "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
-            " conversation_id, scope, emotion, strength, maintain_until, kind"
+            " conversation_id, scope, emotion, strength, maintain_until, kind, subject"
             " FROM memories WHERE user_id = ? ORDER BY id",
             (user_id,),
         ).fetchall()
@@ -710,12 +726,13 @@ class Memories:
         superseded_by: int | None = None, conversation_id: str | None = None,
         scope: Scope = "shared", emotion: str | None = None, strength: float = 1.0,
         maintain_until: str | None = None, kind: str = "short",
+        subject: Subject = "producer",
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, (source.name_zh or source.name) if source else None, text,
             created_at, superseded_by, conversation_id, scope, emotion, strength,
-            maintain_until, kind,
+            maintain_until, kind, subject,
         )
 
     def _add(
@@ -747,10 +764,11 @@ class Memories:
                 cursor = db.execute(
                     "INSERT INTO memories"
                     " (user_id, source_character_id, conversation_id, text, created_at, scope,"
-                    " emotion, strength, maintain_until, kind)"
-                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?, 'short')",
+                    " emotion, strength, maintain_until, kind, subject)"
+                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?, 'short', ?)",
                     (user_id, conversation.character_id, conversation.id, memory.text,
-                     created_at, memory.scope, memory.emotion, strength, maintain_until),
+                     created_at, memory.scope, memory.emotion, strength, maintain_until,
+                     memory.subject),
                 )
                 assert cursor.lastrowid is not None
                 id = cursor.lastrowid
@@ -779,6 +797,7 @@ class Memories:
                     (id, shown[n - 1].id, user_id)
                     for n in memory.supersedes
                     if 1 <= n <= len(shown) and shown[n - 1].id != id
+                    and shown[n - 1].subject == memory.subject
                 ],
             )
         return added
@@ -817,6 +836,8 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE memories ADD COLUMN superseded_by INTEGER")
     if "scope" not in columns:  # kept from before scopes: all shared
         db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'shared'")
+    if "subject" not in columns:  # kept from before subjects: all about the producer
+        db.execute("ALTER TABLE memories ADD COLUMN subject TEXT NOT NULL DEFAULT 'producer'")
     if "emotion" not in columns:  # kept from before emotions: none written
         db.execute("ALTER TABLE memories ADD COLUMN emotion TEXT")
     if "strength" not in columns:  # kept from before strengths: all fullest
@@ -978,22 +999,30 @@ class MemoryTurn:
 
 
 _INSTRUCTIONS = """\
-你负责替《偶像大师 闪耀色彩》283 事务所的偶像们（还有事务员）记住关于制作人的事。制作人就是正在和她们对话的用户。
-读下面的对话，从制作人最新的一句话里找出值得长期记住的、关于制作人本人的信息。
+你负责替《偶像大师 闪耀色彩》283 事务所的偶像们（还有事务员）记住两类事：制作人的事，以及这位角色自己的事。制作人就是正在和她们对话的用户。
+
+读下面的对话。制作人最新的一句话是制作人主题的来源；这位角色最新的回复是她自己主题的来源。
 
 只记过后仍有意义的事。
-要记的：制作人自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望偶像记住的事；\
+制作人主题：制作人自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望偶像记住的事；\
 会持续几天、朋友过后会问起的近况，例如生病、考试、面试、搬家、出差。
-不要记的：当天就会过去的状态（例如累、困、饿、无聊、心情不好）和一时的情绪，\
-同一句话里还说了值得记的事时只记那件事、不记这种状态；寒暄；偶像说的话；原作剧情和偶像的设定；制作人向偶像提的问题。
+她自己主题：她明确说过的自己的经历、稳定的偏好、自己的计划、对某件事持续的感受；只限以后对话仍有意义的事。
+不要记的：当天就会过去的状态（例如累、困、饿、无聊、心情不好）和一时的情绪；寒暄；原作剧情和角色设定；\
+演戏、玩笑、幻想、梦里说的话；模型推断出来、她没有明确说过的事；制作人向偶像提的问题。
+同一句话里还说了值得记的事时，只记那件事、不记一时的状态。
 
-每条记忆是一句能单独看懂的中文陈述，以「制作人」开头，例如「制作人养了一只叫小白的猫」。
+每条记忆是一句能单独看懂的中文第三人称陈述。
+- 制作人主题以「制作人」开头，例如「制作人养了一只叫小白的猫」。
+- 她自己主题以这位角色的中文名开头，例如「角色名小时候在祖母家见过这种花」，实际写她的名字；不要用「我」，因为这条记忆可能被别的角色看到。
+- 她自己主题必须带 evidence：从她最新回复里原样摘一句连续的话，证明这件事是她亲口说的。写不出原话就不要写这条。
+- 制作人主题的 evidence 可以写制作人最新一句话里的原话，也可以省略。
 提到「明天」「下周六」这样的相对时间时，换算成具体日期写下来。
 
-「已经记住的事」按编号列出了和这轮对话最相关的记忆，写之前先对照：
+「已经记住的事」按编号列出了和这轮对话最相关的记忆，每条前面的 [producer] 或 [self] 是它的主题，写之前先对照：
 - 和已经记住的一样的，不要再写。
 - 更新或修正了已经记住的事（例如搬了家、换了工作），写一条单独看也完整的新记忆，写清从什么变成了什么，\
 例如「制作人从大阪搬到了东京」，并在 supersedes 里写上被它取代的记忆的编号，可以写多个。
+- 只在同 subject 之间取代：制作人主题不要取代自己主题，自己主题也不要取代制作人主题。
 - 补充了已经记住的事的细节（例如说出了猫的名字），写一条把细节合进去的完整记忆，取代原来那条。
 - 一件事只变了一部分的，新记忆要把仍然成立的部分也写进去，例如原来记着养了一只猫和一只狗、\
 现在狗去世了，就写「制作人的狗去世了，现在还养着那只猫」，取代原来那条。
@@ -1009,29 +1038,31 @@ _INSTRUCTIONS = """\
 制作人明确说其中哪一件改到别的日子，写进 promise_changes：{"id": 编号, "due": "YYYY-MM-DD"}；\
 明确说不做了、取消了，写 {"id": 编号, "cancel": true}。只是没提起、还没做，都不算改期或取消。
 
-每条记忆还要标 scope，判断这条关于制作人的事，作为来源偶像的她愿意让谁知道：
+每条记忆还要标 scope，判断作为来源偶像的她愿意让谁知道：
 - private（私密）：她不愿意告诉任何人、只自己知道的事——只属于她和制作人之间、说出来会让她害羞或不好意思外传的，\
 比如制作人夸她、她和制作人偷偷的约会。
 - unit（群组）：她会主动跟同组合的伙伴分享、但不会到处说的事——比如今天和制作人一起吃饭很开心这种普通的近况。
 - shared（共享）：她愿意让所有偶像都知道的事——比如公开场合的成绩、没什么敏感度的事实。
 拿不准就写 shared。
 
-每条记忆还要标 emotion 和 tier：
+每条记忆还要标 emotion、tier 和 subject：
 - emotion 是她记下这件事时的感情，用一两个词（开心、难过、生气、担心、怀念、平静…）；没有明显感情就写「平静」。
 - tier 是这件事对她的重要程度：strong（强，她会记很久、很当回事）、medium（中，一般的重要）、weak（弱，小事、随口一提）。\
 拿不准就写 medium。
+- subject 只能是 producer（关于制作人）或 self（关于她自己）。
 
-只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号], "scope": "shared|unit|private", \
-"emotion": "开心", "tier": "strong|medium|weak"}], "promises": [], \
-"promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；没有约定时 \
-promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；都没有就输出 \
-{"memories": [], "promises": [], "promise_changes": [], "moment": null}。
+只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self", "evidence": "……或省略", \
+"supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
+"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；\
+没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
+都没有就输出 {"memories": [], "promises": [], "promise_changes": [], "moment": null}。
 
 # 日记
 这一轮里如果发生了对她来说**特别重要**、她今晚会想写进日记的事——制作人第一次对她说了某句话、\
 两个人一起决定了什么、她被深深打动了或者被伤到了——就在 moment 里用一句话写下来，以她的名字开头，\
 例如「冬优子第一次听制作人说她不用一直逞强」。大多数回合都没有这样的事，写 null；平常的闲聊、\
 普通的开心不算。"""
+
 
 def _extraction_prompt(
     character: Character,
@@ -1046,11 +1077,18 @@ def _extraction_prompt(
 ) -> list[ChatMessage]:
     # 星期几也写上：约定（promises）里「下周六」这类说法要靠它算出是哪一天。
     weekday = "一二三四五六日"[now.weekday()]
-    lines = [f"今天是 {_date(now)}，星期{weekday}。"]
+    name = character.name_zh or character.name
+    lines = [
+        f"今天是 {_date(now)}，星期{weekday}。",
+        f"这位角色是：{name}。",
+        f"她自己的记忆要用「{name}」开头，不要用「我」。",
+    ]
     if unit_hint:
         lines.append(unit_hint)
     lines += ["", "# 已经记住的事"]
-    lines += [f"{n}. {m.text}" for n, m in enumerate(shown, 1)] or ["（还没有）"]
+    lines += [
+        f"{n}. [{m.subject}] {m.text}" for n, m in enumerate(shown, 1)
+    ] or ["（还没有）"]
     lines += ["", "# 已经记着的约定"]
     lines += [f"{n}. {p.due.isoformat()}：{p.text}" for n, p in enumerate(promised, 1)] or ["（还没有）"]
     lines += ["", f"# 制作人和{character.name}的对话"]
@@ -1110,6 +1148,10 @@ class NewMemory:
     """The feeling she had about it (GLOSSARY.md「记忆」); None without one."""
     tier: str = "medium"
     """How strong it is: strong, medium or weak (`TIERS`, GLOSSARY.md「记忆」)."""
+    subject: Subject = "producer"
+    """What it is about: the producer, or the source character herself."""
+    evidence: str | None = None
+    """The words of her reply that show a self memory; checked before it is kept."""
 
 
 def parse_memories(answer: str) -> list[NewMemory] | None:
@@ -1128,9 +1170,10 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
         if isinstance(memory, dict):
             text, supersedes, scope = memory.get("text"), memory.get("supersedes"), memory.get("scope")
             emotion, tier = memory.get("emotion"), memory.get("tier")
+            subject, evidence = memory.get("subject"), memory.get("evidence")
         else:
             text, supersedes, scope = memory, None, "shared"
-            emotion, tier = None, "medium"
+            emotion, tier, subject, evidence = None, "medium", "producer", None
         if not isinstance(text, str) or not (text := text.strip()[:MAX_MEMORY_LENGTH]):
             continue
         numbers = supersedes if isinstance(supersedes, list) else []
@@ -1139,6 +1182,9 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
             scope if scope in SCOPES else "shared",
             emotion if isinstance(emotion, str) and emotion.strip() else None,
             tier if tier in TIERS else "medium",
+            subject if subject in SUBJECTS else "producer",
+            evidence.strip()[:MAX_MEMORY_LENGTH]
+            if isinstance(evidence, str) and evidence.strip() else None,
         ))
     return list(written.values())[:MAX_NEW_MEMORIES]
 
@@ -1233,28 +1279,50 @@ def _relative_dates(text: str, today: date) -> str:
     return _WRITTEN_DATE.sub(written, text)
 
 
+_SELF_OPENING = (
+    "下面是她自己以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
+    "像平时记得这些事一样自然地提起，不要逐条复述。"
+)
+
+
 def _memories_prompt(
     memories: Sequence[Memory], character: Character, timezone: str, opening: str,
     now: datetime,
 ) -> str:
-    """The prompt section carrying `memories`, after its heading and `opening`, which says
-    what they are; dates within a week of `now`, the producer's, are said as how long ago
-    or ahead they are, so she need not work them out against today."""
+    """The prompt section carrying `memories`, under a heading for each subject and with its
+    dates within a week of `now`, the producer's, said as how long ago or ahead they are."""
     today = now.astimezone(ZoneInfo(timezone)).date()
-    lines = ["# 关于制作人的记忆", opening]
-    for memory in memories:
-        told = datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone))
-        when = _relative_day(told.date(), today) or _date(told)
-        text = _relative_dates(memory.text, today)
-        if memory.source_character_id == character.id:
-            lines.append(f"- {text}（{when}，制作人对你说的）")
-        else:
+    sections: list[str] = []
+    for subject, heading, text_opening in (
+        ("producer", "# 关于制作人的记忆", opening),
+        ("self", "# 关于她自己的记忆", _SELF_OPENING),
+    ):
+        group = [m for m in memories if m.subject == subject]
+        if not group:
+            continue
+        lines = [heading, text_opening]
+        for memory in group:
+            told = datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone))
+            when = _relative_day(told.date(), today) or _date(told)
+            text = _relative_dates(memory.text, today)
             name = memory.source_character_name or ANOTHER_IDOL
-            lines.append(
-                f"- {text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
-                f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
-            )
-    return "\n".join(lines)
+            if subject == "producer":
+                if memory.source_character_id == character.id:
+                    lines.append(f"- {text}（{when}，制作人对你说的）")
+                else:
+                    lines.append(
+                        f"- {text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
+                        f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
+                    )
+            elif memory.source_character_id == character.id:
+                lines.append(f"- {text}（{when}，是你自己说的）")
+            else:
+                lines.append(
+                    f"- {text}（{when}，是{name}自己说的，你是听{name}说的：提起时要用转述的口吻，"
+                    f"例如「听{name}说……」，不要说成是你自己的经历）"
+                )
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
 
 
 def _date(moment: datetime) -> str:

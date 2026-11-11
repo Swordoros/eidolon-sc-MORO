@@ -421,7 +421,7 @@ class Relationships:
         lines = []
         for memory in sorted(chosen.values(), key=lambda m: m.created_at)[-MAX_MEMORY_LINES:]:
             source = "你自己" if memory.source_character_id == character_id else "其他人"
-            lines.append(f"- [{memory.scope}/{source}] {memory.text}")
+            lines.append(f"- [{memory.scope}/{memory.subject}/{source}] {memory.text}")
         return lines
 
     async def _previous(self, user_id: str, character_id: str, day: date) -> str | None:

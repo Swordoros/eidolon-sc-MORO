@@ -180,6 +180,7 @@ export function MemoriesSettings() {
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <p className={cn("text-body break-words", mark && "text-muted-foreground")}>{memory.text}</p>
                     <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{t.subjectName[memory.subject]}</Badge>
                       <button
                         type="button"
                         aria-label={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
