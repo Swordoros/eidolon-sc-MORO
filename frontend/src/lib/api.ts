@@ -542,6 +542,8 @@ export type Account = {
   nsfw_photo: boolean;
   /** Whether the deployer has letters on (GLOSSARY.md「信」); the letters written stay to be read either way. */
   letters: boolean;
+  /** The玩法开关 the deployment has: `schedules` is whether she has a daily schedule. */
+  features?: Record<string, boolean>;
   sponsor_version: string | null;
   /** Whether the deployer has a key for speech synthesis now: her words are read aloud on it for those
    * who keep none of their own in this browser (GLOSSARY.md「朗读」). */

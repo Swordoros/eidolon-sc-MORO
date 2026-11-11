@@ -118,8 +118,8 @@ const noSubscription = () => () => {};
  * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到玩法里的礼物子页，带上她（spec「打开好感度藏起的送礼入口」），
  * 礼物一律记进当前对话；好感度和礼物同一个开关，好感度读不到时这些入口都不在。
  *
- * 更多菜单依次是「新对话」「历史对话」「换衣装」「成就」「日程安排」「她的日程」。「成就」打开她的成就面板（`AchievementsPanel`），「好感度和礼物」关着时没有；
- * 「日程安排」打开她今天的行程面板（`SchedulePanel`），「她的日程」去日历子页只看她、切成周视图，日程关着时两项都没有；
+ * 更多菜单依次是「新对话」「历史对话」「换衣装」「提示词」「日程安排」「成就」「她的日程」。「提示词」只在开发开关打开时有；
+ * 「日程安排」打开她今天的行程面板（`SchedulePanel`），「她的日程」去日历子页只看她、切成周视图；两者在周日程或每日行程任一项开着时都有；
  * 她有没看过的解锁时，更多菜单键右上角和「成就」后面各一个点（`useHerAchievements`）。这一页上的回合解锁了她的阶段、
  * 通话层没盖着页首时，好感度标识左边跳出奖杯和「+n」，约 3 秒收起（快照的 `trophy`）。
  * 「历史对话」打开面板（`PastConversations`），点一段就看那段历史对话
@@ -161,6 +161,9 @@ export function ConversationView({
   const scheduleNow = useScheduleNow(character.id);
   const doing = scheduleText(scheduleNow);
   const isScheduleOn = useScheduleOn();
+  // 「她的日程」是周日程（`/api/schedule`），「日程安排」是她今天写下的行程（`features.schedules`）。
+  // 周日程关掉时，后者仍然可以看；任一项开着，两个入口都留着。
+  const schedulesOn = isScheduleOn || Boolean(account?.features?.schedules);
   // 解除时刻按制作人的时区写成今天或明天。
   const timeZone = useProducerTimezone();
 
@@ -330,6 +333,18 @@ export function ConversationView({
               {t.outfits.open}
             </DropdownMenuItem>
           )}
+          {account?.dev && (
+            <DropdownMenuItem onClick={openDevPrompt}>
+              <DevIcon aria-hidden />
+              {t.devPrompt}
+            </DropdownMenuItem>
+          )}
+          {schedulesOn && (
+            <DropdownMenuItem onClick={() => setPickingAgenda(true)}>
+              <ScheduleIcon aria-hidden />
+              {t.agenda.open}
+            </DropdownMenuItem>
+          )}
           {achievements.her && (
             <DropdownMenuItem onClick={() => achievements.setPanelOpen(true)}>
               <AchievementsIcon aria-hidden />
@@ -337,19 +352,7 @@ export function ConversationView({
               {achievements.isUnseen && <UnseenDot className="ml-auto" />}
             </DropdownMenuItem>
           )}
-          {account?.dev && (
-            <DropdownMenuItem onClick={openDevPrompt}>
-              <DevIcon aria-hidden />
-              {t.devPrompt}
-            </DropdownMenuItem>
-          )}
-          {isScheduleOn && (
-            <DropdownMenuItem onClick={() => setPickingAgenda(true)}>
-              <ScheduleIcon aria-hidden />
-              {t.agenda.open}
-            </DropdownMenuItem>
-          )}
-          {isScheduleOn && (
+          {schedulesOn && (
             <DropdownMenuItem
               onClick={() => {
                 keepCalendarMode(userId, "week");
