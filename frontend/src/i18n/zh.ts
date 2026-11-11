@@ -324,6 +324,20 @@ export const zh = {
       bath: "在洗澡 🛁",
       label: (doing: string) => doing,
     },
+    /** 更多菜单里的「日程安排」和它打开的面板：她今天的行程按时间排成一条列表。 */
+    agenda: {
+      open: "日程安排",
+      title: "日程安排",
+      description: (name: string) => `${name}今天的日程。`,
+      loading: "正在读取日程",
+      failed: "日程读取失败",
+      retry: "重试",
+      empty: "今天还没有日程。",
+      wake: "起床",
+      bath: "洗澡",
+      sleep: "睡觉",
+      trip: (place: string) => `外景：${place}`,
+    },
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
       hung_up: (name: string) => `${name}挂断了电话`,
