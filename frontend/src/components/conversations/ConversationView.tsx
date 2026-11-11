@@ -114,7 +114,7 @@ const noSubscription = () => () => {};
  * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到玩法里的礼物子页，带上她（spec「打开好感度藏起的送礼入口」），
  * 礼物一律记进当前对话；好感度和礼物同一个开关，好感度读不到时这些入口都不在。
  *
- * 更多菜单依次是「新对话」「历史对话」「换衣装」「提示词」「日程安排」「成就」。「提示词」只在开发开关打开时有；
+ * 更多菜单依次是「新对话」「历史对话」「换衣装」「日程安排」「成就」「提示词」；开发者功能「提示词」只在开发开关打开时出现，并放在最后；
  * 「日程安排」打开她今天的行程面板（`SchedulePanel`）；「她的日程」是刻意隐藏的过期按钮，不再显示；
  * 她有没看过的解锁时，更多菜单键右上角和「成就」后面各一个点（`useHerAchievements`）。这一页上的回合解锁了她的阶段、
  * 通话层没盖着页首时，好感度标识左边跳出奖杯和「+n」，约 3 秒收起（快照的 `trophy`）。
@@ -327,12 +327,6 @@ export function ConversationView({
               {t.outfits.open}
             </DropdownMenuItem>
           )}
-          {account?.dev && (
-            <DropdownMenuItem onClick={openDevPrompt}>
-              <DevIcon aria-hidden />
-              {t.devPrompt}
-            </DropdownMenuItem>
-          )}
           {schedulesOn && (
             <DropdownMenuItem onClick={() => setPickingAgenda(true)}>
               <ScheduleIcon aria-hidden />
@@ -344,6 +338,12 @@ export function ConversationView({
               <AchievementsIcon aria-hidden />
               {copy.achievements.open}
               {achievements.isUnseen && <UnseenDot className="ml-auto" />}
+            </DropdownMenuItem>
+          )}
+          {account?.dev && (
+            <DropdownMenuItem onClick={openDevPrompt}>
+              <DevIcon aria-hidden />
+              {t.devPrompt}
             </DropdownMenuItem>
           )}
           {/* 「她的日程」是刻意隐藏的过期按钮，不再显示。 */}
