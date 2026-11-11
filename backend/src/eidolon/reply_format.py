@@ -116,8 +116,9 @@ class SegmentDelta:
 
 @dataclass(frozen=True)
 class SegmentComplete:
-    """Segment `segment` has all it will get. Stays on the server: a call needs to know
-    when a reply has a complete segment, the browser does not."""
+    """Segment `segment` has all it will get. A call uses it to voice the segment; a text
+    turn sends it to the browser only when the page asks (`segment_complete`), so the page
+    can show finished segments while hiding the one still being written."""
 
     segment: int
     type: Literal["segment-complete"] = field(default="segment-complete", init=False)

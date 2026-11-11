@@ -325,8 +325,8 @@ TurnEvent = (
 )
 """A turn's events: `user`, then `photo` if she sends one, any `delta`s, then
 `photos-used-up` if the user's photos are, and `done`, or `error`. `shown(event)` is the
-event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
-`CallTurnRecorded` and `TurnJudged`, which do not."""
+event as it goes out to the browser, except `SpeechDelta`, `CallTurnRecorded` and
+`TurnJudged`; a text turn asks for `SegmentComplete` too."""
 
 
 def shown(event: TurnEvent) -> dict:

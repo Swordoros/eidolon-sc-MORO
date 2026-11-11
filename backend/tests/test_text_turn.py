@@ -26,6 +26,7 @@ async def send_turn(
     *,
     own_keys: dict | None = None,
     read_aloud_model: str | None = None,
+    segment_complete: bool = False,
 ) -> list[dict]:
     """Send a text turn, bringing the user's `own_keys` if given, or else their `own_llm`
     alone (as `own_keys`, which turns and calls bring alike), and the model of their own key
@@ -36,8 +37,9 @@ async def send_turn(
     body = {"text": text} | ({"own_keys": own_keys} if own_keys else {}) | (
         {"read_aloud_model": read_aloud_model} if read_aloud_model else {}
     )
+    query = "?segment_complete=1" if segment_complete else ""
     async with client.stream(
-        "POST", f"/api/conversations/{conversation_id}/turns", json=body
+        "POST", f"/api/conversations/{conversation_id}/turns{query}", json=body
     ) as res:
         assert res.status_code == 200
         assert res.headers["content-type"].startswith("text/event-stream")
@@ -133,6 +135,24 @@ async def test_reply_is_streamed_segment_by_segment_even_when_tags_are_split(
     assert deltas(events, "zh") == [(0, "哇，制作人！"), (1, "今天")]
     assert events[-1]["message"]["ja"] == "ほわっ、プロデューサーさん！今日は"
     assert events[-1]["message"]["zh"] == "哇，制作人！今天"
+
+
+async def test_finished_segments_are_streamed_only_when_the_page_asks(
+    make_client: ClientFactory,
+):
+    reply = ["<ja>一</ja><zh>一</zh>", "<ja>二</ja><zh>二</zh>"]
+    llm = FakeLLM(reply, reply)
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    default = await send_turn(client, conversation_id, "你好")
+    asked = await send_turn(client, conversation_id, "你好", segment_complete=True)
+
+    assert [e for e in default if e["type"] == "segment-complete"] == []
+    assert [(e["type"], e["segment"]) for e in asked if e["type"] == "segment-complete"] == [
+        ("segment-complete", 0),
+        ("segment-complete", 1),
+    ]
 
 
 async def test_reply_that_ignores_the_format_is_kept_as_japanese(make_client: ClientFactory):

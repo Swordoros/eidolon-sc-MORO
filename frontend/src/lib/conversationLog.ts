@@ -20,6 +20,9 @@ export type Entry =
       kind: "character";
       key: string;
       segments: Segment[];
+      /** How many leading segments the backend has said are complete; while `pending`, the
+       * rest, including the one still being written, are not shown yet. */
+      completed?: number;
       pending: boolean;
       at: string;
       affinity: AffinityChange | null;
@@ -86,6 +89,15 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
       const turn = log.turn;
       if (!turn) return log;
       return { ...log, entries: replaced(log.entries, turn.replyKey, (e) => withDelta(e, action)) };
+    }
+    case "segment-complete": {
+      const turn = log.turn;
+      if (!turn) return log;
+      const completed = (entry: Entry): Entry =>
+        entry.kind === "character"
+          ? { ...entry, completed: Math.max(entry.completed ?? 0, action.segment + 1) }
+          : entry;
+      return { ...log, entries: replaced(log.entries, turn.replyKey, completed) };
     }
     case "photos-used-up": {
       const turn = log.turn;

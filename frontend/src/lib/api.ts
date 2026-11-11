@@ -217,8 +217,9 @@ export type ReachOut = {
 export type Recorded = Message | ConversationEvent | ReachOut;
 
 /** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
- * `delta`s, then `photos-used-up` if the user asked for a photo with this hour's used up (when they
- * may ask again, ISO), and `done`, or `error`. `done` says too where the turn left her affinity, null
+ * `delta`s and, when the page asks for them, `segment-complete`s, then `photos-used-up` if the
+ * user asked for a photo with this hour's used up (when they may ask again, ISO), and `done`,
+ * or `error`. `done` says too where the turn left her affinity, null
  * while affinity is off, her ending the conversation after it, recorded after her reply, if she
  * did, what the turn was rewarded with (lib/rewards), null if nothing, and her being unwell,
  * recorded before the user's words, if it was. */
@@ -226,6 +227,7 @@ export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "photo"; id: string; status: "pending" }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
+  | { type: "segment-complete"; segment: number }
   | { type: "photos-used-up"; retry_at: string }
   | {
       type: "done";
@@ -1168,7 +1170,7 @@ export async function getCallSetup(conversationId: string, own: readonly OwnServ
  * server-sent events as they arrive.
  */
 export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
-  const res = await api(`/api/conversations/${conversationId}/turns`, {
+  const res = await api(`/api/conversations/${conversationId}/turns?segment_complete=1`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text, own_keys: turnOwnKeys(userId), read_aloud_model: readAloudModel(userId) }),

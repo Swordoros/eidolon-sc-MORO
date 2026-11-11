@@ -175,7 +175,7 @@ describe("sendTurn", () => {
     await events("c1", "おはよう", "u2");
 
     const [path, init] = fetch.mock.calls[0];
-    expect(path).toBe("/api/conversations/c1/turns");
+    expect(path).toBe("/api/conversations/c1/turns?segment_complete=1");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_keys: { llm } });
     expect(JSON.parse(fetch.mock.calls[1][1].body as string)).toEqual({ text: "おはよう" });

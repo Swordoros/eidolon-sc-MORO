@@ -17,7 +17,7 @@ import { UnseenDot } from "@/components/app/AchievementLine";
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { HerLetterButton } from "@/components/letter/LetterButton";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Bubble, BubbleContent, BubbleGroup } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -838,6 +838,10 @@ function Bubbled({
       </Message>
     );
   }
+  // 她还在写时，只显示 backend 已确认写完的段；正在写的半段留到转圈后面。
+  const shownSegments = entry.pending && !entry.reachOut
+    ? entry.segments.filter((segment, index) => index < (entry.completed ?? 0) && segment)
+    : entry.segments;
   return (
     <Message align="start">
       {first ? (
@@ -850,27 +854,42 @@ function Bubbled({
         {entry.photo && <PhotoBlock photo={entry.photo} />}
         <div className="flex min-w-0 items-end gap-1.5">
           <HerBubble said={said} reading={reading} isTabStop={isTabStop}>
-            <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
-              <BubbleContent>
-                {entry.segments.length === 0 ? (
+            {shownSegments.length === 0 ? (
+              <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
+                <BubbleContent>
                   <Spinner className="my-1 text-muted-foreground" aria-label={t.replying(character.name)} />
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {entry.segments.map((segment, i) => (
-                      <div key={i} className="flex flex-col gap-0.5">
+                </BubbleContent>
+              </Bubble>
+            ) : (
+              <BubbleGroup>
+                {shownSegments.map((segment, i) => (
+                  <Bubble
+                    key={`${entry.key}-${i}`}
+                    variant="her"
+                    joinsPrevious={i === 0 ? !first : false}
+                    joinsNext={i === shownSegments.length - 1 ? !last : false}
+                  >
+                    <BubbleContent>
+                      <div className="flex flex-col gap-0.5">
                         <p className="text-japanese-line">
                           <Ja>{segment.ja}</Ja>
                         </p>
                         {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </BubbleContent>
-            </Bubble>
+                    </BubbleContent>
+                  </Bubble>
+                ))}
+              </BubbleGroup>
+            )}
           </HerBubble>
           {last && !entry.pending && time}
         </div>
+        {entry.pending && !entry.reachOut && shownSegments.length > 0 && (
+          <Spinner
+            className="mx-1 my-1 size-4 text-muted-foreground"
+            aria-label={t.replying(character.name)}
+          />
+        )}
         {said && reading && (
           <ReadAloudBar readAloud={reading.readAloud} said={said} inCall={reading.inCall} timeZone={reading.timeZone} />
         )}

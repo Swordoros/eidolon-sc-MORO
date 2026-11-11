@@ -750,6 +750,7 @@ def create_app(backend: Backend) -> FastAPI:
         body: TurnInput,
         user_id: UserId,
         device_timezone: DeviceTimezone = None,
+        segment_complete: bool = False,
     ) -> StreamingResponse:
         conversation = await conversation_or_404(conversation_id, user_id)
         if body.own_llm is not None:  # transitional: see `TurnInput.own_llm`
@@ -777,7 +778,9 @@ def create_app(backend: Backend) -> FastAPI:
                         outcome.see(event)
                         if isinstance(event, SegmentDelta):
                             outcome.began_speaking()  # the reply's first words have appeared
-                        if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
+                        if isinstance(event, SpeechDelta | TurnJudged):
+                            continue
+                        if isinstance(event, SegmentComplete) and not segment_complete:
                             continue
                         yield _sse(shown(event))
 
