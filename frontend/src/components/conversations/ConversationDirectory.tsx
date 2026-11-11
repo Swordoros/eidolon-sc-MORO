@@ -517,8 +517,11 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       }
       kept.current.clear();
       if (heldRef.current) end(heldRef.current, true);
+      // The shell owns the voice and the call tones, not any one conversation.
+      voice.dispose();
+      tones.silence();
     },
-    [end],
+    [end, voice, tones],
   );
 
   const hangUp = useCallback(async () => {
