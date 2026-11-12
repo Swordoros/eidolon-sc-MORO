@@ -641,10 +641,13 @@ class FakeBackgroundLLM:
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
-        reply = self._replies.pop(0) if self._replies else self.NOTHING
         prompt = "\n".join(m.content for m in messages)
-        if callable(reply):
-            reply = reply(prompt)
+        if self._replies and callable(self._replies[0]):
+            reply = self._replies.pop(0)(prompt)
+        elif "你负责判断几条记忆" in prompt:
+            reply = '{"memories": []}'  # a static script has nothing to merge
+        else:
+            reply = self._replies.pop(0) if self._replies else self.NOTHING
         if isinstance(reply, str):
             reply = _with_evidence(reply, prompt)
         if self._gate is not None:

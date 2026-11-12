@@ -308,7 +308,7 @@ async def test_memories_move_to_another_deployment_superseded_as_they_were(
     assert all(m["conversation"] is None for m in data["memories"])
     assert set(osaka) == {
         "id", "source_character_id", "source_character_name", "conversation", "text",
-        "created_at", "superseded_by", "scope", "subject",
+        "created_at", "superseded_by", "scope", "subject", "resolution",
     }
     res = await import_package(there, package, "memories")
 

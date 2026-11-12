@@ -104,10 +104,12 @@ Scope = Literal["private", "unit", "shared"]
 with her unit (`unit`), or with every character (`shared`)."""
 SCOPES: tuple[Scope, ...] = ("private", "unit", "shared")
 """Every scope, in the order the frontend offers them."""
-Subject = Literal["producer", "self"]
-"""What a memory is about: the producer, or the source character herself."""
-SUBJECTS: tuple[Subject, ...] = ("producer", "self")
+Subject = Literal["producer", "self", "both"]
+"""What a memory is about: the producer, the source character herself, or both."""
+SUBJECTS: tuple[Subject, ...] = ("producer", "self", "both")
 """Every subject, the producer's first."""
+Resolution = Literal["replaced", "merged"]
+"""How a memory stopped holding: replaced by a newer fact, or merged into a fuller one."""
 
 _TRANSIENT_SELF = re.compile(
     r"正在|正准备|在准备|刚刚|刚才|现在|今天|今晚|等下|待会|明天|这周|本周"
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS memories (
     maintain_until TEXT,
     kind TEXT NOT NULL DEFAULT 'short',
     subject TEXT NOT NULL DEFAULT 'producer',
+    resolution TEXT,
     UNIQUE (user_id, text)
 );
 -- Deleting a conversation clears this from the memories written down in it.
@@ -175,7 +178,9 @@ class Memory:
     kind: str = "short"
     """short, mid or long: what a night's consolidation has made of it (GLOSSARY.md「记忆」)."""
     subject: Subject = "producer"
-    """What it is about: the producer, or the source character herself."""
+    """What it is about: the producer, the source character, or both."""
+    resolution: Resolution | None = None
+    """Replaced, merged, or still holding."""
 
 
 PackageKey = int | str
@@ -198,6 +203,8 @@ class CarriedMemory:
     """How widely it is shared (GLOSSARY.md「记忆」), as the package carried it."""
     subject: Subject = "producer"
     """What it is about, as the package carried it."""
+    resolution: Resolution | None = None
+    """Replaced, merged, or still holding."""
 
 
 def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedMemory]) -> int:
@@ -216,25 +223,40 @@ def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedM
         if kept is not None:
             ids[memory.key] = kept[0]
             continue
+        scope = "private" if memory.subject in ("self", "both") else memory.scope
         cursor = db.execute(
             "INSERT INTO memories"
-            " (user_id, source_character_id, conversation_id, text, created_at, scope, subject)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " (user_id, source_character_id, conversation_id, text, created_at, scope, subject,"
+            " resolution)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (user_id, memory.source_character_id, memory.conversation_id, memory.text,
-             memory.created_at, memory.scope, memory.subject),
+             memory.created_at, scope, memory.subject, memory.resolution),
         )
         assert cursor.lastrowid is not None
         ids[memory.key] = cursor.lastrowid
         new.append(memory)
     db.executemany(
-        "UPDATE memories SET superseded_by = ? WHERE id = ?",
+        "UPDATE memories SET superseded_by = ?, resolution = ? WHERE id = ?",
         [
-            (ids[m.superseded_by], ids[m.key])
+            (ids[m.superseded_by], m.resolution or "replaced", ids[m.key])
             for m in new
             if m.superseded_by is not None and ids[m.superseded_by] != ids[m.key]
         ],
     )
     return len(new)
+
+
+@dataclass(frozen=True)
+class _MergeGroup:
+    """One canonical memory a merge pass makes from new and shown memories."""
+
+    text: str
+    subject: Subject
+    scope: Scope
+    emotion: str | None
+    tier: str
+    new_ids: tuple[int, ...]
+    old_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -695,6 +717,8 @@ class Memories:
             if self._clearings.get(user_id, 0) != clearings:
                 return  # cleared since the turn began
             added = await self._db.write(self._add, conversation, written, shown, now)
+            if added and self._needs_merge(added, shown):
+                added = await self._merge(llm, conversation, added, shown, now)
         except Exception:
             log.warning("writing memories failed in conversation %s", conversation.id,
                         exc_info=True)
@@ -707,6 +731,52 @@ class Memories:
         except EmbeddingError:
             log.warning("embedding new memories failed; they are embedded when searched",
                         exc_info=True)
+
+    @staticmethod
+    def _needs_merge(added: Sequence[Memory], shown: Sequence[Memory]) -> bool:
+        """New memories worth asking the merge model about: several this turn that look
+        alike, or one that looks like a memory already held."""
+        if len(added) >= 2 and any(
+            a.subject != b.subject or _similar(a.text, b.text)
+            for i, a in enumerate(added) for b in added[i + 1:]
+        ):
+            return True
+        return any(
+            a.subject != b.subject or _similar(a.text, b.text)
+            for a in added for b in shown
+        )
+
+    async def _merge(
+        self,
+        llm: ChatLLM,
+        conversation: Conversation,
+        added: Sequence[Memory],
+        shown: Sequence[Memory],
+        now: datetime,
+    ) -> list[Memory]:
+        """Ask the background model which new memories are views of one event, and write
+        one canonical memory for each such group instead of keeping the views apart."""
+        try:
+            answer = "".join([
+                chunk async for chunk in llm.stream(
+                    _merge_prompt(added, shown, now, conversation.character_id, self._names)
+                ) if isinstance(chunk, str)
+            ])
+            groups = _parse_merge_groups(answer, added, shown, conversation.character_id)
+            if not groups:
+                return list(added)
+            made = await self._db.write(_merge_groups, conversation, added, shown, groups, now)
+        except Exception:
+            log.warning("merging memories failed in conversation %s", conversation.id,
+                        exc_info=True)
+            return list(added)
+        if not made:
+            return list(added)
+        merged_new = {id for group in groups for id in group.new_ids}
+        kept = {m.id: m for m in await self.kept(conversation.user_id)}
+        result = [m for m in added if m.id not in merged_new]
+        result += [kept[id] for id in made if id in kept]
+        return result
 
     async def kept(self, user_id: str) -> list[Memory]:
         """All of the user's memories, oldest first, as they are now: not waiting for what
@@ -721,8 +791,8 @@ class Memories:
         """What `kept` reads, read through `db`: for a data package too."""
         rows = db.execute(
             "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
-            " conversation_id, scope, emotion, strength, maintain_until, kind, subject"
-            " FROM memories WHERE user_id = ? ORDER BY id",
+            " conversation_id, scope, emotion, strength, maintain_until, kind, subject,"
+            " resolution FROM memories WHERE user_id = ? ORDER BY id",
             (user_id,),
         ).fetchall()
         return [self._memory(*row) for row in rows]
@@ -739,13 +809,13 @@ class Memories:
         superseded_by: int | None = None, conversation_id: str | None = None,
         scope: Scope = "shared", emotion: str | None = None, strength: float = 1.0,
         maintain_until: str | None = None, kind: str = "short",
-        subject: Subject = "producer",
+        subject: Subject = "producer", resolution: Resolution | None = None,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, (source.name_zh or source.name) if source else None, text,
             created_at, superseded_by, conversation_id, scope, emotion, strength,
-            maintain_until, kind, subject,
+            maintain_until, kind, subject, resolution,
         )
 
     def _add(
@@ -766,6 +836,7 @@ class Memories:
         for memory in written:
             strength, hold = TIERS.get(memory.tier, TIERS["medium"])
             maintain_until = (now + hold).astimezone(UTC).isoformat()
+            scope = "private" if memory.subject in ("self", "both") else memory.scope
             kept = db.execute(
                 "SELECT id, superseded_by IS NOT NULL FROM memories"
                 " WHERE user_id = ? AND text = ?",
@@ -780,15 +851,15 @@ class Memories:
                     " emotion, strength, maintain_until, kind, subject)"
                     " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?, 'short', ?)",
                     (user_id, conversation.character_id, conversation.id, memory.text,
-                     created_at, memory.scope, memory.emotion, strength, maintain_until,
+                     created_at, scope, memory.emotion, strength, maintain_until,
                      memory.subject),
                 )
                 assert cursor.lastrowid is not None
                 id = cursor.lastrowid
                 added.append(self._memory(
                     id, user_id, conversation.character_id, memory.text, created_at,
-                    scope=memory.scope, emotion=memory.emotion, strength=strength,
-                    maintain_until=maintain_until, kind="short",
+                    scope=scope, emotion=memory.emotion, strength=strength,
+                    maintain_until=maintain_until, kind="short", subject=memory.subject,
                 ))
             else:
                 id, superseded = kept
@@ -797,14 +868,14 @@ class Memories:
                 # Revived: it holds again, refreshed as its tier says and with the emotion
                 # it was written with this turn.
                 db.execute(
-                    "UPDATE memories SET superseded_by = NULL, emotion = ?, strength = ?,"
-                    " maintain_until = ? WHERE id = ?",
-                    (memory.emotion, strength, maintain_until, id),
+                    "UPDATE memories SET superseded_by = NULL, resolution = NULL, emotion = ?,"
+                    " strength = ?, maintain_until = ?, scope = ? WHERE id = ?",
+                    (memory.emotion, strength, maintain_until, scope, id),
                 )
             # Only what still holds: a memory deleted or superseded since it was shown
             # is left as it is.
             db.executemany(
-                "UPDATE memories SET superseded_by = ?"
+                "UPDATE memories SET superseded_by = ?, resolution = 'replaced'"
                 " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
                 [
                     (id, shown[n - 1].id, user_id)
@@ -814,6 +885,7 @@ class Memories:
                 ],
             )
         return added
+
 
     async def _vectors(
         self,
@@ -851,6 +923,11 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'shared'")
     if "subject" not in columns:  # kept from before subjects: all about the producer
         db.execute("ALTER TABLE memories ADD COLUMN subject TEXT NOT NULL DEFAULT 'producer'")
+    if "resolution" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN resolution TEXT")
+    db.execute("UPDATE memories SET resolution = 'replaced'"
+               " WHERE superseded_by IS NOT NULL AND resolution IS NULL")
+    db.execute("UPDATE memories SET scope = 'private' WHERE subject IN ('self', 'both')")
     if "emotion" not in columns:  # kept from before emotions: none written
         db.execute("ALTER TABLE memories ADD COLUMN emotion TEXT")
     if "strength" not in columns:  # kept from before strengths: all fullest
@@ -872,8 +949,10 @@ def _delete(db: sqlite3.Connection, user_id: str, memory_id: int) -> bool:
         return False
     [superseded_by] = deleted
     db.execute(
-        "UPDATE memories SET superseded_by = ? WHERE superseded_by = ? AND user_id = ?",
-        (superseded_by, memory_id, user_id),
+        "UPDATE memories SET superseded_by = ?,"
+        " resolution = CASE WHEN ? IS NULL THEN NULL ELSE resolution END"
+        " WHERE superseded_by = ? AND user_id = ?",
+        (superseded_by, superseded_by, memory_id, user_id),
     )
     db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     db.execute(
@@ -885,7 +964,8 @@ def _delete(db: sqlite3.Connection, user_id: str, memory_id: int) -> bool:
 def _set_scope(db: sqlite3.Connection, user_id: str, memory_id: int, scope: Scope) -> bool:
     """Change how widely the memory is shared; False if the user has no such memory."""
     cursor = db.execute(
-        "UPDATE memories SET scope = ? WHERE id = ? AND user_id = ?",
+        "UPDATE memories SET scope = ? WHERE id = ? AND user_id = ?"
+        " AND subject NOT IN ('self', 'both')",
         (scope, memory_id, user_id),
     )
     return cursor.rowcount > 0
@@ -961,6 +1041,59 @@ def _store_vectors(
     )
 
 
+def _merge_groups(
+    db: sqlite3.Connection,
+    conversation: Conversation,
+    added: Sequence[Memory],
+    shown: Sequence[Memory],
+    groups: Sequence[_MergeGroup],
+    now: datetime,
+) -> list[int]:
+    """Write one canonical memory per group and mark its members merged; returns the
+    canonical ids written, skipping groups whose members changed or whose text exists."""
+    user_id = conversation.user_id
+    current = {
+        m[0]: m for m in db.execute(
+            "SELECT id, text, subject, scope, source_character_id, superseded_by"
+            " FROM memories WHERE user_id = ?", (user_id,),
+        ).fetchall()
+    }
+    made: list[int] = []
+    for group in groups:
+        members = [*group.new_ids, *group.old_ids]
+        if len(members) < 2:
+            continue
+        held = [current.get(id) for id in members]
+        if any(row is None or row[5] is not None for row in held):
+            continue
+        if any(row[4] != conversation.character_id for row in held):
+            continue
+        if db.execute("SELECT 1 FROM memories WHERE user_id = ? AND text = ?",
+                      (user_id, group.text)).fetchone() is not None:
+            continue
+        strength, hold = TIERS.get(group.tier, TIERS["medium"])
+        cursor = db.execute(
+            "INSERT INTO memories"
+            " (user_id, source_character_id, conversation_id, text, created_at, scope,"
+            " emotion, strength, maintain_until, kind, subject, resolution)"
+            " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?,"
+            " 'short', ?, NULL)",
+            (user_id, conversation.character_id, conversation.id, group.text,
+             now.astimezone(UTC).isoformat(), group.scope, group.emotion, strength,
+             (now + hold).astimezone(UTC).isoformat(), group.subject),
+        )
+        assert cursor.lastrowid is not None
+        canonical = cursor.lastrowid
+        db.executemany(
+            "UPDATE memories SET superseded_by = ?, resolution = 'merged'"
+            " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
+            [(canonical, id, user_id) for id in members],
+        )
+        made.append(canonical)
+        current[canonical] = (canonical, group.text, group.subject, group.scope,
+                              conversation.character_id, None)
+    return made
+
 class MemoryTurn:
     """One turn's use of the user's memories; see `Memories.begin`."""
 
@@ -1009,6 +1142,120 @@ class MemoryTurn:
             self._conversation, self._timezone, self._clearings, self._llm, self._hold,
             history, text, reply, query_vector,
         )
+
+
+_MERGE_INSTRUCTIONS = """\
+你负责判断几条记忆是不是同一次事件，并在是的时候合成一条完整记忆。
+
+只合并真正指向同一件事的条目：
+- 同一件事的两个视角，例如「她带了特产回来」和「制作人收到了特产」；
+- 同一次见面、同一次约定、同一次礼物；
+- 一条只说了事件的一部分，另一条补全了它。
+
+不要合并：
+- 只是话题相近、地点相近、人物相近，但其实是两件事；
+- 一条是旧事实、另一条是更新后的事实（那是替换，不是合并）；
+- 互相矛盾的说法；
+- 不同来源角色的记忆；
+- 不同用户的记忆。
+
+合并后的文本要是一条自然、完整、第三人称的中文陈述，包含双方视角，但不要加原文没有的细节。
+subject 只能是 producer、self、both：
+- 只关于制作人写 producer；
+- 只关于她自己写 self；
+- 同时关于两个人写 both。
+scope 只能是 private、unit、shared；涉及 self 或 both 时必须是 private。
+emotion 用一两个词；tier 是 strong、medium、weak。
+
+只输出 JSON：
+{"memories": [{"text": "合并后的完整陈述", "subject": "both", "scope": "private",
+"emotion": "开心", "tier": "strong", "new": [1, 2], "old": [3]}]}
+new 是下面 N 开头的编号，old 是 O 开头的编号；没有可合并的就输出 {"memories": []}。
+"""
+
+
+def _merge_prompt(
+    added: Sequence[Memory],
+    shown: Sequence[Memory],
+    now: datetime,
+    character_id: str,
+    names: Mapping[str, str],
+) -> list[ChatMessage]:
+    """The prompt asking the background model which of the new and held memories are
+    views of one event; `new` and `old` are numbered from 1 as the answer names them."""
+    lines = [f"今天是 {_date(now)}。", f"来源角色：{names.get(character_id, character_id)}。", ""]
+    lines += ["# 本轮新写下的记忆"]
+    lines += [
+        f"N{n}. subject={m.subject} scope={m.scope} text={m.text}"
+        for n, m in enumerate(added, 1)
+    ] or ["（没有）"]
+    lines += ["", "# 已经记着的相关记忆"]
+    lines += [
+        f"O{n}. subject={m.subject} scope={m.scope} created={m.created_at[:10]} text={m.text}"
+        for n, m in enumerate(shown, 1)
+    ] or ["（没有）"]
+    return [ChatMessage("system", _MERGE_INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
+
+
+def _parse_merge_groups(
+    answer: str, added: Sequence[Memory], shown: Sequence[Memory], character_id: str
+) -> list[_MergeGroup]:
+    """Read the merge model's groups, keeping only valid, same-source, holding members."""
+    items = _array(answer, "memories")
+    if not isinstance(items, list):
+        return []
+    added_by = {n: m for n, m in enumerate(added, 1)}
+    shown_by = {n: m for n, m in enumerate(shown, 1)}
+    used: set[int] = set()
+    groups: list[_MergeGroup] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        new_ids = [n for n in item.get("new", []) if type(n) is int and n in added_by]
+        old_ids = [n for n in item.get("old", []) if type(n) is int and n in shown_by]
+        new_members = [added_by[n] for n in new_ids if added_by[n].id not in used]
+        old_members = [shown_by[n] for n in old_ids if shown_by[n].id not in used]
+        members = [*new_members, *old_members]
+        if not isinstance(text, str) or not text.strip() or len(members) < 2:
+            continue
+        if not new_members:  # a merge this turn always starts from what was just written
+            continue
+        if any(m.source_character_id != character_id for m in members):
+            continue
+        if any(m.superseded_by is not None for m in members):
+            continue
+        subjects = {m.subject for m in members}
+        if "both" in subjects or ("producer" in subjects and "self" in subjects):
+            subject: Subject = "both"
+        elif "self" in subjects:
+            subject = "self"
+        else:
+            subject = "producer"
+        scope: Scope
+        if subject in ("self", "both") or any(m.scope == "private" for m in members):
+            scope = "private"
+        else:
+            scope = item.get("scope") if item.get("scope") in SCOPES else members[0].scope
+        emotion = item.get("emotion")
+        tier = item.get("tier") if item.get("tier") in TIERS else "medium"
+        used.update(m.id for m in members)
+        groups.append(_MergeGroup(
+            text.strip()[:MAX_MEMORY_LENGTH], subject, scope,
+            emotion if isinstance(emotion, str) and emotion.strip() else members[0].emotion,
+            tier, tuple(m.id for m in new_members), tuple(m.id for m in old_members),
+        ))
+    return groups
+
+
+def _similar(a: str, b: str) -> bool:
+    """Whether two memory texts share enough character pairs to be worth asking about."""
+    def grams(text: str) -> set[str]:
+        clean = "".join(ch for ch in text if not ch.isspace())
+        return {clean[i:i + 2] for i in range(len(clean) - 1)} or {clean}
+
+    left, right = grams(a), grams(b)
+    return bool(left and right) and len(left & right) / len(left | right) >= 0.45
 
 
 _INSTRUCTIONS = """\
@@ -1061,15 +1308,15 @@ _INSTRUCTIONS = """\
 比如制作人夸她、她和制作人偷偷的约会。
 - unit（群组）：她会主动跟同组合的伙伴分享、但不会到处说的事——比如今天和制作人一起吃饭很开心这种普通的近况。
 - shared（共享）：她愿意让所有偶像都知道的事——比如公开场合的成绩、没什么敏感度的事实。
-拿不准就写 shared。
+拿不准就写 shared。self 和 both 的 scope 必须是 private，不能写 unit 或 shared。
 
 每条记忆还要标 emotion、tier 和 subject：
 - emotion 是她记下这件事时的感情，用一两个词（开心、难过、生气、担心、怀念、平静…）；没有明显感情就写「平静」。
 - tier 是这件事对她的重要程度：strong（强，她会记很久、很当回事）、medium（中，一般的重要）、weak（弱，小事、随口一提）。\
 拿不准就写 medium。
-- subject 只能是 producer（关于制作人）或 self（关于她自己）。
+- subject 只能是 producer（只关于制作人）、self（只关于她自己）或 both（同时关于两个人）。
 
-只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self", "evidence": "原话……", \
+只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self|both", "evidence": "原话……", \
 "supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
 "promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；\
 没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
@@ -1312,6 +1559,10 @@ _SELF_OPENING = (
     "下面是她自己以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
     "像平时记得这些事一样自然地提起，不要逐条复述。"
 )
+_BOTH_OPENING = (
+    "下面是制作人和她共同经历过、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
+    "像平时记得这些事一样自然地提起，不要逐条复述。"
+)
 
 
 def _memories_prompt(
@@ -1325,6 +1576,7 @@ def _memories_prompt(
     for subject, heading, text_opening in (
         ("producer", "# 关于制作人的记忆", opening),
         ("self", "# 关于她自己的记忆", _SELF_OPENING),
+        ("both", "# 你们共同的记忆", _BOTH_OPENING),
     ):
         group = [m for m in memories if m.subject == subject]
         if not group:
@@ -1342,6 +1594,14 @@ def _memories_prompt(
                     lines.append(
                         f"- {text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
                         f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
+                    )
+            elif subject == "both":
+                if memory.source_character_id == character.id:
+                    lines.append(f"- {text}（{when}，是你们一起经历的）")
+                else:
+                    lines.append(
+                        f"- {text}（{when}，是{name}和制作人一起经历的，你是听{name}说的："
+                        f"提起时要用转述的口吻，不要说成是你自己的经历）"
                     )
             elif memory.source_character_id == character.id:
                 lines.append(f"- {text}（{when}，是你自己说的）")

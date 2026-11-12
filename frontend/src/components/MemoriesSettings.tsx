@@ -178,19 +178,23 @@ export function MemoriesSettings() {
                     <MarkedAvatar name={name} src={source?.avatar_url} size="sm" />
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className={cn("text-body break-words", mark && "text-muted-foreground")}>{memory.text}</p>
+                    <p className={cn("text-body break-words", mark && "text-muted-foreground line-through")}>{memory.text}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{t.subjectName[memory.subject]}</Badge>
-                      <button
-                        type="button"
-                        aria-label={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
-                        title={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
-                        onClick={() => changeScope(memory)}
-                        disabled={busy || clearing}
-                        className="shrink-0 rounded-4xl focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                      >
-                        <Badge variant={SCOPE_VARIANT[memory.scope]}>{t.scopeName(memory.scope, family)}</Badge>
-                      </button>
+                      {memory.subject === "producer" ? (
+                        <button
+                          type="button"
+                          aria-label={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
+                          title={t.changeScope(t.scopeName(nextScope(memory.scope), family))}
+                          onClick={() => changeScope(memory)}
+                          disabled={busy || clearing}
+                          className="shrink-0 rounded-4xl focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                        >
+                          <Badge variant={SCOPE_VARIANT[memory.scope]}>{t.scopeName(memory.scope, family)}</Badge>
+                        </button>
+                      ) : (
+                        <Badge variant="scope-private">{t.scopeName("private")}</Badge>
+                      )}
                       {mark && <Badge variant="secondary">{mark}</Badge>}
                       {memory.emotion && <Badge variant="outline">{memory.emotion}</Badge>}
                       <Badge variant="outline">{t.strengthValue(memory.strength)}</Badge>

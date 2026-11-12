@@ -2721,10 +2721,12 @@ export const zh = {
     loading: "正在读取…",
     empty: "角色们还没有记下关于制作人或她自己的事。",
     /** 这条记忆讲的是制作人，还是来源角色自己。 */
-    subjectName: { producer: "制作人", self: "她自己" } as const,
+    subjectName: { producer: "制作人", self: "她自己", both: "双方" } as const,
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
     superseded: "已被取代",
+    replaced: "已替换",
+    merged: "已合并",
     /** 当前强度数值，后台按时间衰减；直接显示，不再分强/中/弱。 */
     strengthValue: (strength: number) =>
       typeof strength === "number" ? strength.toFixed(2) : String(strength),

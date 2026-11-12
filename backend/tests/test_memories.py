@@ -538,6 +538,45 @@ def test_memories_have_a_subject_and_self_memories_carry_evidence():
     assert parse_memories('{"memories": [{"text": "制作人喜欢咖啡"}]}')[0].subject == "producer"
 
 
+async def test_self_memories_are_always_private(world: World, make_memories: MemoriesFactory):
+    background = FakeBackgroundLLM(json.dumps({"memories": [{
+        "text": "真乃喜欢花", "subject": "self", "scope": "shared",
+    }]}, ensure_ascii=False))
+    memories = make_memories(background_llm=background)
+
+    await tell(memories, world, await world.conversation("mano"), "我喜欢花")
+    [written] = await memories.entries(world.producer)
+
+    assert written.subject == "self"
+    assert written.scope == "private"
+
+
+async def test_two_views_of_one_event_become_one_private_both_memory(
+    world: World, make_memories: MemoriesFactory
+):
+    def answer(prompt: str) -> str:
+        if "你负责判断几条记忆" in prompt:
+            return json.dumps({"memories": [{
+                "text": "浅仓透在福岡吃到好吃的特产，带回一份给正在出差的制作人。",
+                "subject": "both", "scope": "private", "emotion": "开心",
+                "tier": "strong", "new": [1, 2],
+            }]}, ensure_ascii=False)
+        return json.dumps({"memories": [
+            {"text": "浅仓透在福岡吃到好吃的特产，于是也带给制作人一份。", "subject": "self"},
+            {"text": "制作人在出差时收到了浅仓透从福岡带回来的特产。", "subject": "producer"},
+        ]}, ensure_ascii=False)
+
+    memories = make_memories(background_llm=FakeBackgroundLLM(answer, answer))
+    await tell(memories, world, await world.conversation("mano"), "我从福岡带了特产给你")
+
+    kept = await memories.entries(world.producer)
+    holding = [m for m in kept if m.superseded_by is None]
+    assert len(holding) == 1
+    assert holding[0].subject == "both"
+    assert holding[0].scope == "private"
+    assert {m.resolution for m in kept if m.superseded_by is not None} == {"merged"}
+
+
 def known(prompt: str) -> dict[str, int]:
     """The number of each memory the background model was shown as already remembered."""
     section = prompt.split("# 已经记住的事")[1]

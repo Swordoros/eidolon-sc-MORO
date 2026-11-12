@@ -27,13 +27,18 @@ const mano: Character = {
   voxels_url: null,
 };
 
-const memory = (source: string, superseded = false): Memory => ({
+const memory = (
+  source: string,
+  superseded = false,
+  resolution: Memory["resolution"] = superseded ? "replaced" : null,
+): Memory => ({
   id: 1,
   text: "制作人喜欢喝咖啡",
   source_character_id: source,
   source_character_name: source === "mano" ? "櫻木真乃" : null,
   created_at: "2026-09-01T12:00:00Z",
   superseded,
+  resolution,
   scope: "shared",
   subject: "producer",
   emotion: null,
@@ -55,8 +60,12 @@ describe("sourceCharacter", () => {
 });
 
 describe("supersededMark", () => {
-  it("被取代的记忆标出「已被取代」", () => {
-    expect(supersededMark(memory("mano", true))).toBe("已被取代");
+  it("被替换的记忆标出「已替换」", () => {
+    expect(supersededMark(memory("mano", true))).toBe("已替换");
+  });
+
+  it("被合并的记忆标出「已合并」", () => {
+    expect(supersededMark(memory("mano", true, "merged"))).toBe("已合并");
   });
 
   it("有效的记忆不标", () => {

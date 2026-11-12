@@ -57,6 +57,7 @@ from eidolon.memory import (
     Memories,
     Memory,
     PackageKey,
+    Resolution,
     Scope,
     Subject,
     add_carried,
@@ -524,6 +525,8 @@ class PackagedMemory(_Strict):
     """How widely it is shared (GLOSSARY.md「记忆」); `shared` for packages before scopes."""
     subject: Subject = "producer"
     """What it is about; `producer` for packages before subjects."""
+    resolution: Resolution | None = None
+    """Replaced or merged; nothing for a package before resolutions."""
 
     @classmethod
     def of(cls, memory: Memory, with_conversations: bool) -> "PackagedMemory":
@@ -539,6 +542,7 @@ class PackagedMemory(_Strict):
             superseded_by=memory.superseded_by,
             scope=memory.scope,
             subject=memory.subject,
+            resolution=memory.resolution,
         )
 
     def carried(self, conversations: Mapping[PackageKey, str]) -> CarriedMemory:
@@ -554,6 +558,7 @@ class PackagedMemory(_Strict):
             else conversations.get(self.conversation),
             scope=self.scope,
             subject=self.subject,
+            resolution=self.resolution,
         )
 
 

@@ -8,7 +8,9 @@ export function sourceCharacter(memory: Memory, characters: readonly Character[]
   return characters.find((c) => c.id === memory.source_character_id) ?? null;
 }
 
-/** 被取代的记忆旁边的标记；有效的记忆没有标记。 */
+/** 被替换或合并的记忆旁边的标记；有效的记忆没有标记。 */
 export function supersededMark(memory: Memory): string | null {
-  return memory.superseded ? copy.memories.superseded : null;
+  if (memory.resolution === "merged") return copy.memories.merged;
+  if (memory.resolution === "replaced") return copy.memories.replaced;
+  return memory.superseded ? copy.memories.replaced : null;
 }

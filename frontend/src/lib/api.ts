@@ -270,7 +270,8 @@ export type Birthday = { month: number; day: number };
 
 /** How widely a memory is shared (GLOSSARY.md「记忆」). */
 export type MemoryScope = "private" | "unit" | "shared";
-export type MemorySubject = "producer" | "self";
+export type MemorySubject = "producer" | "self" | "both";
+export type MemoryResolution = "replaced" | "merged";
 
 /** Something a character remembers about the producer or herself, with the character it was
  * told to; the name is null for a character no longer configured. */
@@ -280,10 +281,12 @@ export type Memory = {
   source_character_id: string;
   source_character_name: string | null;
   created_at: string;
-  /** 已被后来的记忆取代：角色不会再想起，删掉取代它的那条就恢复（ADR-0014）。 */
+  /** 已不再有效：角色不会再想起，删掉取代/合并它的那条就恢复（ADR-0014）。 */
   superseded: boolean;
+  /** 被替换、被合并，或仍然有效。 */
+  resolution: MemoryResolution | null;
   scope: MemoryScope;
-  /** 这条记忆讲的是制作人，还是来源角色自己。 */
+  /** 这条记忆讲的是制作人、来源角色自己，还是两个人。 */
   subject: MemorySubject;
   /** The feeling she had about it as she wrote it down (GLOSSARY.md「记忆」); null without one. */
   emotion: string | null;
