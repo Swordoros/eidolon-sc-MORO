@@ -104,7 +104,7 @@ RECOVERY_PER_DAY = 10.0
 LOWEST, HIGHEST = 0.0, 100.0
 """What it is held between; falling to the lowest begins a cooldown."""
 
-LEVEL_STEPS = (-1.5, -0.5, 0.0, 0.1, 0.2)
+LEVEL_STEPS = (-0.5, -0.2, 0.0, 0.1, 0.2)
 """How much a turn changes it by the level the judge model judges it at, from hurting her
 (0) to making her very happy (4): a tier takes weeks of turns."""
 

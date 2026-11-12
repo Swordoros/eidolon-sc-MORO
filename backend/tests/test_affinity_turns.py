@@ -1,6 +1,6 @@
 """What the user says changes her affinity (GLOSSARY.md「好感度」), as the deployer's judge
 model judges each turn before she replies: by a step for each of five levels, from hurting
-her (−1.5) to making her very happy (+0.2), the likeliest level taken and two as likely as each
+her (−0.5) to making her very happy (+0.2), the likeliest level taken and two as likely as each
 other changing nothing; by −10 for what is out of line, whatever the level; never up for
 what tries to dictate it. Turns raise it by 2.0 a day at most, the day in Beijing wherever
 the user is, the last of it as far as it goes; nothing limits how far they lower it. It falls no lower than
@@ -102,7 +102,7 @@ async def test_each_level_changes_it_by_its_step_and_two_as_likely_change_nothin
     taken = await turns(client, settings.database_path, conversation, 6)
     messages = (await client.get(f"/api/conversations/{conversation}/messages")).json()
 
-    assert [v for v, _ in taken] == pytest.approx([48.5, 48, 48, 48.1, 48.3, 48.3])
+    assert [v for v, _ in taken] == pytest.approx([49.5, 49.3, 49.3, 49.4, 49.6, 49.6])
     assert [done["message"]["affinity"] for _, done in taken] == [
         change(False, "trust"), change(False, "trust"), None,
         change(True, "trust"), change(True, "trust"), None,
@@ -130,7 +130,7 @@ async def test_out_of_line_lowers_it_by_ten_and_dictating_it_never_raises_it(
 
     taken = await turns(client, settings.database_path, conversation, 3)
 
-    assert [v for v, _ in taken] == pytest.approx([40, 40, 39.5])
+    assert [v for v, _ in taken] == pytest.approx([40, 40, 39.8])
     assert [done["message"]["affinity"] for _, done in taken] == [
         change(False, "trust"), None, change(False, "distant", tier_changed=True),
     ]
@@ -186,7 +186,7 @@ async def test_it_falls_no_lower_than_0_where_a_cooldown_begins(
     clients = FakeServiceClients()
     clients.judge.judgings = [level(0)]
     client = make_client(FakeLLM(REPLY), clients=clients, clock=clock)
-    keep(settings.database_path, "producer", 1, clock.now)
+    keep(settings.database_path, "producer", 0.4, clock.now)
     conversation = await start_conversation(client)
 
     [(fell, done)] = await turns(client, settings.database_path, conversation, 1)
@@ -277,5 +277,5 @@ async def test_off_the_judge_model_is_never_asked_and_on_again_it_is_from_the_ne
     assert done_off["affinity"] is None
     assert done_off["message"]["affinity"] is None
     assert len(clients.judge.affinity_asked) == 1  # only once on
-    assert on == 48.5
+    assert on == 49.5
     assert done_on["affinity"] == TRUST

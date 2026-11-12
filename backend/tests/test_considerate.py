@@ -158,7 +158,7 @@ async def test_with_the_deployment_turning_cycles_off_or_affinity_off_it_is_not_
         )
         assert not any(CONSIDERATE_QUESTION in q for q in clients.judge.questions), off
         # Cycles off, by plain days' numbers; affinity off, unchanged.
-        assert values == pytest.approx([59.5 if off.affinity_and_gifts else 60]), off
+        assert values == pytest.approx([59.8 if off.affinity_and_gifts else 60]), off
 
 
 async def test_with_the_user_turning_cycles_off_it_is_not_asked_and_affinity_goes_as_ever(
@@ -174,7 +174,7 @@ async def test_with_the_user_turning_cycles_off_it_is_not_asked_and_affinity_goe
     await send_turn(client, conversation, "快去训练")
 
     assert CONSIDERATE_QUESTION not in clients.judge.questions[-1]
-    assert value(settings.database_path) == pytest.approx(59.5)
+    assert value(settings.database_path) == pytest.approx(59.8)
 
 
 async def test_in_her_days_what_lowers_it_does_twice_as_much_and_inconsiderate_half_more(
