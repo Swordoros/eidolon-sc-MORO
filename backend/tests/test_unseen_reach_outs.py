@@ -59,6 +59,8 @@ async def test_her_line_has_one_unseen_till_her_conversation_is_read_and_no_othe
     assert await unseen(client) == {"mano": False, "kogane": False}
 
     await backend_of(client).reach_outs.run_due()
+    clock.advance(hours=3)
+    await backend_of(client).reach_outs.run_due()
     assert await unseen(client) == {"mano": True, "kogane": True}
 
     [said] = reach_outs(await record(client, mano))  # given back as it is seen

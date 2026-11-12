@@ -216,10 +216,8 @@ async def test_the_judge_model_retrieval_and_memory_read_it_as_her_latest_words(
     ]
     assert "制作人！练习结束了哦\n辛苦了" in embedder.queries
     [*_, extraction] = [p for p in memory.prompts if "起标题" not in p[0].content]
-    assert extraction[-1].content.endswith(
-        "櫻木真乃：好的\n櫻木真乃：制作人！练习结束了哦\n"
-        "制作人（最新的一句话）：辛苦了\n櫻木真乃：好的"
-    )
+    assert "# 最新的一句话（producer 记忆的唯一来源）\n制作人：辛苦了" in extraction[-1].content
+    assert extraction[-1].content.rstrip().endswith("櫻木真乃：好的")
 
 
 async def test_in_a_call_the_one_before_it_connected_is_told_before_his_words(

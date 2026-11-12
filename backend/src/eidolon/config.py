@@ -95,19 +95,12 @@ class ServiceStatusSettings:
     window_minutes: int = DEFAULT_STATUS_WINDOW
 
 
-DEFAULT_REACH_OUTS_PER_DAY = 3
-"""How many reach-outs each user may have a day, of all characters together, unless the admin
-console says otherwise."""
-
-
 @dataclass(frozen=True)
 class ReachOutSettings:
     """Whether characters reach out to users (GLOSSARY.md「搭话」), off unless `.env` turns it
-    on, and how many reach-outs each user may have a day; the admin console may override
-    both."""
+    on; the admin console may override it."""
 
     enabled: bool
-    per_day: int
 
 
 DEFAULT_MOMENTS_PER_DAY = 3

@@ -485,17 +485,12 @@ describe("GPT Image", () => {
 describe("reach-outs", () => {
   const spec = ITEM_SPECS.reach_outs;
 
-  it("send the switch and how many a day, a whole number from 1 up", () => {
-    const form = formOf(spec, { enabled: false, per_day: 3 });
-    expect(form).toEqual({ enabled: "false", per_day: "3" });
-    expect(changeOf(spec, { enabled: "true", per_day: " 12 " }, true)).toEqual({
-      change: { enabled: true, per_day: 12 },
+  it("send only the switch", () => {
+    const form = formOf(spec, { enabled: false });
+    expect(form).toEqual({ enabled: "false" });
+    expect(changeOf(spec, { enabled: "true" }, true)).toEqual({
+      change: { enabled: true },
     });
-    for (const bad of ["0", "", "1.5", "-2"]) {
-      expect(changeOf(spec, { ...form, per_day: bad }, true), bad).toEqual({
-        problems: [{ field: "per_day", reason: "positive" }],
-      });
-    }
   });
 });
 

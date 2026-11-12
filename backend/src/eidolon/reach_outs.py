@@ -19,8 +19,8 @@ Her time goes by the producer's day, in the profile's time zone (or `Asia/Shangh
 that falls in the `NIGHT`, or comes while it is night, is put off to the `MORNING` after,
 at a place in it drawn once for each contact. One past `WINDOW` after the last contact is
 given up till they are in touch again. Those whose time has come at a tick come in the order
-of their times, each user reached out to at most as many times a day as the deployer sets;
-one over it is put off to a time drawn in the next day's `MORNING`. One whose time came
+of their times, but no two to the same user within `MIN_GAP`, and no character more than
+twice in the producer's day; either is put off, not dropped. One whose time came
 before the backend started is not made up for, nor one that fails, the model failing or
 saying nothing she could say: each is put off from now by a time drawn anew from her tier's
 range.
@@ -38,10 +38,10 @@ import logging
 import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from eidolon.activity import ActivityLog, read_reached_out_since
+from eidolon.activity import ActivityLog
 from eidolon.affinity import Affinities, Status, Tier
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -90,6 +90,9 @@ CALL_BACK_AFTER = timedelta(minutes=10)
 
 CALL_BACK_WITHIN = timedelta(hours=2)
 """How long after a call she did not answer she still comes back for it."""
+
+MIN_GAP = timedelta(hours=3)
+"""How long after any reach-out to a user another may come, whichever character's."""
 
 _SCHEMA = """
 -- When she is to reach out in a conversation (GLOSSARY.md「搭话」): the last contact it was
@@ -293,18 +296,26 @@ class ReachOuts:
         )
 
     async def _within_the_day(self, due: _Due, now: datetime) -> bool:
-        """Whether the user may be reached out to once more today; if not, her time is put
-        off to the next day's morning."""
+        """Whether this reach-out may come now: at least `MIN_GAP` after any character's
+        last one, and the character's first two today. Otherwise it is put off, not dropped."""
         today = now.astimezone(due.zone).date()
         began = datetime.combine(today, time(), due.zone)
-        reached_out = await self._db.read(
-            read_reached_out_since, due.conversation.user_id, began
+        last = await self._db.read(_last_reached_out, due.conversation.user_id)
+        if last is not None:
+            gap = now - last
+            if gap < MIN_GAP:
+                await self._put_off(due.conversation.id, due.contact, last + MIN_GAP)
+                return False
+        already = await self._db.read(
+            _character_reached_out_count_since, due.conversation.user_id,
+            due.conversation.character_id, began.astimezone(UTC),
         )
-        if reached_out < self._config.reach_outs.per_day:
-            return True
-        tomorrow = datetime.combine(today + timedelta(days=1), NIGHT[1], due.zone)
-        await self._put_off(due.conversation.id, due.contact, tomorrow + MORNING * self._draw())
-        return False
+        if already >= 2:
+            tomorrow = datetime.combine(today + timedelta(days=1), NIGHT[1], due.zone)
+            await self._put_off(due.conversation.id, due.contact,
+                                tomorrow + MORNING * self._draw())
+            return False
+        return True
 
     def _talking(self, conversation_id: str) -> bool:
         """Whether a text turn is under way in the conversation, or a call."""
@@ -366,7 +377,8 @@ class ReachOuts:
             lease.release()
         try:
             reach_out = await self._store.add_reach_out(
-                conversation.id, said, contact, self._in_call(conversation.id)
+                conversation.id, said, contact, self._in_call(conversation.id),
+                now.astimezone(UTC).isoformat(),
             )
         except ReachOutRefused:  # they were in touch meanwhile
             await recording.finish("rejected")
@@ -387,6 +399,28 @@ def _tier(status: Status | None) -> Tier | None:
     if status.cooling or status.tier not in INTERVALS:
         return None
     return status.tier
+
+
+def _last_reached_out(db: sqlite3.Connection, user_id: str) -> datetime | None:
+    """When any character last reached out to the user, if any has."""
+    row = db.execute(
+        "SELECT MAX(r.created_at) FROM reach_outs r"
+        " JOIN conversations c ON c.id = r.conversation_id WHERE c.user_id = ?",
+        (user_id,),
+    ).fetchone()
+    return datetime.fromisoformat(row[0]) if row[0] is not None else None
+
+
+def _character_reached_out_count_since(
+    db: sqlite3.Connection, user_id: str, character_id: str, since: datetime
+) -> int:
+    """How many times the character has reached out to the user since `since`."""
+    [count] = db.execute(
+        "SELECT COUNT(*) FROM reach_outs r JOIN conversations c ON c.id = r.conversation_id"
+        " WHERE c.user_id = ? AND c.character_id = ? AND r.created_at >= ?",
+        (user_id, character_id, since.isoformat()),
+    ).fetchone()
+    return count
 
 
 def _switched_on(db: sqlite3.Connection, user_id: str) -> bool:

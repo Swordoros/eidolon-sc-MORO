@@ -90,5 +90,8 @@ async def test_switched_off_none_of_them_comes_and_switched_on_again_she_comes_w
     await reach_out.run_due()
 
     assert while_off == [[], []]
+    assert [len(reach_outs(await record(client, each))) for each in (conversation, other)] == [1, 0]
+    clock.advance(hours=3)
+    await reach_out.run_due()
     assert [len(reach_outs(await record(client, each))) for each in (conversation, other)] == [1, 1]
 

@@ -372,12 +372,9 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
   },
   // 搭话（GLOSSARY.md「搭话」）：总开关，每位用户每天最多几次。不试调。
   reach_outs: {
-    rows: ["enabled", "per_day"],
+    rows: ["enabled"],
     secrets: [],
-    form: [
-      { name: "enabled", kind: "switch" },
-      { name: "per_day", kind: "positive" },
-    ],
+    form: [{ name: "enabled", kind: "switch" }],
     tried: false,
   },
   // 信（GLOSSARY.md「信」）：只有一个总开关。不试调。

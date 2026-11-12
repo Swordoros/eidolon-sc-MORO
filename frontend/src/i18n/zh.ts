@@ -1802,7 +1802,7 @@ export const zh = {
       /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
       itemFields: {
         chat_llm: { reasoning_effort: "文字的思考强度" },
-        reach_outs: { enabled: "搭话", per_day: "每位用户每天最多几次" },
+        reach_outs: { enabled: "搭话" },
         letters: { enabled: "信" },
         moments: {
           enabled: "朋友圈",

@@ -204,11 +204,10 @@ class AffinityInput(BaseModel):
 
 
 class ReachOutsInput(BaseModel):
-    """Whether characters reach out to users, true or false, and how many times a day each
-    user at most, a whole number from 1 up; checked by the live configuration."""
+    """Whether characters reach out to users, true or false; checked by the live
+    configuration."""
 
     enabled: Any
-    per_day: Any
 
 
 class LettersInput(BaseModel):

@@ -70,7 +70,6 @@ from eidolon.config import (
     DEFAULT_MOMENT_REPLIES_PER_DAY,
     DEFAULT_MOMENTS_PER_DAY,
     MAP_SITES,
-    DEFAULT_REACH_OUTS_PER_DAY,
     DEFAULT_BAILIAN_JUDGE_REGION,
     ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
@@ -790,21 +789,17 @@ class _Affinity(_Item):
 
 class _ReachOuts(_Item):
     """Whether characters reach out to users (GLOSSARY.md「搭话」), as `.env` has it (off by
-    default), and how many reach-outs each user may have a day, a whole number from 1 up; not
-    tried."""
+    default); not tried."""
 
     name = REACH_OUTS
-    fields = ("enabled", "per_day")
+    fields = ("enabled",)
 
     def env(self) -> Values:
-        return {"enabled": self.c.settings.reach_outs, "per_day": DEFAULT_REACH_OUTS_PER_DAY}
+        return {"enabled": self.c.settings.reach_outs}
 
     def candidate(self, current: Values, change: Values) -> Values:
         if "enabled" in change and not isinstance(change["enabled"], bool):
             raise ConfigInvalid(f"搭话需要是 true 或 false，而不是 {change['enabled']!r}")
-        per_day = change.get("per_day", current["per_day"])
-        if isinstance(per_day, bool) or not isinstance(per_day, int) or per_day < 1:
-            raise ConfigInvalid(f"每位用户每天最多几次搭话需要是正整数，而不是 {per_day!r}")
         return current | change
 
 
@@ -1248,10 +1243,8 @@ class LiveConfig:
 
     @property
     def reach_outs(self) -> ReachOutSettings:
-        """Whether characters reach out to users now, and how many times a day each user at
-        most."""
-        values = self.effective(REACH_OUTS)
-        return ReachOutSettings(values["enabled"], values["per_day"])
+        """Whether characters reach out to users now."""
+        return ReachOutSettings(self.effective(REACH_OUTS)["enabled"])
 
     @property
     def moments(self) -> MomentSettings:

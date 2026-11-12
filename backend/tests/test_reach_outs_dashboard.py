@@ -131,7 +131,7 @@ async def test_with_reach_outs_off_and_none_in_the_range_there_is_no_section(
     await backend_of(client).reach_outs.run_due()
 
     async with admin_beside(client, github) as admin:
-        res = await admin.put(REACH_OUTS, json={"enabled": False, "per_day": 3})
+        res = await admin.put(REACH_OUTS, json={"enabled": False})
         assert res.status_code == 200, res.text
         off_with_one = (await dashboard(admin))["reach_outs"]
         clock.advance(hours=25)  # out of the last 24 hours

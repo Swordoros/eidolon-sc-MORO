@@ -259,8 +259,8 @@ async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
     await reach_out.run_due()
     after_a_call = len(reach_outs(await record(client, conversation)))
 
-    assert (unanswered, after_a_turn, after_a_call) == (1, 2, 3)
-    assert len(llm.prompts) == 5  # the turns' two, and three reach-outs
+    assert (unanswered, after_a_turn, after_a_call) == (1, 2, 2)
+    assert len(llm.prompts) == 4  # the turns' two, and two reach-outs today
 
 
 async def test_she_reaches_out_only_in_her_current_conversation_once_it_has_a_turn(
@@ -478,6 +478,8 @@ async def test_each_has_an_activity_record_of_its_own_which_no_turn_or_call_coun
         last_contact(database, conversation, clock.now - timedelta(hours=20))
 
     await backend_of(client).reach_outs.run_due()
+    clock.advance(hours=3)
+    await backend_of(client).reach_outs.run_due()
 
     assert records(database)[2:] == [
         ("reach_out", "mano", "success", 0), ("reach_out", "kogane", "failed", 0),
@@ -594,23 +596,19 @@ async def test_off_by_default_the_admin_turns_them_on_with_how_many_a_day(
         before = reach_outs(await record(client, conversation))
         refused = [
             await admin.put(REACH_OUTS, json=body)
-            for body in (
-                {"enabled": "yes", "per_day": 3}, {"enabled": True, "per_day": 0},
-                {"enabled": True, "per_day": True}, {"enabled": True, "per_day": 1.5},
-                {"enabled": True},
-            )
+            for body in ({"enabled": "yes"}, {"enabled": 1}, {})
         ]
-        turned_on = await admin.put(REACH_OUTS, json={"enabled": True, "per_day": 5})
+        turned_on = await admin.put(REACH_OUTS, json={"enabled": True})
         await reach_out.run_due()
 
     assert described == {
-        "status": "env", "env": {"enabled": False, "per_day": 3},
-        "effective": {"enabled": False, "per_day": 3}, "override": None, "failure": None,
+        "status": "env", "env": {"enabled": False},
+        "effective": {"enabled": False}, "override": None, "failure": None,
     }
     assert before == []
-    assert [r.status_code for r in refused] == [422] * 5
+    assert [r.status_code for r in refused] == [422] * 3
     assert turned_on.status_code == 200
-    assert turned_on.json()["reach_outs"]["effective"] == {"enabled": True, "per_day": 5}
+    assert turned_on.json()["reach_outs"]["effective"] == {"enabled": True}
     assert len(reach_outs(await record(client, conversation))) == 1
 
 
@@ -631,10 +629,10 @@ async def test_deleting_the_user_deletes_them_when_she_was_to_come_and_their_swi
     assert left == [0, 0, 0]
 
 
-async def allow_a_day(client: httpx.AsyncClient, github: FakeIdentityProvider, per_day: int) -> None:
-    """Have the admin let each user be reached out to `per_day` times a day."""
+async def allow_a_day(client: httpx.AsyncClient, github: FakeIdentityProvider, per_day: int = 0) -> None:
+    """Have the admin turn reach-outs on; the old per-day number is gone."""
     async with admin_beside(client, github) as admin:
-        res = await admin.put(REACH_OUTS, json={"enabled": True, "per_day": per_day})
+        res = await admin.put(REACH_OUTS, json={"enabled": True})
     assert res.status_code == 200, res.text
 
 
@@ -700,6 +698,7 @@ async def test_a_day_the_earliest_come_first_the_rest_the_next_morning_by_his_ti
             len(reach_outs(await record(client, mano))),
         ))
 
+    # Both come in the morning, but the second waits for the global three hours.
     assert came == [(1, 0), (1, 0), (1, 1)]
 
 
