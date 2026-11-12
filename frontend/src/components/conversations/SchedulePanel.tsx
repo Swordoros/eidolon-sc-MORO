@@ -24,6 +24,7 @@ import { agendaRows, getDayAgenda, type DayAgenda } from "@/lib/scheduleAgenda";
 import { herVars } from "@/theme/herVars";
 
 const t = copy.conversation.agenda;
+const REFRESH_MS = 60_000;
 
 /**
  * 「日程安排」面板（DESIGN.md「Overlays」）：她的对话页更多菜单打开，宽屏居中的 Dialog，
@@ -48,13 +49,21 @@ export function SchedulePanel({
   useEffect(() => {
     if (!isOpen) return;
     let gone = false;
+    const read = (first: boolean) =>
+      getDayAgenda(character.id).then(
+        (found) => !gone && setAgenda(found),
+        () => !gone && first && setAgenda("failed"),
+      );
     setAgenda("loading");
-    getDayAgenda(character.id).then(
-      (read) => !gone && setAgenda(read),
-      () => !gone && setAgenda("failed"),
-    );
+    void read(true);
+    // The new day's schedule may be written after midnight: replace the panel's day when
+    // it is, not at 00:00, and keep showing the previous day until then.
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void read(false);
+    }, REFRESH_MS);
     return () => {
       gone = true;
+      clearInterval(timer);
     };
   }, [isOpen, character.id, attempt]);
 

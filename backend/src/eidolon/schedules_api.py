@@ -7,7 +7,7 @@ Under the development sign-in only (`EIDOLON_DEV_LOGIN=1`), `POST /api/schedules
 hers for today written at once, to try schedules out without waiting for the morning."""
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException
@@ -34,8 +34,19 @@ def add_daily_schedule_routes(app: FastAPI, backend: Backend) -> None:
             raise HTTPException(404, "没有这位角色")
         if day is None:
             zone = ZoneInfo(effective_timezone(await store.get_profile(user_id), None))
-            day = clock().astimezone(zone).date()
-        found = await schedules.of(user_id, character_id, day)
+            local = clock().astimezone(zone)
+            today = local.date()
+            day = today - timedelta(days=1) if local.time() < time(3) else today
+            found = await schedules.of(user_id, character_id, day)
+            if found is None:
+                # Until the new day's schedule has been written, keep showing the one it
+                # replaces, rather than going blank at midnight.
+                found = await schedules.of(
+                    user_id, character_id, day - timedelta(days=1)
+                    if day == today else today
+                )
+        else:
+            found = await schedules.of(user_id, character_id, day)
         return found.shown() if found else None
 
     @app.get("/api/characters/{character_id}/schedule/now")

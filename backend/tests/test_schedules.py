@@ -127,6 +127,27 @@ async def talked(
     return client, llm, clock
 
 
+async def test_before_three_the_panel_shows_yesterdays_schedule(
+    make_client: ClientFactory, settings: Settings
+):
+    client, _, clock = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
+    clock.now = today_at(6)
+    await backend_of(client).schedule_writer.run_due()
+    yesterday = today_at(6).date() - timedelta(days=1)
+    async with database_in(settings.database_path) as db:
+        await Schedules(db, lambda: datetime.now(UTC)).keep(
+            user_id(settings.database_path, "producer"), "mano", yesterday,
+            [Slot(time(9), time(10), "昨日日程", "", "lesson")], [],
+        )
+
+    clock.now = today_at(1)
+    found = await schedule(client)
+
+    assert found is not None
+    assert found["day"] == yesterday.isoformat()
+    assert any(slot["what"] == "昨日日程" for slot in found["slots"])
+
+
 async def schedule(client: httpx.AsyncClient, character: str = "mano") -> dict | None:
     res = await client.get(f"/api/characters/{character}/schedule")
     assert res.status_code == 200, res.text
