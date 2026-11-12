@@ -1052,6 +1052,11 @@ class ConversationEngine:
         was generated since the backend started (GLOSSARY.md「开发」)."""
         return self._last_prompt.get(user_id)
 
+    def record_prompt(self, user_id: str, prompt: Sequence[ChatMessage]) -> None:
+        """Keep `prompt` as the user's last one for the development switch, for a prompt
+        assembled outside a turn, such as a night visit."""
+        self._last_prompt[user_id] = _dump_prompt(prompt)
+
     def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
         """Have `listener` told the conversation's id, and why, as she ends one, once it is
         recorded."""

@@ -43,6 +43,7 @@ class VisitGenerator:
         recent = await self.visits.recent_openings(c)
         prefer = await self.host.prefer_opening(c)
         prompt = build_prompt(context, recent, prefer)
+        self.host.backend.engine.record_prompt(c.user_id, prompt)
         lease = self.host.backend.config.lease()
         try:
             await on_request()
