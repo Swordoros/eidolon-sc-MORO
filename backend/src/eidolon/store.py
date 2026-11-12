@@ -927,7 +927,7 @@ class Store:
         is not, `ReachOutRefused`, with a text turn under way in it or a call, as `in_call`
         says, looked at on the event loop as it is handed in; nor unless, looked at again as
         it is recorded, the conversation is still her current one, not ended, last in touch
-        at `contact`, without a reach-out since."""
+        at `contact`."""
         if in_call or self.is_taking_turn(conversation_id):
             raise ReachOutRefused()
         return await self._db.write(
@@ -1973,15 +1973,10 @@ def _add_reach_out(
         " WHERE c.id = ? ORDER BY n.created_at DESC, n.rowid DESC LIMIT 1",
         (conversation_id,),
     ).fetchone()
-    [reached_out_at] = db.execute(
-        "SELECT MAX(created_at) FROM reach_outs WHERE conversation_id = ?",
-        (conversation_id,),
-    ).fetchone()
     if (
         current is None or current[0] != conversation_id
         or read_ended(db, conversation_id) is not None
         or _last_contact_in(db, conversation_id) != contact
-        or (reached_out_at is not None and _at(reached_out_at) >= contact)
     ):
         raise ReachOutRefused()
     cursor = db.execute(

@@ -233,7 +233,7 @@ def connected_call(database: Path, conversation: str, at: datetime, seconds: flo
         )
 
 
-async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
+async def test_she_follows_up_until_the_day_allows_no_more(
     make_client: ClientFactory, settings: Settings
 ):
     client, llm, clock, conversation = await talked(
@@ -259,8 +259,8 @@ async def test_she_waits_for_the_user_to_answer_before_she_comes_again(
     await reach_out.run_due()
     after_a_call = len(reach_outs(await record(client, conversation)))
 
-    assert (unanswered, after_a_turn, after_a_call) == (1, 2, 2)
-    assert len(llm.prompts) == 4  # the turns' two, and two reach-outs today
+    assert (unanswered, after_a_turn, after_a_call) == (2, 2, 2)
+    assert len(llm.prompts) == 4  # the turns' two, and the two reach-outs the day allows
 
 
 async def test_she_reaches_out_only_in_her_current_conversation_once_it_has_a_turn(
@@ -702,6 +702,27 @@ async def test_a_day_the_earliest_come_first_the_rest_the_next_morning_by_his_ti
     assert came == [(1, 0), (1, 0), (1, 1)]
 
 
+async def test_she_picks_up_a_question_the_user_has_not_answered(
+    make_client: ClientFactory, settings: Settings
+):
+    question = ["<ja>明日は来る？</ja><zh>明天来吗？</zh>"]
+    follow_up = ["<ja>じゃあ、待ってるね。</ja><zh>那我等你。</zh>"]
+    client, llm, clock, conversation = await talked(
+        make_client, question, follow_up, random=FakeRandom(0)
+    )
+    last_contact(settings.database_path, conversation, clock.now - timedelta(hours=20))
+    reach_out = backend_of(client).reach_outs
+
+    await reach_out.run_due()
+    clock.advance(hours=4)
+    await reach_out.run_due()
+
+    assert len(reach_outs(await record(client, conversation))) == 2
+    prompt = "\n".join(str(m.content) for m in llm.prompts[-1])
+    assert "# 还没等到回话" in prompt
+    assert "明日は来る？" in prompt
+
+
 async def test_one_over_the_day_put_off_past_the_week_does_not_come(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
@@ -727,7 +748,8 @@ async def test_one_over_the_day_put_off_past_the_week_does_not_come(
     clock.advance(days=1)
     await reach_out.run_due()
 
-    assert len(reach_outs(await record(client, kogane))) == 1
+    # She follows her first reach-out up once, as the day allows, before it runs out.
+    assert len(reach_outs(await record(client, kogane))) == 2
     assert reach_outs(await record(client, mano)) == []
 
 

@@ -579,6 +579,17 @@ WANTS_TO_REACH_OUT = "（制作人这会儿没在和你说话。你想先给他�
 """Where the user's words would be as she reaches out, after the events since the last turn:
 so every protocol takes the prompt, ending with the user, as narration does."""
 
+
+def _topic_waiting(line: str) -> str:
+    """Tell her, as she reaches out, that her last question still has no answer and that
+    she may pick it back up as herself."""
+    return (
+        "# 还没等到回话\n"
+        f"你最后一句话说：\n「{line}」\n"
+        "他到现在还没回。接着说的时候可以再问一次，可以自己把话接下去"
+        "（自问自答也可以），也可以先说别的——按你的性子来，别把原话重复一遍。"
+    )
+
 WANTS_TO_SEND_TRIP_PHOTO = "（制作人这会儿没在和你说话。你想给他发一张外景的照片。）"
 
 ALONE = "照片里只有你一个人。"
@@ -1728,6 +1739,7 @@ class ConversationEngine:
         rules: str | None,
         wants: str,
         voiced_by: FishAudioModel | None = None,
+        topic: str | None = None,
     ) -> tuple[list[Segment], str | None]:
         """What she says first in `conversation`, the user not talking to her (GLOSSARY.md
         「搭话」), on `llm`, told `rules` of how and that she `wants` to: its segments, as the
@@ -1785,6 +1797,7 @@ class ConversationEngine:
                 *_letters_told(read.letters),
                 *([SCENE_INVITATION] if scene is not None and scene.turns == 0 else []),
                 *([CALLING_BACK] if _missed_since_last_turn(record) else []),
+                *([_topic_waiting(topic)] if topic else []),
             ],
             [*([memories] if memories else []), rules],
             wants, voiced_by,
@@ -1809,12 +1822,16 @@ class ConversationEngine:
         return parser.complete, tag
 
     async def reach_out(
-        self, conversation: Conversation, llm: ChatLLM, voiced_by: FishAudioModel | None = None
+        self, conversation: Conversation, llm: ChatLLM, voiced_by: FishAudioModel | None = None,
+        topic: str | None = None,
     ) -> list[Segment]:
         """What she says first in `conversation`, the user not talking to her (GLOSSARY.md
         「搭话」), on `llm`: its segments, as the model wrote them, delivery cues and all. Her
-        prompt is laid out as a text turn's; a photo tag is dropped, she sends none."""
-        said, _ = await self._reaching_out(conversation, llm, None, WANTS_TO_REACH_OUT, voiced_by)
+        prompt is laid out as a text turn's; a photo tag is dropped, she sends none. `topic`
+        is her last question the user has not answered, if it is to be picked back up."""
+        said, _ = await self._reaching_out(
+            conversation, llm, None, WANTS_TO_REACH_OUT, voiced_by, topic
+        )
         return said
 
     async def send_trip_photo(

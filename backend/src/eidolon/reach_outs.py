@@ -10,8 +10,8 @@ then the last contact and a time drawn from her tier's range (`INTERVALS`), at a
 drawn once for each contact (`PLACES`), drawn anew as the contact changes; trust's where
 affinity is off. A conversation she is not to reach out in is passed over, its time left as
 it is, to be looked at again at the next tick: one she has ended; one without a turn yet;
-one she has reached out in since the last contact, so that she waits for the user to answer
-first; one she is in a cooldown in, or cold or distant; one with a text turn under way or a
+one she has already reached out in since the last contact as many times as her tier's
+`SILENCE` allows; one she is in a cooldown in, or cold or distant; one with a text turn under way or a
 call; one of a user banned, or one an admin lets take no turns on the deployer's keys; one of
 a user who has switched their own switch off (`switch`), on by default.
 
@@ -25,6 +25,13 @@ before the backend started is not made up for, nor one that fails, the model fai
 saying nothing she could say: each is put off from now by a time drawn anew from her tier's
 range.
 
+She may say more than one thing into a silence, up to `SILENCE` by her tier, each a sixth
+of her interval after the one before (`FOLLOW_UP`). If the user has left a question of hers
+unanswered within `NUDGE_WITHIN`, she comes back sooner — at least `NUDGE_FLOOR` after it,
+and at a sixth of her interval — and is told what she asked, so she may ask again, answer
+it herself, or let it go. The producer's `MIN_GAP`, the character's two a day, and the
+night still hold.
+
 She reaches out on the deployer's chat model as text turns use it, whoever's LLM the user
 brings, held only while she does (`ConversationEngine.reach_out`): nothing counts towards the
 user's limits. Each reach-out has an activity record of its own (`reach_out`), on the
@@ -35,6 +42,7 @@ looked at again as it is recorded (`Store.add_reach_out`), is not recorded, refu
 
 import asyncio
 import logging
+import re
 import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -53,6 +61,8 @@ from eidolon.randomness import Random
 from eidolon.store import (
     Conversation,
     CurrentConversation,
+    Message,
+    ReachOut,
     ReachOutRefused,
     Store,
     read_profile,
@@ -94,6 +104,22 @@ CALL_BACK_WITHIN = timedelta(hours=2)
 MIN_GAP = timedelta(hours=3)
 """How long after any reach-out to a user another may come, whichever character's."""
 
+SILENCE: dict[Tier, int] = {"intimate": 3, "close": 2, "trust": 2}
+"""How many words she may say into one silence — the user not answering — by her tier."""
+
+FOLLOW_UP = 6
+"""How much sooner each word into a silence comes than the first: a sixth of the tier's
+interval, so a follow-up arrives while the user may still be there."""
+
+NUDGE_FLOOR = timedelta(minutes=45)
+"""How soon at the least she picks an unanswered question back up."""
+
+NUDGE_WITHIN = timedelta(hours=12)
+"""How long after her question it is still picked back up."""
+
+_OPENING_CUE = re.compile(r"^\[[^]]+\]\s*")
+_ASKS = re.compile(r"[？?]$|(かい?|かな|かしら|かなぁ)$")
+
 _SCHEMA = """
 -- When she is to reach out in a conversation (GLOSSARY.md「搭话」): the last contact it was
 -- drawn for (`contact_at`), and where in her tier's range (`place`, from 0 to 1). The other
@@ -127,6 +153,8 @@ class _Due:
     tier: Tier
     at: datetime
     zone: ZoneInfo
+    topic: str | None = None
+    """Her last question the user has not answered, if one is to be picked back up."""
 
 
 @dataclass(frozen=True)
@@ -238,8 +266,6 @@ class ReachOuts:
             return None
         if now - contact > WINDOW:
             return None
-        if current.reached_out_at is not None and current.reached_out_at >= contact:
-            return None
         standing = await self._db.read(self._standing, conversation, self._affinities.on)
         if standing.limits is not None and standing.limits.turns_per_hour == 0:
             return None
@@ -247,6 +273,11 @@ class ReachOuts:
             return None
         tier = _tier(standing.status)
         if tier is None:
+            return None
+        into_silence = await self._db.read(
+            _reach_out_count_since, conversation.id, contact
+        )
+        if into_silence >= SILENCE[tier]:
             return None
         zone = ZoneInfo(effective_timezone(standing.profile, None))
         # A call she did not answer in the bath has her come back for it, once it is over.
@@ -260,6 +291,22 @@ class ReachOuts:
         place, morning, due = await self._schedule(conversation.id, contact, standing.schedule)
         if due is None:
             due = contact + self._interval(tier, place)
+        topic: str | None = None
+        if into_silence == 0:
+            if now - contact <= NUDGE_WITHIN:
+                topic = await self._open_topic(conversation.id)
+            if topic is not None:
+                due = max(
+                    contact + NUDGE_FLOOR,
+                    contact + self._interval(tier, place) / FOLLOW_UP,
+                )
+        elif current.reached_out_at is not None:
+            due = (
+                current.reached_out_at
+                + self._interval(tier, place) / FOLLOW_UP
+            )
+            if now - current.reached_out_at <= NUDGE_WITHIN:
+                topic = await self._open_topic(conversation.id)
         if _at_night(due, zone):
             night = due
         elif due <= now and _at_night(now, zone):
@@ -278,7 +325,7 @@ class ReachOuts:
         if due < self._started:  # missed, the backend not running
             await self._put_off(conversation.id, contact, now + self._interval(tier))
             return None
-        return _Due(conversation, contact, tier, due, zone)
+        return _Due(conversation, contact, tier, due, zone, topic)
 
     def _standing(
         self, db: sqlite3.Connection, conversation: Conversation, affinity_on: bool
@@ -316,6 +363,26 @@ class ReachOuts:
                                 tomorrow + MORNING * self._draw())
             return False
         return True
+
+    async def _open_topic(self, conversation_id: str) -> str | None:
+        """Her last line, if it was a question the user has not answered."""
+        record = await self._store.record(conversation_id)
+        if not record:
+            return None
+        last = record[-1]
+        if isinstance(last, Message):
+            if last.role != "character" or not last.segments:
+                return None
+        elif isinstance(last, ReachOut):
+            if not last.segments:
+                return None
+        else:
+            return None
+        line = _OPENING_CUE.sub("", last.segments[-1].ja).strip().splitlines()
+        if not line:
+            return None
+        said = line[-1].strip()
+        return said[:120] if _ASKS.search(said) else None
 
     def _talking(self, conversation_id: str) -> bool:
         """Whether a text turn is under way in the conversation, or a call."""
@@ -364,7 +431,8 @@ class ReachOuts:
             with recording.current():
                 # Written for the deployer's model to read aloud: the user's is not known here.
                 said = await self._engine.reach_out(
-                    conversation, lease.keys.chat_llm, lease.keys.read_aloud_model
+                    conversation, lease.keys.chat_llm, lease.keys.read_aloud_model,
+                    topic=due.topic,
                 )
         except Exception as e:
             # Not logged with what was raised: a service's error may repeat what it was asked.
@@ -399,6 +467,17 @@ def _tier(status: Status | None) -> Tier | None:
     if status.cooling or status.tier not in INTERVALS:
         return None
     return status.tier
+
+
+def _reach_out_count_since(
+    db: sqlite3.Connection, conversation_id: str, since: datetime
+) -> int:
+    """How many reach-outs the conversation has had since `since`."""
+    [count] = db.execute(
+        "SELECT COUNT(*) FROM reach_outs WHERE conversation_id = ? AND created_at >= ?",
+        (conversation_id, since.isoformat()),
+    ).fetchone()
+    return count
 
 
 def _last_reached_out(db: sqlite3.Connection, user_id: str) -> datetime | None:
