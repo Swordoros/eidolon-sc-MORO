@@ -39,6 +39,7 @@ import {
   listConversations,
   listLatestConversations,
   listMessages,
+  nightVisit,
   sendTurn,
   type Account,
   type Character,
@@ -515,6 +516,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       const live = new LiveConversation(characterId, {
         listConversations,
         createConversation,
+        nightVisit,
         listMessages: (conversationId) =>
           listMessages(conversationId).then((record) => {
             seen(characterId);
