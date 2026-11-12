@@ -197,6 +197,10 @@ MAX_INPUT_LENGTH = 2000
 input is rejected, not cut short."""
 MAX_TOOL_ROUNDS = 1
 """How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
+
+RECAP_TURNS = 4
+"""How many turns of the previous conversation a new one opens with, so that changing
+conversations does not mean forgetting where they left off."""
 LAST_ROUND_NOTE = (
     "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
@@ -1464,6 +1468,10 @@ class ConversationEngine:
         said_at = timestamp()
         messages = [entry for entry in record if isinstance(entry, Message)]
         turns = self._history_turns()
+        # The chat model reads the tail of the previous conversation as the new one opens,
+        # but retrieval and memory extraction keep reading this conversation alone.
+        previous = await self._previous_tail(conversation) if not messages else []
+        prompt_messages = [*previous, *messages]
         # What all but the chat model read: her reach-outs the user answers her latest words.
         history = [*latest_turns(messages, turns), *_answering(record)]
         timezone = effective_timezone(profile, device_timezone)
@@ -1570,7 +1578,7 @@ class ConversationEngine:
         )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(messages, turns),
+            chat_history(prompt_messages, turns),
             narrations(record, self._gift_catalog, timezone, her_days),
             [
                 self._now_section(
@@ -1705,6 +1713,14 @@ class ConversationEngine:
             unwell and unwell.shown(),
         )
 
+    async def _previous_tail(self, conversation: Conversation) -> list[Message]:
+        """The last `RECAP_TURNS` turns of the user's previous conversation with this
+        character; empty if there is none."""
+        before = await self._store.conversation_before(conversation)
+        if before is None:
+            return []
+        return latest_turns(await self._store.list_messages(before.id), RECAP_TURNS)
+
     async def _reaching_out(
         self,
         conversation: Conversation,
@@ -1734,6 +1750,11 @@ class ConversationEngine:
             read.character, read.record, read.affinity, read.last_contact, read.profile
         )
         messages = [entry for entry in record if isinstance(entry, Message)]
+        # While the new conversation is still young, a reach-out also carries the tail of
+        # the one before it; once the user has talked here enough it no longer needs it.
+        young = sum(entry.role == "user" for entry in messages) < RECAP_TURNS
+        previous = await self._previous_tail(conversation) if young else []
+        prompt_messages = [*previous, *messages]
         timezone = effective_timezone(profile, None)
         now = self._clock()
         known_weather = await self._her_now.weather("apart", profile.city, now, last_contact)
@@ -1753,7 +1774,7 @@ class ConversationEngine:
             rules = REACH_OUT_RULES_WITH_MOMENTS if moments else REACH_OUT_RULES
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(messages, self._history_turns()), told,
+            chat_history(prompt_messages, self._history_turns()), told,
             [
                 self._now_section(
                     known, "apart", now, timezone, profile, last_contact, tier_prompt(affinity, character.heart, profile.gender == "female"),

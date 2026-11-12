@@ -768,6 +768,11 @@ class Store:
     async def get_conversation(self, conversation_id: str) -> Conversation | None:
         return await self._db.read(_conversation, conversation_id)
 
+    async def conversation_before(self, conversation: Conversation) -> Conversation | None:
+        """The user's newest conversation with the same character other than this one, for
+        the opening of a new one to carry its tail."""
+        return await self._db.read(_conversation_before, conversation)
+
     async def list_conversations(
         self, user_id: str, character_id: str
     ) -> list[tuple[Conversation, Recorded | None, bool]]:
@@ -1358,6 +1363,18 @@ def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile
 def _conversation(db: sqlite3.Connection, conversation_id: str) -> Conversation | None:
     row = by_name(db).execute(
         "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+    ).fetchone()
+    return Conversation(**row) if row else None
+
+
+def _conversation_before(
+    db: sqlite3.Connection, conversation: Conversation
+) -> Conversation | None:
+    row = by_name(db).execute(
+        "SELECT * FROM conversations"
+        " WHERE user_id = ? AND character_id = ? AND id != ?"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (conversation.user_id, conversation.character_id, conversation.id),
     ).fetchone()
     return Conversation(**row) if row else None
 

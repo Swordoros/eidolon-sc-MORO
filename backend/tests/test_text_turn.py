@@ -229,8 +229,11 @@ async def test_conversations_are_kept_apart(make_client: ClientFactory):
     await send_turn(client, first, "第一次")
     await send_turn(client, second, "第二次")
 
+    # The second conversation opens with the tail of the first, so it does not start blank.
     assert [(m.role, m.content) for m in llm.prompts[1] if m.role != "system"] == [
-        ("user", "第二次")
+        ("user", "第一次"),
+        ("assistant", "<ja>一</ja><zh>一</zh>"),
+        ("user", "第二次"),
     ]
     listed = (await client.get("/api/conversations", params={"character_id": "mano"})).json()
     assert [c["id"] for c in listed] == [second, first]
