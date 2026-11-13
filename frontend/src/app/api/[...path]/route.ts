@@ -11,7 +11,7 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   const { search } = new URL(request.url);
   const url = `${BACKEND_URL}/api/${path.map(encodeURIComponent).join("/")}${search}`;
   const headers = new Headers();
-  for (const name of ["content-type", "cookie", "origin", "x-timezone", "if-none-match"]) {
+  for (const name of ["content-type", "cookie", "origin", "x-timezone", "if-none-match", "range"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
