@@ -38,6 +38,8 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
     "retry-after",
     "content-disposition",
     "content-length",
+    "content-range",
+    "accept-ranges",
   ]) {
     const value = res.headers.get(name);
     if (value) out.set(name, value);
