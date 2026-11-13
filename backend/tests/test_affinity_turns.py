@@ -73,9 +73,11 @@ def judge_calls(database: Path) -> int:
         return db.execute("SELECT COUNT(*) FROM service_calls WHERE service = 'judge'").fetchone()[0]
 
 
-def change(up: bool, tier: str, *, tier_changed: bool = False, cooldown: bool = False) -> dict:
+def change(
+    up: bool, tier: str, level: int, *, tier_changed: bool = False, cooldown: bool = False
+) -> dict:
     return {"up": up, "tier_changed": tier_changed, "tier": tier, "cooldown": cooldown,
-            "thawed": False}
+            "thawed": False, "level": level}
 
 
 async def turns(
@@ -104,8 +106,8 @@ async def test_each_level_changes_it_by_its_step_and_two_as_likely_change_nothin
 
     assert [v for v, _ in taken] == pytest.approx([49.5, 49.3, 49.3, 49.4, 49.6, 49.6])
     assert [done["message"]["affinity"] for _, done in taken] == [
-        change(False, "trust"), change(False, "trust"), None,
-        change(True, "trust"), change(True, "trust"), None,
+        change(False, "trust", 0), change(False, "trust", 1), None,
+        change(True, "trust", 3), change(True, "trust", 4), None,
     ]
     assert all(done["affinity"] == TRUST for _, done in taken)
     assert [m["affinity"] for m in messages if m["role"] == "character"] == [
@@ -132,7 +134,7 @@ async def test_out_of_line_lowers_it_by_ten_and_dictating_it_never_raises_it(
 
     assert [v for v, _ in taken] == pytest.approx([40, 40, 39.8])
     assert [done["message"]["affinity"] for _, done in taken] == [
-        change(False, "trust"), None, change(False, "distant", tier_changed=True),
+        change(False, "trust", 0), None, change(False, "distant", 1, tier_changed=True),
     ]
     assert taken[-1][1]["affinity"] == {"tier": "distant", "cooldown_until": None}
 
@@ -192,7 +194,7 @@ async def test_it_falls_no_lower_than_0_where_a_cooldown_begins(
     [(fell, done)] = await turns(client, settings.database_path, conversation, 1)
 
     assert fell == 0
-    assert done["message"]["affinity"] == change(False, "cold", cooldown=True)
+    assert done["message"]["affinity"] == change(False, "cold", 0, cooldown=True)
     assert done["affinity"] == {
         "tier": "cold", "cooldown_until": (clock.now + timedelta(days=1)).isoformat()
     }

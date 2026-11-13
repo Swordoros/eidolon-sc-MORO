@@ -13,7 +13,15 @@ export type Tier = (typeof TIERS)[number];
 export type AffinityStatus = { tier: Tier; cooldown_until: string | null };
 
 /** 一次变化：升还是降、变化后的档位、有没有跨档、是不是因此进了冷却，或者（只有送礼会）解除了冷却。不带原因和变化量。 */
-export type AffinityChange = { up: boolean; tier_changed: boolean; tier: Tier; cooldown: boolean; thawed: boolean };
+export type AffinityChange = {
+  up: boolean;
+  tier_changed: boolean;
+  tier: Tier;
+  cooldown: boolean;
+  thawed: boolean;
+  /** 回合被判到的五档，0–4；送礼没有判断档，所以没有。 */
+  level?: number | null;
+};
 
 /** 胶囊上的那句话：进了或解除了冷却最先说，其次跨档写出新档名，同档只说开心或不高兴。 */
 export function cueText(change: AffinityChange, name: string): string {
@@ -22,6 +30,10 @@ export function cueText(change: AffinityChange, name: string): string {
   if (change.cooldown) return t.cooldown(name);
   if (change.thawed) return t.thawed(name);
   if (change.tier_changed) return change.up ? t.closer(name, tier) : t.further(name, tier);
+  if (change.level === 0) return t.veryUnhappy(name);
+  if (change.level === 1) return t.unhappy(name);
+  if (change.level === 3) return t.happy(name);
+  if (change.level === 4) return t.veryHappy(name);
   return change.up ? t.happier(name) : t.unhappier(name);
 }
 

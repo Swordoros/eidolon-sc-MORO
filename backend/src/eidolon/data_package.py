@@ -279,6 +279,7 @@ class PackagedChange(_Strict):
     tier: Tier
     cooldown: bool
     thawed: bool = False
+    level: int | None = None
 
     @classmethod
     def of(cls, change: Change | None) -> "PackagedChange | None":

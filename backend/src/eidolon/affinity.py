@@ -808,13 +808,15 @@ def warns(
 class Change:
     """How affinity changed, kept with what changed it (her reply, a gift) for the browser to
     show: up or down, to which tier and whether that is another, and whether a cooldown began
-    or, as only a gift does, ended with it. Neither why nor by how much."""
+    or, as only a gift does, ended with it. `level` is how the turn was judged, for the
+    browser's four feelings; None for a gift, which has no judge level."""
 
     up: bool
     tier_changed: bool
     tier: Tier
     cooldown: bool
     thawed: bool = False
+    level: int | None = None
 
 
 def _gift_step(rarity: Rarity, liked: bool, warmed: bool, cooling: bool) -> float:
@@ -961,6 +963,7 @@ class Affinities:
                 tier_changed=after.tier != before.tier,
                 tier=after.tier,
                 cooldown=after.cooling and not before.cooling,
+                level=0 if judged.out_of_line else judged.level,
             )
         db.execute(
             "INSERT OR REPLACE INTO affinities (user_id, character_id, value,"

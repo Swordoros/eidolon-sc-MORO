@@ -481,6 +481,10 @@ export const zh = {
         further: (name: string, tier: string) => `${name}和你疏远了一些：${tier}`,
         happier: (name: string) => `${name}有点开心`,
         unhappier: (name: string) => `${name}有点不高兴`,
+        veryUnhappy: (name: string) => `${name}很不高兴`,
+        unhappy: (name: string) => `${name}有点不高兴`,
+        happy: (name: string) => `${name}有点开心`,
+        veryHappy: (name: string) => `${name}很开心`,
         /** 送礼让她解除了冷却。 */
         thawed: (name: string) => `${name}愿意和你说话了`,
       },

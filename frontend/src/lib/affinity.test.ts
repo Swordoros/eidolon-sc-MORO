@@ -55,4 +55,17 @@ describe("cueText：胶囊上的那句话，进了或解除了冷却最先说，
     expect(cue(true, false)).toBe("凛世有点开心");
     expect(cue(false, false)).toBe("凛世有点不高兴");
   });
+
+  it("同一档按判断的四档说很不高兴、有点不高兴、有点开心、很开心", () => {
+    const levelCue = (level: number) =>
+      cueText(
+        { up: level > 2, tier_changed: false, tier: level > 2 ? "close" : "trust", cooldown: false, thawed: false, level },
+        "凛世",
+      );
+
+    expect(levelCue(0)).toBe("凛世很不高兴");
+    expect(levelCue(1)).toBe("凛世有点不高兴");
+    expect(levelCue(3)).toBe("凛世有点开心");
+    expect(levelCue(4)).toBe("凛世很开心");
+  });
 });
