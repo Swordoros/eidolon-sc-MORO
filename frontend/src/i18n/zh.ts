@@ -45,6 +45,22 @@ export const zh = {
     playRewarded: "玩法，有新到的抽奖次数",
     settings: "设置",
   },
+  /** 歌曲页：曲目与专辑来自世界设定，播放交给网易云外链。 */
+  music: {
+    title: "歌曲与专辑",
+    songsTab: "歌曲",
+    albumsTab: "专辑",
+    everyone: "全部",
+    only: (name: string) => `只看 ${name}`,
+    play: (title: string) => `播放 ${title}`,
+    stop: "收起播放器",
+    searching: "正在网易云找这首…",
+    notOnNetease: "网易云没有这首（可能没上架，或者换了名字）",
+    openInNetease: "在网易云打开",
+    cannotPlay: "这首在网易云没版权，放不了",
+    noSongs: "还没有她唱过的歌",
+    loading: "载入中",
+  },
   /** 日记页（`/diary`，GLOSSARY.md「日记」）。 */
   diary: {
     title: "日记",
@@ -2261,6 +2277,10 @@ export const zh = {
         unseen: (n: number) => `${n} 个新解锁`,
         /** 名字旁的点，读屏读的名字：有新解锁的成就。 */
         dot: "有新解锁的成就",
+      },
+      music: {
+        name: "歌曲",
+        status: "曲目与专辑，点开就听",
       },
       calendar: {
         name: "日历",

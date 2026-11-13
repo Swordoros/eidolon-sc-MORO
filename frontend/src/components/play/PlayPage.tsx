@@ -5,19 +5,11 @@ import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { PlayCardLink } from "@/components/play/PlayCardLink";
 import { PlayHeader, PlayShell } from "@/components/play/PlayShell";
 import { useBar } from "@/components/play/useBar";
-import { useCalendar } from "@/components/play/useCalendar";
 import { useCycles } from "@/components/play/useCycles";
 import { usePlayState } from "@/components/play/usePlayState";
 import { achievementsSeenUpTo, OF_ALL } from "@/lib/achievements";
-import { partsOf } from "@/lib/calendar";
 import { playCards } from "@/lib/playCards";
-import { pendingJobs, shortName } from "@/lib/schedule";
-
-/** 「日历」卡要的节假日：今年和明年。 */
-function calendarYears(today: string): number[] {
-  const { year } = partsOf(today);
-  return [year, year + 1];
-}
+import { shortName } from "@/lib/schedule";
 
 /**
  * 玩法页第一级（`/play`，DESIGN.md「玩法页」）：页首「玩法」大标题，下面一张张入口卡；第一张（礼物）铺满一行，其余两列网格、窄屏一列。
@@ -32,11 +24,6 @@ export function PlayPage() {
   const { account, newRewards, characters } = useDirectory();
   const { state, failure } = usePlayState({ withCatalog: false });
   const achievementsSeenAt = account && state ? achievementsSeenUpTo(account.id, OF_ALL) : null;
-  const { calendar, holidaysRead, schedule, scheduleNow, draftsOn } = useCalendar({ years: calendarYears });
-  // 本周还没排的工作，草稿算排了（同日历子页的待排）；没发布的一周没有工作。
-  const thisWeek = schedule?.enabled ? schedule.this_week : null;
-  const schedulePending =
-    thisWeek && scheduleNow ? pendingJobs({ week: thisWeek, drafts: draftsOn(thisWeek.id), now: scheduleNow }).length : 0;
   const { view: cycles } = useCycles();
   const { bar } = useBar();
   const byId = new Map((characters ?? []).map((character) => [character.id, character]));
@@ -44,8 +31,6 @@ export function PlayPage() {
     state,
     newRewards,
     achievementsSeenAt,
-    calendar: holidaysRead ? calendar : null,
-    schedulePending,
     cycles:
       cycles?.enabled && characters
         ? {

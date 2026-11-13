@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useSyncExternalStore, type ReactNode } from "react";
 
 import { NavDock, NavRail } from "@/components/app/AppNav";
+import { MusicPlayer } from "@/components/music/MusicPlayer";
 import { CallBar } from "@/components/conversations/CallBar";
 import { LiveCallLayer } from "@/components/conversations/CallLayer";
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
@@ -65,6 +66,7 @@ export function NavShell({ children }: { children: ReactNode }) {
         </div>
       </div>
       {isNavShown && <NavDock isInert={isLayerOpen} />}
+      <MusicPlayer />
     </div>
   );
 }

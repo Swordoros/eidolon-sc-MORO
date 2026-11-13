@@ -11,15 +11,11 @@
 
 import { copy } from "@/i18n";
 import { unlockedStages, unseenStages } from "@/lib/achievements";
-import { type CalendarEvent, type CalendarView, nextEvent, partsOf } from "@/lib/calendar";
 import { type Her, monthDay, soonest } from "@/lib/cycles";
 import type { GiftState } from "@/lib/gifts";
 import { playHref, type PlaySubpage } from "@/lib/playRoute";
 
 const t = copy.play;
-
-/** What the calendar card is made of: the calendar, with each character's name and birthday. */
-export type CalendarCardContext = CalendarView<{ name: string; birthday: string }>;
 
 /** What the cycles card is made of: today, every character's records and estimate, and the short
  * name of each (lib/schedule's `shortName`). */
@@ -41,8 +37,6 @@ export type PlayContext = {
   state: GiftState | null;
   newRewards: boolean;
   achievementsSeenAt: string | null;
-  calendar: CalendarCardContext | null;
-  schedulePending: number;
   cycles: CyclesCardContext | null;
   bar: BarCardContext | null;
 };
@@ -108,13 +102,10 @@ const CARDS: Definition[] = [
     dotLabel: t.cards.achievements.dot,
   },
   {
-    id: "calendar",
-    name: t.cards.calendar.name,
+    id: "music",
+    name: t.cards.music.name,
     isShown: () => true,
-    status: ({ calendar, schedulePending }) => {
-      if (!calendar) return "";
-      return join([schedulePending > 0 ? t.cards.calendar.pending(schedulePending) : null, nextText(calendar)]);
-    },
+    status: () => t.cards.music.status,
     hasDot: () => false,
     dotLabel: "",
   },
@@ -146,23 +137,6 @@ function cyclesText({ today, hers, nameOf }: CyclesCardContext): string {
   if (!next) return t.cards.cycles.empty;
   const count = hers.filter((her) => her.records.length > 0).length;
   return t.cards.cycles.status(count, nameOf(next.characterId), monthDay(next.firstDay));
-}
-
-/** The calendar card's 「下一个：10月27日 樋口円香的生日」 (「今天：…」 when it is today); null when there is none. */
-function nextText(calendar: CalendarCardContext): string | null {
-  const found = nextEvent(calendar.today, calendar.data, calendar.shown);
-  if (!found) return null;
-  const what = eventText(found.event);
-  if (found.date === calendar.today) return t.cards.calendar.today(what);
-  const { month, day } = partsOf(found.date);
-  return t.cards.calendar.next(t.calendar.date(month, day), what);
-}
-
-/** An event as the calendar card says it: 「樋口円香的生日」「文化の日」「我的生日」. */
-function eventText(event: CalendarEvent<{ name: string }>): string {
-  if (event.kind === "character") return t.cards.calendar.birthday(event.character.name);
-  if (event.kind === "schedule") return event.job.name;
-  return event.kind === "producer" ? t.calendar.mine : event.name;
 }
 
 /** How many stages of the combined achievements were unlocked since the last seen on this device. */

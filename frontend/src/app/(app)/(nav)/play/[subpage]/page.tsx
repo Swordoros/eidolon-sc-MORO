@@ -4,6 +4,7 @@ import { AchievementsSubpage } from "@/components/play/AchievementsSubpage";
 import { CalendarSubpage } from "@/components/play/CalendarSubpage";
 import { CyclesSubpage } from "@/components/play/CyclesSubpage";
 import { GiftsSubpage } from "@/components/play/GiftsSubpage";
+import { MusicPage } from "@/components/music/MusicPage";
 import { giftsFor } from "@/lib/gifts";
 import { PLAY_SUBPAGES, type PlaySubpage } from "@/lib/playRoute";
 import { calendarWho } from "@/lib/schedule";
@@ -41,6 +42,7 @@ export default async function PlaySubpageRoute({
 const SUBPAGES: Record<SharedSubpage, (search: SearchParams) => ReactNode> = {
   gifts: (search) => <GiftsSubpage pick={giftsFor(search)} />,
   achievements: () => <AchievementsSubpage />,
+  music: () => <MusicPage />,
   calendar: (search) => <CalendarSubpage who={calendarWho(search)} />,
   cycles: (search) => <CyclesSubpage who={calendarWho(search)} />,
 };

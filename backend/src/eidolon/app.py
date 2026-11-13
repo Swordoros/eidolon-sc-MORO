@@ -77,6 +77,7 @@ from eidolon.cycles_api import add_cycle_routes
 from eidolon.letters_api import add_letter_routes
 from eidolon.keepsakes_api import add_keepsake_routes
 from eidolon.moments_api import add_moment_routes
+from eidolon.music_api import add_music_routes
 from eidolon.relationships_api import add_relationship_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.invites_api import add_invite_routes
@@ -493,6 +494,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_sponsor_routes(app, backend)
     add_data_package_routes(app, backend)
     add_stats_routes(app, backend)
+    add_music_routes(app, backend)
     add_service_status_routes(app, backend.service_status)
 
     @app.get("/api/ice-servers")

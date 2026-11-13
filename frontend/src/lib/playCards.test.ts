@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { Achievement } from "@/lib/achievements";
-import type { CalendarKind } from "@/lib/calendar";
 import type { Her } from "@/lib/cycles";
 import type { GiftState } from "@/lib/gifts";
-import { type CalendarCardContext, type CyclesCardContext, playCards, type PlayContext } from "@/lib/playCards";
+import { type CyclesCardContext, playCards, type PlayContext } from "@/lib/playCards";
 
 const BEFORE = "2026-10-20T08:00:00+00:00";
 const AFTER = "2026-10-20T09:00:00+00:00";
@@ -25,33 +24,12 @@ function giftState(change: Partial<GiftState> = {}): GiftState {
   };
 }
 
-function calendar(change: Partial<CalendarCardContext> = {}): CalendarCardContext {
-  return {
-    today: "2026-10-23",
-    data: {
-      characters: [
-        { name: "櫻木真乃", birthday: "04-25" },
-        { name: "樋口円香", birthday: "10-27" },
-        { name: "福丸小糸", birthday: "10-27" },
-      ],
-      producerBirthday: { month: 11, day: 3 },
-      holidays: [
-        { date: "2026-11-03", name: "文化の日" },
-        { date: "2027-01-01", name: "元日" },
-      ],
-    },
-    shown: ["character", "producer", "holiday"],
-    ...change,
-  };
-}
 
 function context(change: Partial<PlayContext> = {}): PlayContext {
   return {
     state: giftState(),
     newRewards: false,
     achievementsSeenAt: null,
-    calendar: calendar(),
-    schedulePending: 0,
     cycles: null,
     bar: null,
     ...change,
@@ -76,23 +54,23 @@ describe("玩法页的卡", () => {
     expect(cards.map((card) => [card.id, card.name, card.href])).toEqual([
       ["gifts", "礼物", "/play/gifts"],
       ["achievements", "成就", "/play/achievements"],
-      ["calendar", "日历", "/play/calendar"],
+      ["music", "歌曲", "/play/music"],
     ]);
   });
 
   it("没开放时只剩「日历」", () => {
     const cards = playCards(context({ state: giftState({ open: false }) }));
 
-    expect(cards.map((card) => card.id)).toEqual(["calendar"]);
+    expect(cards.map((card) => card.id)).toEqual(["music"]);
   });
 
   it("接口还没回来时卡片就在，状态那一行是空的", () => {
-    const cards = playCards(context({ state: null, calendar: null }));
+    const cards = playCards(context({ state: null }));
 
     expect(cards.map((card) => [card.id, card.status])).toEqual([
       ["gifts", ""],
       ["achievements", ""],
-      ["calendar", ""],
+      ["music", "曲目与专辑，点开就听"],
     ]);
   });
 });
@@ -174,38 +152,6 @@ describe("卡片名字旁的点", () => {
   });
 });
 
-describe("「日历」卡的状态", () => {
-  const status = (change: Partial<CalendarCardContext> = {}) =>
-    ofId(playCards(context({ calendar: calendar(change) })), "calendar")?.status;
-  const only = (...shown: CalendarKind[]) => ({ shown });
-
-  it("写最近的一件：谁的生日、节假日、我的生日", () => {
-    expect(status()).toBe("下一个：10月27日 樋口円香的生日");
-    expect(status(only("holiday"))).toBe("下一个：11月3日 文化の日");
-    expect(status(only("producer"))).toBe("下一个：11月3日 我的生日");
-  });
-
-  it("今天就有时写今天", () => {
-    expect(status({ today: "2026-10-27" })).toBe("今天：樋口円香的生日");
-  });
-
-  it("三类全筛掉时为空", () => {
-    expect(status(only())).toBe("");
-  });
-
-  it("好感度和礼物的状态还没回来也有", () => {
-    expect(ofId(playCards(context({ state: null })), "calendar")?.status).toBe("下一个：10月27日 樋口円香的生日");
-  });
-
-  it("本周还有工作待排时写在前面；全排完、没发布或日程关着（都给 0）时只有下一个", () => {
-    const pending = (schedulePending: number, change: Partial<CalendarCardContext> = {}) =>
-      ofId(playCards(context({ calendar: calendar(change), schedulePending })), "calendar")?.status;
-
-    expect(pending(3)).toBe("本周还有 3 项工作待排 · 下一个：10月27日 樋口円香的生日");
-    expect(pending(1, only())).toBe("本周还有 1 项工作待排");
-    expect(pending(0)).toBe("下一个：10月27日 樋口円香的生日");
-  });
-});
 
 /** 记过的她：下一次推算的经期第一天是 `next`。 */
 function recorded(id: string, next: string): Her {
@@ -242,7 +188,7 @@ describe("「周期」卡", () => {
     expect(cards.map((card) => [card.id, card.name, card.href])).toEqual([
       ["gifts", "礼物", "/play/gifts"],
       ["achievements", "成就", "/play/achievements"],
-      ["calendar", "日历", "/play/calendar"],
+      ["music", "歌曲", "/play/music"],
       ["cycles", "周期", "/play/cycles"],
     ]);
   });
@@ -254,7 +200,7 @@ describe("「周期」卡", () => {
   it("好感度和礼物没开放时照样有", () => {
     const cards = playCards(context({ state: giftState({ open: false }), cycles: cycles([]) }));
 
-    expect(cards.map((card) => card.id)).toEqual(["calendar", "cycles"]);
+    expect(cards.map((card) => card.id)).toEqual(["music", "cycles"]);
   });
 
   const status = (hers: Her[]) => ofId(playCards(context({ cycles: cycles(hers) })), "cycles")?.status;
@@ -284,7 +230,7 @@ describe("「VA-283」卡", () => {
   it("酒吧开着时排在最后，去酒吧，没有点", () => {
     const cards = playCards(context({ cycles: cycles([]), bar: { rewardToday: true } }));
 
-    expect(cards.map((card) => card.id)).toEqual(["gifts", "achievements", "calendar", "cycles", "bar"]);
+    expect(cards.map((card) => card.id)).toEqual(["gifts", "achievements", "music", "cycles", "bar"]);
     expect(ofId(cards, "bar")).toMatchObject({ name: "VA-283", href: "/play/bar", hasDot: false });
   });
 

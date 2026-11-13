@@ -143,7 +143,7 @@ describe("导航栏和 dock 的当前项", () => {
 });
 
 describe("导航栏和 dock 上有哪几项", () => {
-  it("朋友圈开着时六项：对话、朋友圈、日记、日历、玩法、设置", () => {
+  it("朋友圈开着时七项：对话、朋友圈、日记、日历、纪念品、玩法、设置", () => {
     expect(navItems(true)).toEqual(["conversations", "moments", "diary", "calendar", "keepsakes", "play", "settings"]);
   });
 

@@ -7,11 +7,13 @@ describe("the play page's addresses", () => {
     expect(playHref()).toBe("/play");
     expect(playHref("gifts")).toBe("/play/gifts");
     expect(playHref("achievements")).toBe("/play/achievements");
+    expect(playHref("music")).toBe("/play/music");
   });
 
   it("tells which subpage a path is", () => {
     expect(playSubpage("/play/gifts")).toBe("gifts");
     expect(playSubpage("/play/achievements")).toBe("achievements");
+    expect(playSubpage("/play/music")).toBe("music");
     expect(playSubpage("/play/tasks")).toBeNull();
     expect(playSubpage("/play/calendar")).toBe("calendar");
     expect(playSubpage("/play/cycles")).toBe("cycles");
