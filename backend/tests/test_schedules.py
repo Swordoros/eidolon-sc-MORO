@@ -88,6 +88,25 @@ def test_what_the_model_writes_is_checked_slot_by_slot():
     assert parse_schedule('{"slots": "x"}', CHARACTERS) == []
 
 
+def test_where_she_is_now_says_how_far_through_the_slot_she_is():
+    day = date(2026, 10, 22)
+    schedule = Schedule(day, (
+        Slot(time(19), time(20, 30), "在宿舍准备晚饭", "宿舍的公共厨房", "private",
+             ("sakuya", "kiriko")),
+    ), ())
+    names = {"sakuya": "白瀬咲耶", "kiriko": "幽谷霧子"}
+
+    def now(hour: int, minute: int) -> str:
+        return lines(schedule, datetime.combine(day, time(hour, minute)), names)[1]
+
+    assert now(19, 10).endswith("（刚刚开始），在宿舍的公共厨房。")
+    assert now(19, 30).endswith("（进行中），在宿舍的公共厨房。")
+    assert now(20, 25) == (
+        "现在（20:25）你大概在：在宿舍准备晚饭（和白瀬咲耶、幽谷霧子）"
+        "（快结束了），在宿舍的公共厨房。"
+    )
+
+
 def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
     schedule = Schedule(date(2026, 10, 22), (
         Slot(time(9), time(12), "舞蹈课", "事务所", "lesson"),
@@ -103,7 +122,7 @@ def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
     assert during[0] == (
         "你今天大概的安排：09:00–12:00 舞蹈课，在事务所；14:00–17:00 逛文具店（和月岡恋鐘），在车站前。"
     )
-    assert during[1] == "现在（15:05）你大概在：逛文具店（和月岡恋鐘），在车站前。"
+    assert during[1] == "现在（15:05）你大概在：逛文具店（和月岡恋鐘）（进行中），在车站前。"
     assert between[1] == "现在（12:30）你没什么安排。"
     assert early[1] == "现在（07:00）今天的安排还没开始。"
     assert "不要像念行程表" in during[2]

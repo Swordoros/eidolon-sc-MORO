@@ -572,7 +572,10 @@ def lines(
         day += f"；打算 {schedule.sleep.strftime('%H:%M')} 睡觉"
     current = schedule.now(at.time())
     if current is not None:
-        now = f"现在（{clock}）你大概在：{_said(current, names, with_time=False)}。"
+        now = (
+            f"现在（{clock}）你大概在："
+            f"{_said(current, names, with_time=False, progress=_progress(current, at))}。"
+        )
     elif at.time() < schedule.slots[0].start:
         now = f"现在（{clock}）今天的安排还没开始。"
     else:
@@ -600,10 +603,30 @@ def summary(schedule: Schedule | None, names: Mapping[str, str]) -> str | None:
     return day and f"你今天原本的安排（只是安排，不一定都照着做了）：{day}"
 
 
-def _said(slot: Slot, names: Mapping[str, str], with_time: bool = True) -> str:
+def _progress(slot: Slot, at: datetime) -> str | None:
+    """How far through `slot` it is, as she is told it: just begun in its first fifth,
+    nearly over in its last fifth; None for a slot without time to run."""
+    start = datetime.combine(at.date(), slot.start, tzinfo=at.tzinfo)
+    end = datetime.combine(at.date(), slot.end, tzinfo=at.tzinfo)
+    span = (end - start).total_seconds()
+    if span <= 0:
+        return None
+    through = (at - start).total_seconds() / span
+    if through < 0.2:
+        return "刚刚开始"
+    if through >= 0.8:
+        return "快结束了"
+    return "进行中"
+
+
+def _said(
+    slot: Slot, names: Mapping[str, str], with_time: bool = True, progress: str | None = None
+) -> str:
     said = slot.what
     if slot.with_:
         said += "（和" + "、".join(names.get(c, c) for c in slot.with_) + "）"
+    if progress:
+        said += f"（{progress}）"
     if slot.where:
         said += f"，在{slot.where}"
     if with_time:
