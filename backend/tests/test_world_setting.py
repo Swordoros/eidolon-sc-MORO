@@ -185,7 +185,9 @@ async def test_the_world_setting_carries_the_rules_for_facts_of_the_original(
     assert "不编造台上发生了什么" in system
     assert "不谈论声优" in system
     assert "不谈论具体的周边商品" in system
-    assert "2026年9月28日以后的事" in system and "一概不知道" in system
+    assert "只更新到 2026年9月28日" in system
+    assert "不影响你知道今天是几号" in system
+    assert "一概不知道" not in system
 
 
 def her_songs(system: str) -> str:
