@@ -28,6 +28,8 @@ export type FoundSong = {
   artists: string[];
   album: string | null;
   duration: number | null;
+  /** Other releases of the same song; the first may have no licence. */
+  alternatives?: string[];
 };
 
 export async function musicSongs(characterId?: string): Promise<{ songs: Song[]; singers: string[] }> {

@@ -27,6 +27,8 @@ export function MusicPlayer() {
   const { call } = useDirectory();
   const pathname = usePathname();
   const audio = useRef<HTMLAudioElement | null>(null);
+  // Which of the song's other releases is being tried, after the first fails.
+  const alternative = useRef(0);
 
   // 开始通话就停下来：通话要占着麦克风和音频，歌还在响就全糊在一起了
   useEffect(() => {
@@ -39,6 +41,7 @@ export function MusicPlayer() {
   useEffect(() => {
     const element = audio.current;
     if (!element) return;
+    alternative.current = 0;
     if (playing === null) {
       element.pause();
       element.removeAttribute("src");
@@ -65,7 +68,17 @@ export function MusicPlayer() {
           musicPlayback.tick(event.currentTarget.currentTime, event.currentTarget.duration || 0)
         }
         onEnded={() => musicPlayback.stop()}
-        onError={() => musicPlayback.markUnplayable()}
+        onError={() => {
+          const element = audio.current;
+          const next = playing.alternatives[alternative.current];
+          if (element && next !== undefined) {
+            alternative.current += 1;
+            element.src = streamUrl(next, playing.title);
+            void element.play().catch(() => musicPlayback.stop());
+          } else {
+            musicPlayback.markUnplayable();
+          }
+        }}
       />
       {/* 不在歌曲页时给一条窄条：能听见在放什么，也能停 */}
       {!playing.unplayable && pathname !== "/play/music" && (

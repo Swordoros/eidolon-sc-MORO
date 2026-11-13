@@ -16,6 +16,7 @@ describe("跨页面的歌曲播放状态", () => {
     expect(musicPlayback.get()).toEqual({
       title: "虹になれ",
       neteaseId: "2020881825",
+      alternatives: [],
       at: 0,
       duration: 0,
       unplayable: false,

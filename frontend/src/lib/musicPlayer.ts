@@ -14,6 +14,8 @@
 export type Playing = {
   title: string;
   neteaseId: string;
+  /** Other NetEase ids of the same song, tried if this one cannot be streamed. */
+  alternatives: string[];
   at: number;
   duration: number;
   unplayable: boolean;
@@ -38,9 +40,9 @@ export const musicPlayback = {
     return current;
   },
   /** 放这一首；已经在放同一首、又没出过错，就不重来。 */
-  play(title: string, neteaseId: string): void {
+  play(title: string, neteaseId: string, alternatives: string[] = []): void {
     if (current?.neteaseId === neteaseId && !current.unplayable) return;
-    current = { title, neteaseId, at: 0, duration: 0, unplayable: false };
+    current = { title, neteaseId, alternatives, at: 0, duration: 0, unplayable: false };
     emit();
   },
   /** 播放器报到哪里了。按秒去通知，免得一秒画几十次。 */

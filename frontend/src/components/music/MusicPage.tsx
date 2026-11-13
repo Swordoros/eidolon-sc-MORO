@@ -114,7 +114,7 @@ export function MusicPage() {
       setNowPlaying(title);   // 没查到：展开那句「网易云没有这首」
       return;
     }
-    musicPlayback.play(title, hit.id);
+    musicPlayback.play(title, hit.id, hit.alternatives ?? []);
   }
 
   const current = picked === null ? null : withSongs.find((character) => character.id === picked) ?? null;
