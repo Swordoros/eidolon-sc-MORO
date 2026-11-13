@@ -382,7 +382,7 @@ function EventRow({
         </span>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-body">{title}</span>
+        <span className="break-words text-body">{title}</span>
         {note && <span className="text-subtitle text-muted-foreground">{note}</span>}
       </div>
       {character && event.kind === "promise" && (
