@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from eidolon.gift_catalog import Gift
 from eidolon.reply_format import format_reply
-from eidolon.store import Message, ConversationEvent, ReachOut, Recorded
+from eidolon.store import Message, ConversationEvent, ReachOut, Recorded, told_her
 
 def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     """The messages from the `turns`th last user message on (from the first if None), so
@@ -41,6 +41,10 @@ def _narration(event: ConversationEvent, gift_catalog: Mapping[str, Gift]) -> st
         return "（你挂断了制作人的电话。）"
     if event.kind == "ended":  # only read by a turn it will reject
         return "（你结束了和制作人的对话。）"
+    if event.kind == "missed_call":
+        return "（制作人打来电话，你那会儿在洗澡，没接到。）"
+    if event.kind == "keepsake":
+        return f"（你送给了制作人「{event.note}」。）"
     assert event.gift_id is not None
     liked = "这是你喜欢的东西。" if event.liked else ""
     return f"（制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
@@ -74,6 +78,8 @@ def narrations(
     told: dict[int | None, str] = {}
     unanswered = False
     for entry in record:
+        if not told_her(entry):
+            continue
         if not isinstance(entry, Message):
             lines.append(_narration_line(entry, gift_catalog, timezone))
             if isinstance(entry, ReachOut):
@@ -98,6 +104,8 @@ def since_last_turn(
     producer in `timezone`."""
     lines: list[str] = []
     for entry in record:
+        if not told_her(entry):
+            continue
         if isinstance(entry, Message):
             lines = []
         else:

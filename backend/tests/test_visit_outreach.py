@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, time
 
 from eidolon.schedules import Slot
+from eidolon.store import ConversationEvent
+from eidolon.visit_outreach.history import narrations
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeLLM
 from tests.test_delete_account import user_id
@@ -53,3 +55,19 @@ async def test_the_reach_out_tells_her_what_she_is_doing_now(make_client: Client
 
     assert "你大概在" in ready.about_now
     assert "练习" in ready.about_now
+
+
+def test_keepsake_events_are_told_without_being_mistaken_for_gifts():
+    """纪念品事件也有 gift_id=None；夜间搭话不能把它当成礼物而断言失败。"""
+    event = ConversationEvent(
+        1, "keepsake", "2026-11-13T02:18:51+00:00",
+        keepsake_id=15, note="手作的猫头鹰钥匙扣",
+    )
+
+    assert narrations([event], {}, "Asia/Shanghai")[None] == "（你送给了制作人「手作的猫头鹰钥匙扣」。）\n"
+
+
+def test_missed_call_events_are_told_as_a_missed_call():
+    event = ConversationEvent(2, "missed_call", "2026-11-13T02:20:00+00:00")
+
+    assert narrations([event], {}, "Asia/Shanghai")[None] == "（制作人打来电话，你那会儿在洗澡，没接到。）\n"
