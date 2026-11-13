@@ -202,6 +202,11 @@ JOB_DONE_STEP = 0.5
 """How much a job of hers the producer placed in their schedule raises it once done, whatever
 its length and category, in a cooldown too: about an uncommon gift, short of a day's turns."""
 
+SLOT_TALK_STEP = 0.2
+"""How much the producer's first talk of a day in one of her work or life slots raises it,
+whatever the turn and however long they talk: a little for coming to find her where her day
+has her."""
+
 HowWell = Literal["best", "right", "wrong"]
 """How well a drink was served at the bar: 上得最好、上对、上错. `bar_lines.Tier` over again,
 since this module is imported before the bar's, and has a `Tier` of its own."""
@@ -1005,6 +1010,13 @@ class Affinities:
         being done (GLOSSARY.md「日程」), through `db`, in the transaction it is counted in: by
         `JOB_DONE_STEP`, in a cooldown too, as a gift does, but told of to no one."""
         self._raise(db, user_id, character_id, lambda _: JOB_DONE_STEP)
+
+    def slot_talk(self, db: sqlite3.Connection, user_id: str, character_id: str) -> None:
+        """Raise the user's affinity with the character for their first talk of a day in
+        one of her work or life slots, through `db`, in the transaction the turn is recorded
+        in: by `SLOT_TALK_STEP`, outside the turns' daily gains, as a gift does, but told of
+        to no one. Only for a turn taken while she is not in a cooldown."""
+        self._raise(db, user_id, character_id, lambda _: SLOT_TALK_STEP)
 
     def visit_done(
         self,

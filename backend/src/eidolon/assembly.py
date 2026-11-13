@@ -98,6 +98,7 @@ from eidolon.rerank import (
     thresholds_for,
 )
 from eidolon.retrieval import Retrieval, open_reference_sources
+from eidolon.daily_talk import DailyTalkBonuses
 from eidolon.schedule import Schedules, idols_of
 from eidolon.schedule_writer import ScheduleWriter
 from eidolon.schedules import Schedules as DailySchedules
@@ -538,6 +539,7 @@ def build(
         affinities,
     )
     daily = DailySchedules(database, clock)
+    daily_talk = DailyTalkBonuses(database, affinities, clock)
     weathers = Weathers(clock, weather_transport)
     closers.append(weathers.aclose)
     her_weather = HerWeather(weathers, config.qweather)
@@ -552,7 +554,7 @@ def build(
     engine = ConversationEngine(
         database, store, characters, gift_catalog, memories, titles, clock, her_now, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
-        happenings, schedules=daily, promises=promises,
+        happenings, schedules=daily, daily_talk=daily_talk, promises=promises,
         promise_judge=config.promise_judge(), relationships=relationships,
     )
     admissions = Admissions(

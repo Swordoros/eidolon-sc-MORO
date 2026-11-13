@@ -35,6 +35,7 @@ USER_DATA = [
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("affinities", "user_id = ?"),
+    ("daily_talk_bonuses", "user_id = ?"),
     ("affinity_scenes", "user_id = ?"),
     ("features_off", "user_id = ?"),
     ("promises", "user_id = ?"),

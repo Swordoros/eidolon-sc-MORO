@@ -105,7 +105,7 @@ import sqlite3
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal, ParamSpec, TypeVar
 
@@ -136,6 +136,7 @@ from eidolon.characters import Character, chinese_name_map
 from eidolon.clock import Clock
 from eidolon.config import FishAudioModel, ImageSettings
 from eidolon.cycles import HerDays
+from eidolon.daily_talk import DailyTalkBonuses
 from eidolon.data_access import Database
 from eidolon.gift_catalog import Gift
 from eidolon.happenings import Happenings, Open, Rewarded
@@ -201,6 +202,10 @@ MAX_TOOL_ROUNDS = 1
 RECAP_TURNS = 4
 """How many turns of the previous conversation a new one opens with, so that changing
 conversations does not mean forgetting where they left off."""
+
+PROACTIVE_REPLY_WINDOW = timedelta(minutes=30)
+"""How soon after her own words the user's turn is taken as answering them rather than
+coming to find her: the first talk of a day in her work or life slots is the latter."""
 LAST_ROUND_NOTE = (
     "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
@@ -459,6 +464,21 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     starts = [i for i, m in enumerate(messages) if m.role == "user"]
     kept = starts if turns is None else starts[-turns:]
     return messages[kept[0]:] if kept else []
+
+
+def _proactive(record: Sequence[Recorded], now: datetime) -> bool:
+    """Whether the user's coming turn is one of their own, not an answer to her latest
+    words: nothing said yet, or her last words older than `PROACTIVE_REPLY_WINDOW`."""
+    if not record:
+        return True
+    last = record[-1]
+    if isinstance(last, ReachOut):
+        said_at = last.created_at
+    elif isinstance(last, Message) and last.role == "character":
+        said_at = last.created_at
+    else:
+        return True
+    return now - datetime.fromisoformat(said_at) > PROACTIVE_REPLY_WINDOW
 
 
 def chat_history(messages: list[Message], turns: int | None) -> list[Message]:
@@ -1018,6 +1038,7 @@ class ConversationEngine:
         photos: Photos | None = None,
         happenings: Happenings | None = None,
         schedules: "Schedules | None" = None,
+        daily_talk: DailyTalkBonuses | None = None,
         promises: "Promises | None" = None,
         promise_judge: "PromiseJudge | None" = None,
         relationships: Relationships | None = None,
@@ -1049,6 +1070,7 @@ class ConversationEngine:
         self._photos = photos
         self._happenings = happenings
         self._schedules = schedules
+        self._daily_talk = daily_talk
         self._promises = promises
         self._promise_judge = promise_judge
         self._relationships = relationships
@@ -1328,6 +1350,38 @@ class ConversationEngine:
             resting = None
         return schedule_lines(today, local, self._names(), resting, woken, in_call)
 
+    async def _slot_talk(
+        self,
+        conversation: Conversation,
+        now: datetime,
+        timezone: str,
+        record: Sequence[Recorded],
+        judged: Judged | None,
+        affinity: Status | None,
+        *,
+        in_call: bool,
+        opening: bool,
+    ) -> tuple[date, time] | None:
+        """The day and slot of the first talk of the day in her work or life slots, if
+        this turn is it; None otherwise."""
+        if (
+            opening or self._schedules is None or self._daily_talk is None
+            or not self._affinity_on
+        ):
+            return None
+        if judged is None or judged.out_of_line or judged.manipulation:
+            return None
+        if affinity is None or affinity.cooling:
+            return None
+        local = now.astimezone(ZoneInfo(timezone))
+        schedule = await self._schedules.of(
+            conversation.user_id, conversation.character_id, local.date()
+        )
+        slot = schedule.now(local.time()) if schedule is not None else None
+        if slot is None or (not in_call and not _proactive(record, now)):
+            return None
+        return local.date(), slot.start
+
     async def _in_bath(
         self,
         character: Character,
@@ -1536,6 +1590,10 @@ class ConversationEngine:
         if nsfw and judged is not None and judged.beyond:
             judged = replace(judged, out_of_line=False)
         now = self._clock()
+        slot_talk = await self._slot_talk(
+            conversation, now, timezone, record, judged, affinity,
+            in_call=in_call is not None, opening=opening,
+        )
         cools = await self._cools(conversation, judged)
         if in_call is not None:
             out_of_line_before, hurt_before = in_call.out_of_line, in_call.hurts
@@ -1677,7 +1735,7 @@ class ConversationEngine:
         photo.handed_in = True
         keeping = asyncio.ensure_future(self._keep(
             conversation, text, said_at, parser.complete, judged, affinity, typed,
-            ends_conversation, photo, her_day,
+            ends_conversation, slot_talk, photo, her_day,
         ))
         try:
             reply, affinity, rewarded, unwell = await asyncio.shield(keeping)
@@ -2077,6 +2135,7 @@ class ConversationEngine:
         affinity: Status | None,
         typed: Typed | None,
         ends_conversation: bool,
+        slot_talk: tuple[date, time] | None,
         photo: _Photo,
         her_day: HerDay,
     ) -> tuple[Message, Status | None, Rewarded | None, ConversationEvent | None]:
@@ -2089,6 +2148,7 @@ class ConversationEngine:
             message, affinity, rewarded, unwell = await self._db.write(
                 self._record,
                 conversation, text, said_at, reply, judged, affinity, typed, ends_conversation,
+                slot_talk,
                 NewPhoto(photo.id, photo.tag) if photo.id else None,
                 self._happenings and self._happenings.open, her_day,
             )
@@ -2126,6 +2186,7 @@ class ConversationEngine:
         affinity: Status | None,
         typed: Typed | None,
         ends_conversation: bool,
+        slot_talk: tuple[date, time] | None,
         photo: NewPhoto | None,
         happenings_open: Open | None,
         her_day: HerDay,
@@ -2143,6 +2204,10 @@ class ConversationEngine:
             add_unwell(db, conversation, her_day.first_day, her_day.day - 1, said_at)
             if isinstance(her_day, Period) else None
         )
+        if slot_talk is not None and self._daily_talk is not None:
+            self._daily_talk.claim(
+                db, conversation.user_id, conversation.character_id, slot_talk[0], slot_talk[1]
+            )
         change = None
         if judged is not None and self._affinities is not None:
             change, affinity = self._affinities.change(
