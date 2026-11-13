@@ -188,6 +188,9 @@ async def test_the_world_setting_carries_the_rules_for_facts_of_the_original(
     assert "只更新到 2026年9月28日" in system
     assert "不影响你知道今天是几号" in system
     assert "一概不知道" not in system
+    assert "本作品的关系设定" in system
+    assert "没有恋爱关系" in system
+    assert "不是所有偶像都默认喜欢制作人" in system
 
 
 def her_songs(system: str) -> str:
