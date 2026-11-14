@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -24,6 +24,9 @@ import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
+import {
+  conversationDraftKey, draftsRevision, groupDraftKey, loadDraft, subscribeDrafts,
+} from "@/lib/composerDraft";
 import { arrange, dayOf, previewOf, withPendingTurns, type ListRow, type Preview } from "@/lib/conversationList";
 import { createGroup, listGroups, type GroupSummary } from "@/lib/group";
 import { unreadFrom } from "@/lib/letter";
@@ -110,6 +113,21 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const unreadLetters = unreadFrom(letters);
   // 刚发出、还没记下的那轮先当最后一句，列表马上显示「你：…」；记下后摘要把它换掉。
   const effectiveLatest = useMemo(() => withPendingTurns(latest, pending), [latest, pending]);
+  // A draft kept on this device is shown under the name, before the last message.
+  useSyncExternalStore(subscribeDrafts, draftsRevision, () => 0);
+  const draftOf = useCallback(
+    (characterId: string) => {
+      const conversationId = effectiveLatest[characterId]?.conversation_id;
+      return account?.id && conversationId
+        ? loadDraft(conversationDraftKey(account.id, conversationId))
+        : "";
+    },
+    [account?.id, effectiveLatest],
+  );
+  const groupDraftOf = useCallback(
+    (id: string) => account?.id ? loadDraft(groupDraftKey(account.id, id)) : "",
+    [account?.id],
+  );
   const shown = characters && arrange(characters, effectiveLatest, { preferences, query, keep, onScreen, unreadLetters });
   const hiddenCount = shown?.hiddenCount ?? 0;
   // 搜索时隐藏的人照样出现，「已隐藏 n 位」和全部隐藏的空状态只在没有搜索时出现。
@@ -214,6 +232,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                     <GroupRow
                       group={item.group}
                       characters={characters}
+                      draft={groupDraftOf(item.group.id)}
                       isOpen={item.group.id === openGroupId}
                       isPinned={groupPins.includes(item.group.id)}
                       go={go}
@@ -225,6 +244,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                     <Row
                       row={item.row}
                       preview={previewOf(effectiveLatest[item.row.character.id])}
+                      draft={draftOf(item.row.character.id)}
                       call={call?.characterId === item.row.character.id ? call : null}
                       isSelected={item.row.character.id === selectedId}
                       now={now}
@@ -322,6 +342,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
 function GroupRow({
   group,
   characters,
+  draft,
   isOpen,
   isPinned,
   go,
@@ -329,6 +350,7 @@ function GroupRow({
 }: {
   group: GroupSummary;
   characters: Character[] | null;
+  draft: string;
   /** 这一群正开着：红点当场就消（后端进群时也会把它记成看过）。 */
   isOpen: boolean;
   isPinned: boolean;
@@ -375,7 +397,7 @@ function GroupRow({
             </span>
           </span>
           <span className="truncate text-preview text-muted-foreground">
-            {preview ? `${preview.name}：${preview.zh || preview.text}` : copy.play.group.noHistory}
+            {draft ? `[草稿] ${draft}` : preview ? `${preview.name}：${preview.zh || preview.text}` : copy.play.group.noHistory}
           </span>
         </span>
       </ContextMenuTrigger>
@@ -398,6 +420,7 @@ function GroupRow({
 function Row({
   row: { character, isPinned, isHidden, isUnseen, hasUnreadLetter },
   preview,
+  draft,
   call,
   isSelected,
   now,
@@ -407,6 +430,7 @@ function Row({
 }: {
   row: ListRow<Character>;
   preview: Preview | null;
+  draft: string;
   call: CallInList;
   isSelected: boolean;
   now: Date;
@@ -417,7 +441,9 @@ function Row({
   const time = useCallTime(call?.state);
   // 长按打开菜单后，松手时浏览器可能还会补发一次点击；菜单打开之后、下一次按下之前的点击不打开对话。
   const openedMenu = useRef(false);
-  const description = call ? (
+  const description = draft ? (
+    `[草稿] ${draft}`
+  ) : call ? (
     time ? (
       copy.call.listConnected(showTime(time))
     ) : (

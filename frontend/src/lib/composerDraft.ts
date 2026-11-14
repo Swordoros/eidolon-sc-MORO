@@ -6,7 +6,32 @@ const KEY_PREFIX = "eidolon.composerDraft.";
 /** 草稿从最后一次编辑起保留多久。 */
 export const DRAFT_TTL_MS = 60 * 60 * 1000;
 
+let revision = 0;
+const listeners = new Set<() => void>();
+
 type StoredDraft = { text: string; at: number };
+
+/** Tells useSyncExternalStore that a draft changed, in this tab or another. */
+export function draftsRevision(): number {
+  return revision;
+}
+
+export function subscribeDrafts(listener: () => void): () => void {
+  listeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key?.startsWith(KEY_PREFIX)) changed();
+  };
+  if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(listener);
+    if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
+  };
+}
+
+function changed(): void {
+  revision++;
+  for (const listener of listeners) listener();
+}
 
 export function conversationDraftKey(userId: string, conversationId: string): string {
   return `${KEY_PREFIX}${userId}.${conversationId}`;
@@ -49,6 +74,7 @@ export function loadDraft(key: string, now = Date.now()): string {
 export function keepDraft(key: string, text: string, now = Date.now()): void {
   if (text === "") {
     forget(key);
+    changed();
     return;
   }
   try {
@@ -57,9 +83,11 @@ export function keepDraft(key: string, text: string, now = Date.now()): void {
   } catch {
     // 存储不可用：这次存不下，改动只在这次页面里生效。
   }
+  changed();
 }
 
 /** 删掉这个键的草稿。 */
 export function forgetDraft(key: string): void {
   forget(key);
+  changed();
 }

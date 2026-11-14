@@ -7,6 +7,7 @@ import {
   groupDraftKey,
   keepDraft,
   loadDraft,
+  subscribeDrafts,
 } from "./composerDraft";
 
 function storage(): Map<string, string> {
@@ -68,6 +69,20 @@ describe("composer drafts", () => {
     items.set(key, "{not json");
     expect(loadDraft(key)).toBe("");
     expect(items.has(key)).toBe(false);
+  });
+
+  it("tells the list when a draft is kept or cleared", () => {
+    storage();
+    const told = vi.fn();
+    const stop = subscribeDrafts(told);
+    const key = conversationDraftKey("u1", "c1");
+
+    keepDraft(key, "草稿");
+    keepDraft(key, "");
+    stop();
+    keepDraft(key, "不再通知");
+
+    expect(told).toHaveBeenCalledTimes(2);
   });
 
   it("does not throw when storage is unavailable", () => {
