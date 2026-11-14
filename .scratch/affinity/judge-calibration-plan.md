@@ -26,22 +26,29 @@ level 2：  0 次（0%）
 
 ## 已确认的修改决定
 
-1. **retrieval 和 affinity 分开请求**
-   - retrieval judge 使用完整上下文（用户发言 + 她的回复）；
-   - affinity judge 使用只含用户发言的上下文；
-   - 两次请求并行发出，retrieval 失败时不影响原来的检索兜底；
-   - affinity 失败时，好感保持不变，retrieval 仍继续。
+1. **恢复原机制：一次 judge 请求 + 完整上下文**
+   - retrieval、affinity、photo 仍放在同一个请求里；
+   - `turn_state()` 恢复为包含用户发言和她的回复；
+   - 不再拆成两个 judge 请求，避免额外延迟、成本和两套状态不一致。
 
-2. **接受普通对话以 level 2 为主**
+2. **只通过提示词明确“她的回复只用于理解指代”**
+   - 在 `_SCENE` 中写明：
+     - `上文` 只用于理解制作人这句话在回应什么、指代什么；
+     - 不作为评分依据；
+     - 她自己的语气、冷淡、热情、闹别扭只是语境，不是评分对象；
+     - 不要因为这些判断制作人的话让她开心或不舒服。
+   - 不改变 judge 的请求结构、状态格式和数值机制。
+
+3. **接受普通对话以 level 2 为主**
    - level 2 明确为普通对话的默认值；
    - 普通问候、短确认、事务问答、正常请求和拒绝属于 level 2；
    - 普通而真诚的关心（“辛苦了”“早点休息”“今天怎么样”“累不累”）属于 level 3，不是 level 2，也不是 level 4。
 
-3. **判断模型暂时不换**
+4. **判断模型暂时不换**
    - 继续使用 `decision-model-preview`；
    - 暂不切换 Jev / Cloudflare。
 
-4. **level 4 仍然保留**
+5. **level 4 仍然保留**
    - 只有“记得她说过的重要事情”“让她明显感到被在意”等明确证据才判 4；
    - 不因为普通关心或普通礼貌判 4。
 
@@ -51,14 +58,17 @@ level 2：  0 次（0%）
 - 不改 `out_of_line` 阈值和 `-10.0` 代价；
 - 不加负向每日上限；
 - 不记录原始概率到数据库；
-- 不切换判断模型。
+- 不切换判断模型；
+- 不拆成两个 judge 请求；
+- 不额外调用摘要模型。
 
 这些留到本次改动后的真实分布观察再决定。
 
 ## 验证重点
 
-- retrieval 请求包含角色回复，affinity 请求不包含；
-- 两次请求的内容确实分开：retrieval 问 retrieval 的题，affinity 只问好感的题；
+- judge 恢复为一次请求；
+- `turn_state()` 恢复为完整上下文；
+- `_SCENE` 明确“上文只用于理解指代，不作为评分依据”；
 - level 2 的默认说明和普通关心示例确实进入 prompt；
 - 普通问候 / 短确认 / 事务问答不会被当作 1；
 - 普通关心是 3；
@@ -73,5 +83,6 @@ level 2：  0 次（0%）
 - `backend/src/eidolon/judge.py`
 - `backend/src/eidolon/affinity_judge.py`
 - `backend/src/eidolon/retrieval.py`
+- `backend/src/eidolon/judge_eval.py`
 
 不涉及数据库 schema，不需要数据迁移。

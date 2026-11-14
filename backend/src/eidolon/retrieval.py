@@ -35,10 +35,10 @@ memories. If reranking fails, the nearest few references by their vectors go int
 prompt instead, unthresholded, as do the nearest episode (and live or release) for recall;
 memories do not, as one the reranker never judged might be what the user never said.
 
-Where affinity is on, it is asked in a second request (`affinity_judge.QUESTIONS`) whose
-state leaves her own replies out, so her tone cannot bend the judgment; retrieval and the
-photo keep the full conversation. The two requests run in parallel. Affinity failing
-leaves retrieval and the photo as they are; retrieval failing keeps its old fallback.
+Where affinity is on, the judge model is asked what the turn does to it in the same
+request (`affinity_judge.QUESTIONS`); the prompt says her own replies are context only,
+never the thing judged. So too, in a turn that could have a photo, whether the user asks
+her for one (`photo_judge`), no if it fails.
 
 The chat model can also look an episode up itself with the recall-story tool, for
 general questions like "what happened that time with the photo book" that the judge
@@ -54,7 +54,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 from eidolon.affinity import Days, Judged
-from eidolon.affinity_judge import affinity_questions, questions_for, read_judged
+from eidolon.affinity_judge import affinity_questions, read_judged
 from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.data_access import Database
@@ -658,11 +658,10 @@ class RetrievalAnswer:
 
 
 class ModelRetrievalJudge:
-    """The judge model, asked three yes-or-no questions (`noul`) about the turn in the
-    full-context request: whether it needs looking anything up, whether it asks how a past
-    episode went, and whether it is about the user's own life. Affinity and the photo are
-    asked in that request or, for affinity, a second one without her replies. Each answer
-    is yes at or above the model's threshold for it."""
+    """The judge model, asked three yes-or-no questions (`noul`) about the turn in one
+    request: whether it needs looking anything up, whether it asks how a past episode
+    went, and whether it is about the user's own life. Each answer is yes at or above the
+    model's threshold for it."""
 
     def __init__(
         self,
@@ -681,39 +680,16 @@ class ModelRetrievalJudge:
         photo: bool = False,
         days: Days | None = None,
     ) -> tuple[Need, Judged | None, bool]:
-        """As `RetrievalJudge.judge`: retrieval and the photo use the full conversation;
-        affinity is a second request that leaves her replies out. The two requests run in
-        parallel, and failing to judge affinity leaves retrieval and the photo as they are."""
-        retrieval = asyncio.ensure_future(self._judge_model.ask(
-            turn_state(character, history, text), judge_questions(photo=photo),
-        ))
-        affinity_judging: "asyncio.Future[dict[str, Any]] | None" = None
-        if affinity:
-            affinity_judging = asyncio.ensure_future(self._judge_model.ask(
-                turn_state(character, history, text, include_character=False),
-                questions_for(character, days),
-            ))
-        try:
-            try:
-                answers = await retrieval
-            except BaseException:
-                if affinity_judging is not None:
-                    affinity_judging.cancel()
-                raise
-            affinity_answers = None
-            if affinity_judging is not None:
-                try:
-                    affinity_answers = await affinity_judging
-                except JudgeError:
-                    log.warning("affinity judge failed; affinity stays as it is", exc_info=True)
-        finally:
-            if affinity_judging is not None and not affinity_judging.done():
-                affinity_judging.cancel()
+        """As `RetrievalJudge.judge`, affinity's questions and the photo's asked in the same
+        request, with the full conversation as context."""
+        answers = await self._judge_model.ask(
+            turn_state(character, history, text), judge_questions(affinity, photo, days)
+        )
         need = self.decide(_answer(answers))
         judged = None
-        if affinity_answers is not None:
+        if affinity:
             try:
-                judged = read_judged(affinity_answers, self.thresholds, days)
+                judged = read_judged(answers, self.thresholds, days)
             except JudgeError:
                 log.warning("affinity judge's answers could not be read", exc_info=True)
         asked = False

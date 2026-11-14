@@ -13,3 +13,5 @@ def test_the_level_question_starts_from_neutral_and_puts_ordinary_care_at_three(
     assert "是 3" in instructions
     assert "不确定时选 2" in instructions
     assert "不是命中就封顶或封底的触发词" in instructions
+    assert "不作为评分依据" in instructions
+    assert "不是评分对象" in instructions
