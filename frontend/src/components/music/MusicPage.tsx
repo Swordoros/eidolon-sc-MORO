@@ -114,7 +114,10 @@ export function MusicPage() {
       setNowPlaying(title);   // 没查到：展开那句「网易云没有这首」
       return;
     }
-    musicPlayback.play(song.id, title, hit.id, hit.alternatives ?? []);
+    const list = tab === "favorites" ? favoriteSongs : visibleSongs;
+    const queue = list.map((item) => ({ songId: item.id, title: item.title }));
+    const index = Math.max(0, list.findIndex((item) => item.id === song.id));
+    musicPlayback.play(song.id, title, hit.id, hit.alternatives ?? [], queue, index);
   }
 
   const albumTitles = useMemo(

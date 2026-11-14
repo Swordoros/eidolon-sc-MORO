@@ -3,17 +3,21 @@
 // The shell's player: it owns the one <audio>, so a song keeps playing as pages change.
 // The floating bar shows what is playing, lets the user seek, star it, or stop it.
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { copy } from "@/i18n";
 import { streamUrl } from "@/lib/music";
 import { useMusicFavorites } from "@/lib/musicFavorites";
 import { loadMusicVolume, saveMusicVolume } from "@/lib/musicVolume";
+import { loadPlayerPosition, savePlayerPosition, type PlayerPosition } from "@/lib/musicPlayerPosition";
 import { musicPlayback } from "@/lib/musicPlayer";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CloseIcon, FavoriteIcon, MusicIcon, MusicMutedIcon, MusicVolumeIcon } from "@/theme/icons";
+import {
+  CloseIcon, DragHandleIcon, FavoriteIcon, MusicIcon, MusicMutedIcon, MusicVolumeIcon,
+  NextSongIcon, PreviousSongIcon, RepeatOneModeIcon, SequenceModeIcon, ShuffleModeIcon,
+} from "@/theme/icons";
 
 const nothing = () => null;
 
@@ -28,9 +32,70 @@ export function MusicPlayer() {
   const { call, account } = useDirectory();
   const favorites = useMusicFavorites(account?.id ?? null);
   const [volume, setVolume] = useState(loadMusicVolume);
+  const [position, setPosition] = useState<PlayerPosition | null>(loadPlayerPosition);
   const audio = useRef<HTMLAudioElement | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+  const positionRef = useRef(position);
+  positionRef.current = position;
+  const drag = useRef<{ pointerId: number; dx: number; dy: number } | null>(null);
   // Which of the song's other releases is being tried, after the first fails.
   const alternative = useRef(0);
+
+  const clampPosition = (x: number, y: number): PlayerPosition => {
+    const width = panel.current?.offsetWidth ?? 0;
+    const height = panel.current?.offsetHeight ?? 0;
+    return {
+      x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
+    };
+  };
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !panel.current) return;
+    const rect = panel.current.getBoundingClientRect();
+    drag.current = {
+      pointerId: event.pointerId,
+      dx: event.clientX - rect.left,
+      dy: event.clientY - rect.top,
+    };
+    setPosition({ x: rect.left, y: rect.top });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    setPosition(clampPosition(event.clientX - active.dx, event.clientY - active.dy));
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  useEffect(() => {
+    if (position) savePlayerPosition(position);
+  }, [position]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const current = positionRef.current;
+      if (current) setPosition(clampPosition(current.x, current.y));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // A stored position may be off-screen after a viewport change.
+  useEffect(() => {
+    const saved = positionRef.current;
+    if (!saved) return;
+    setPosition(clampPosition(saved.x, saved.y));
+  }, [playing?.neteaseId]);
 
   // Starting a call stops it: the microphone and the call need the audio.
   useEffect(() => {
@@ -71,7 +136,7 @@ export function MusicPlayer() {
     if (audio.current) audio.current.volume = volume;
   }, [volume, playing?.neteaseId]);
 
-  if (playing === null || playing.unplayable) return null;
+  if (playing === null) return null;
 
   const starred = playing.songId ? favorites.ids.has(playing.songId) : false;
   const duration = playing.duration > 0 ? playing.duration : 0;
@@ -89,7 +154,15 @@ export function MusicPlayer() {
         onLoadedMetadata={(event) =>
           musicPlayback.tick(event.currentTarget.currentTime, event.currentTarget.duration || 0)
         }
-        onEnded={() => musicPlayback.stop()}
+        onEnded={() => {
+          const element = audio.current;
+          if (musicPlayback.mode() === "repeat-one" && element) {
+            element.currentTime = 0;
+            void element.play().catch(() => musicPlayback.stop());
+          } else {
+            void musicPlayback.next();
+          }
+        }}
         onError={() => {
           const element = audio.current;
           const next = playing.alternatives[alternative.current];
@@ -102,12 +175,69 @@ export function MusicPlayer() {
           }
         }}
       />
-      {/* A floating mini-player on every page; on phones it sits above the dock. */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-14 z-30 flex justify-center px-3 md:bottom-4">
-        <div className="pointer-events-auto flex w-full max-w-xl flex-col gap-1 rounded-2xl border bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
+      {/* A floating mini-player on every page; on phones it sits above the dock. It can be
+          dragged by its title bar so it no longer covers the input box. */}
+      <div
+        className={cn(
+          "pointer-events-none fixed z-30 px-3",
+          position === null
+            ? "inset-x-0 bottom-14 flex justify-end md:bottom-4"
+            : "w-[min(36rem,calc(100vw-1.5rem))]",
+        )}
+        style={position ? { left: position.x, top: position.y } : undefined}
+      >
+        <div ref={panel} className="pointer-events-auto flex w-full max-w-xl flex-col gap-1 rounded-2xl border bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
           <div className="flex items-center gap-2">
-            <MusicIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-meta">{playing.title}</span>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={copy.music.move}
+              title={copy.music.move}
+              className="flex min-w-0 flex-1 cursor-grab touch-none select-none items-center gap-2 active:cursor-grabbing"
+              onPointerDown={startDrag}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
+              <DragHandleIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <MusicIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-meta">{playing.title}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                aria-label={copy.music.previous}
+                disabled={musicPlayback.queueLength() < 2}
+                className="rounded-full p-1 text-muted-foreground hover:text-foreground disabled:opacity-35"
+                onClick={() => void musicPlayback.previous()}
+              >
+                <PreviousSongIcon className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={copy.music.next}
+                disabled={musicPlayback.queueLength() < 2}
+                className="rounded-full p-1 text-muted-foreground hover:text-foreground disabled:opacity-35"
+                onClick={() => void musicPlayback.next()}
+              >
+                <NextSongIcon className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={copy.music.modes[musicPlayback.mode()]}
+                title={copy.music.modes[musicPlayback.mode()]}
+                className="rounded-full p-1 text-muted-foreground hover:text-foreground"
+                onClick={() => musicPlayback.cycleMode()}
+              >
+                {musicPlayback.mode() === "repeat-one" ? (
+                  <RepeatOneModeIcon className="size-4" />
+                ) : musicPlayback.mode() === "shuffle" ? (
+                  <ShuffleModeIcon className="size-4" />
+                ) : (
+                  <SequenceModeIcon className="size-4" />
+                )}
+              </button>
+            </div>
             <Popover>
               <PopoverTrigger
                 render={
@@ -164,6 +294,9 @@ export function MusicPlayer() {
             </button>
           </div>
           <div className="flex items-center gap-2">
+            {playing.unplayable && (
+              <span className="shrink-0 text-meta text-muted-foreground">{copy.music.cannotPlay}</span>
+            )}
             <span className="w-9 shrink-0 text-right text-meta text-muted-foreground tabular-nums">
               {clock(playing.at)}
             </span>

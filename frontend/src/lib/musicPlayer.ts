@@ -1,10 +1,21 @@
 "use client";
 
-// 歌曲的播放状态（fork，FORK.md「歌曲」）：一套全局的，切页面不停。
-//
-// 页面自己持有一个 <audio> 的话，一换页就卸载、音乐就断了。所以状态放在这里，
-// 真正的 <audio> 由外壳（NavShell 里的 MusicPlayer）持有，永远不卸载：
-// 只有点她的消息语音、或者开始通话，才把它停下来。
+// The player's global state: what is playing, its queue, and the play mode. The page owns
+// the song lists; the shell owns the one <audio> (MusicPlayer), so changing pages does not
+// interrupt it.
+
+import { musicLookup } from "@/lib/music";
+
+/** What happens when a song ends: play the next one, repeat this one, or pick one at random. */
+export type PlayMode = "sequence" | "repeat-one" | "shuffle";
+
+/** One song waiting in the player's queue; NetEase's id is looked up when it is needed. */
+export type QueuedSong = {
+  songId: string;
+  title: string;
+  neteaseId?: string;
+  alternatives?: string[];
+};
 
 /** 现在在放哪一首；null 是没在放。
  *
@@ -23,13 +34,71 @@ export type Playing = {
   unplayable: boolean;
 } | null;
 
+const MODE_KEY = "eidolon.musicPlayMode";
+const MODES: PlayMode[] = ["sequence", "repeat-one", "shuffle"];
+
 let current: Playing = null;
+let queue: QueuedSong[] = [];
+let queueIndex = -1;
+let mode: PlayMode = loadMode();
 let seekRequest: { at: number; key: number } | null = null;
 let seekKey = 0;
 const listeners = new Set<() => void>();
 
+function loadMode(): PlayMode {
+  try {
+    const stored = localStorage.getItem(MODE_KEY);
+    return stored === "repeat-one" || stored === "shuffle" ? stored : "sequence";
+  } catch {
+    return "sequence";
+  }
+}
+
+function keepMode(next: PlayMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, next);
+  } catch {
+    // Storage unavailable: the choice still holds for this page.
+  }
+}
+
 function emit(): void {
   for (const listener of listeners) listener();
+}
+
+async function start(index: number): Promise<void> {
+  const item = queue[index];
+  if (!item) return;
+  let neteaseId = item.neteaseId;
+  let alternatives = item.alternatives ?? [];
+  if (!neteaseId) {
+    try {
+      const hit = await musicLookup(item.title);
+      if (!hit) {
+        musicPlayback.stop();
+        return;
+      }
+      neteaseId = hit.id;
+      alternatives = hit.alternatives ?? [];
+      item.neteaseId = neteaseId;
+      item.alternatives = alternatives;
+    } catch {
+      musicPlayback.stop();
+      return;
+    }
+  }
+  queueIndex = index;
+  seekRequest = null;
+  current = {
+    songId: item.songId,
+    title: item.title,
+    neteaseId,
+    alternatives,
+    at: 0,
+    duration: 0,
+    unplayable: false,
+  };
+  emit();
 }
 
 export const musicPlayback = {
@@ -43,11 +112,55 @@ export const musicPlayback = {
   get(): Playing {
     return current;
   },
-  /** 放这一首；已经在放同一首、又没出过错，就不重来。 */
-  play(songId: string, title: string, neteaseId: string, alternatives: string[] = []): void {
+  /** How songs advance after one ends, or when the user asks for the next one. */
+  mode(): PlayMode {
+    return mode;
+  },
+  queueLength(): number {
+    return queue.length;
+  },
+  /** 放这一首；`list` is the list it was picked from, so next/previous know where to go. */
+  play(
+    songId: string,
+    title: string,
+    neteaseId: string,
+    alternatives: string[] = [],
+    list?: QueuedSong[],
+    index = 0,
+  ): void {
+    if (list && list.length > 0) {
+      queue = list;
+      queueIndex = Math.max(0, Math.min(index, list.length - 1));
+    } else {
+      queue = [{ songId, title, neteaseId, alternatives }];
+      queueIndex = 0;
+    }
     if (current?.neteaseId === neteaseId && !current.unplayable) return;
     seekRequest = null;
     current = { songId, title, neteaseId, alternatives, at: 0, duration: 0, unplayable: false };
+    emit();
+  },
+  /** Play the next song, wrapping at the end; shuffle picks one at random. */
+  async next(): Promise<void> {
+    if (queue.length === 0) return;
+    const index = mode === "shuffle"
+      ? randomIndex()
+      : (queueIndex + 1 + queue.length) % queue.length;
+    await start(index);
+  },
+  /** Play the previous song, wrapping at the start; shuffle picks one at random too. */
+  async previous(): Promise<void> {
+    if (queue.length === 0) return;
+    const index = mode === "shuffle"
+      ? randomIndex()
+      : (queueIndex - 1 + queue.length) % queue.length;
+    await start(index);
+  },
+  /** Cycle sequence → repeat one → shuffle, keeping the choice on this device. */
+  cycleMode(): void {
+    const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    mode = next;
+    keepMode(next);
     emit();
   },
   /** 播放器报到哪里了。按秒去通知，免得一秒画几十次。 */
@@ -58,7 +171,6 @@ export const musicPlayback = {
     current = { ...current, at: second, duration: Math.floor(duration) };
     emit();
   },
-  /** 那条音频取不到（多半是没版权）：留住状态让页面说明白，但不再出声。 */
   /** Move the song to `seconds`; the audio element takes the request on its next render. */
   seek(seconds: number): void {
     if (current === null) return;
@@ -88,3 +200,10 @@ export const musicPlayback = {
     emit();
   },
 };
+
+function randomIndex(): number {
+  if (queue.length <= 1) return 0;
+  let index = queueIndex;
+  while (index === queueIndex) index = Math.floor(Math.random() * queue.length);
+  return index;
+}

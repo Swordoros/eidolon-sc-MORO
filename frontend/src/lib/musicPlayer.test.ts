@@ -95,4 +95,20 @@ describe("跨页面的歌曲播放状态", () => {
     expect(musicPlayback.takeSeek()).toEqual({ at: 42, key: 1 });
     expect(musicPlayback.takeSeek()).toBeNull();
   });
+
+  it("keeps the list it was picked from and cycles the play mode", () => {
+    musicPlayback.play(
+      "song-1",
+      "one",
+      "1",
+      [],
+      [{ songId: "song-1", title: "one" }, { songId: "song-2", title: "two" }],
+      0,
+    );
+
+    expect(musicPlayback.queueLength()).toBe(2);
+    const before = musicPlayback.mode();
+    musicPlayback.cycleMode();
+    expect(musicPlayback.mode()).not.toBe(before);
+  });
 });
