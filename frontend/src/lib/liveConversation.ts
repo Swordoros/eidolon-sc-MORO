@@ -43,6 +43,7 @@ import {
   type LineCardEvent,
 } from "@/lib/linePacing";
 import type { Rewarded } from "@/lib/rewards";
+import { conversationDraftKey, forgetDraft, keepDraft, loadDraft } from "@/lib/composerDraft";
 import { later } from "@/lib/seenOnDevice";
 import { CALM, type StandDirection } from "@/lib/standAnimations";
 import { directionOf, directStand, startingStand, type StandEvent, type StandState } from "@/lib/standDirection";
@@ -376,12 +377,15 @@ export class LiveConversation {
   /** Her night-visit reach-out under way (夜间搭话), abortable while still quiet. */
   private visit: AbortController | null = null;
   private visitVisible = false;
+  /** A draft read back from storage is not written again (that would restart its hour). */
+  private restoringDraft = false;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
   constructor(
     readonly characterId: string,
     private readonly ports: Ports,
+    private readonly userId = "",
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
@@ -439,6 +443,7 @@ export class LiveConversation {
     try {
       const conversation = await this.createConversation();
       this.showConversation(conversation.id, [], { call: { phase: "idle" }, draft: "" });
+      if (this.userId) forgetDraft(conversationDraftKey(this.userId, current));
     } catch (e) {
       this.update({ conversation: { status: "open", id: current }, failure: toFailure(e) });
     }
@@ -982,12 +987,21 @@ export class LiveConversation {
     return conversation;
   }
 
-  /** Shows this conversation and its messages from now on: it is open. */
+  /** Shows this conversation and its messages from now on: it is open, with any draft kept
+   * for it that has not expired. A new conversation passes an empty draft explicitly. */
   private showConversation(conversationId: string, messages: Recorded[], change: Partial<State> = {}): void {
-    this.apply(
-      { type: "loaded", messages },
-      { ...change, conversation: { status: "open", id: conversationId }, card: BLANK_CARD },
+    const draft = change.draft ?? (
+      this.userId ? loadDraft(conversationDraftKey(this.userId, conversationId)) : ""
     );
+    this.restoringDraft = true;
+    try {
+      this.apply(
+        { type: "loaded", messages },
+        { ...change, draft, conversation: { status: "open", id: conversationId }, card: BLANK_CARD },
+      );
+    } finally {
+      this.restoringDraft = false;
+    }
   }
 
   /** Reads the conversation open again, if the list showed something newer in it and nothing is
@@ -1059,6 +1073,14 @@ export class LiveConversation {
     if (this.disposed) return;
     this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
+    if (change.draft !== undefined && !this.restoringDraft && this.userId) {
+      const conversationId = this.openConversationId();
+      if (conversationId !== null) {
+        const key = conversationDraftKey(this.userId, conversationId);
+        if (change.draft === "") forgetDraft(key);
+        else keepDraft(key, change.draft);
+      }
+    }
     for (const listener of this.listeners) listener();
     if (change.log) this.watchPhotos();
     this.rereadIfFree();

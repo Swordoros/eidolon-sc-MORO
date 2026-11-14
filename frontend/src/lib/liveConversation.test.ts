@@ -14,9 +14,12 @@ import {
 } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
+import { conversationDraftKey, keepDraft, loadDraft } from "@/lib/composerDraft";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
 import type { Rewarded } from "@/lib/rewards";
 import { CALM } from "@/lib/standAnimations";
+
+afterEach(() => vi.unstubAllGlobals());
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -99,6 +102,8 @@ type Options = {
   ports?: Partial<Ports>;
   /** Her affinity with the user as the page opens; affinity is off without it. */
   affinity?: AffinityStatus;
+  /** The user whose local drafts are read and kept; none for the tests that do not care. */
+  userId?: string;
 };
 
 /** A live conversation over fake ports, not yet open: her conversations and their
@@ -158,7 +163,7 @@ function opening(options: Options = {}) {
     now: () => NOW,
     ...options.ports,
   };
-  const live = new LiveConversation("hikari", ports);
+  const live = new LiveConversation("hikari", ports, options.userId);
   let published = 0;
   live.subscribe(() => published++);
   return {
@@ -1579,6 +1584,26 @@ describe("LiveConversation: typing", () => {
     live.setDraft("あ".repeat(2005));
 
     expect(live.snapshot().draft).toBe("あ".repeat(2000));
+  });
+
+  it("keeps a conversation's draft across opening, and forgets it when cleared", async () => {
+    const items = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
+    });
+    const key = conversationDraftKey("u1", "c1");
+    keepDraft(key, "还没发出去");
+
+    const { live } = await conversation({ userId: "u1" });
+    expect(live.snapshot().draft).toBe("还没发出去");
+
+    live.setDraft("改过的草稿");
+    expect(loadDraft(key)).toBe("改过的草稿");
+
+    live.setDraft("");
+    expect(loadDraft(key)).toBe("");
   });
 
   it("records a text turn the backend answers", async () => {

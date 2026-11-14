@@ -534,7 +534,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         preferences: { load: loadCallPreferences, save: saveCallPreferences },
         voice,
         tones,
-      });
+      }, userId);
       heldRef.current = live;
       setHeld(live);
       return live;

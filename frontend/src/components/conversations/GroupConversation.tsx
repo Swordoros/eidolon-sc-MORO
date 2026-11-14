@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -58,6 +58,7 @@ import {
   type GroupTopic,
 } from "@/lib/group";
 import { formatTimestamp } from "@/lib/timestamp";
+import { forgetDraft, groupDraftKey, keepDraft, loadDraft } from "@/lib/composerDraft";
 import { cn } from "@/lib/utils";
 import {
   BackIcon,
@@ -112,6 +113,9 @@ export function GroupConversation({
     [characters],
   );
   const open = group?.topic?.open ?? false;
+  const userId = account?.id ?? "";
+  const draftKey = userId ? groupDraftKey(userId, groupId) : null;
+  const loadedDraftKey = useRef<string | null>(null);
 
   const load = useCallback(() => {
     getGroup(groupId).then(
@@ -131,6 +135,20 @@ export function GroupConversation({
     const id = window.setInterval(load, open ? POLL_UNDER_WAY_MS : POLL_IDLE_MS);
     return () => window.clearInterval(id);
   }, [load, open]);
+
+  useEffect(() => {
+    if (!draftKey || loadedDraftKey.current === draftKey) return;
+    loadedDraftKey.current = draftKey;
+    setDraft(loadDraft(draftKey));
+  }, [draftKey]);
+
+  const changeDraft = useCallback(
+    (value: string) => {
+      setDraft(value);
+      if (draftKey) keepDraft(draftKey, value);
+    },
+    [draftKey],
+  );
 
   const run = useCallback(
     async (
@@ -153,9 +171,10 @@ export function GroupConversation({
   const send = useCallback(() => {
     const value = draft.trim();
     if (!value || !group?.on || busy) return;
+    if (draftKey) forgetDraft(draftKey);
     setDraft("");
     void run("sending", () => sayInGroup(groupId, value));
-  }, [busy, draft, group?.on, groupId, run]);
+  }, [busy, draft, draftKey, group?.on, groupId, run]);
 
   const openRename = useCallback(() => {
     setNewName(group?.name ?? "");
@@ -331,7 +350,7 @@ export function GroupConversation({
           <Textarea
             variant="composer"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => changeDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
