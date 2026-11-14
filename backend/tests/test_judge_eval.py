@@ -147,7 +147,7 @@ async def test_a_run_is_asked_as_a_conversation_asks_and_summed_up(tmp_path: Pat
     # turn twice, the second time along with affinity's questions.
     assert model.states[2] == {
         "角色": "櫻木真乃",
-        "上文": ["制作人：ただいま"],
+        "上文": ["制作人：ただいま", "櫻木真乃：おかえりなさい！"],
         "制作人最新的一句话": "うちの猫が風邪をひいてさ",
     }
     assert model.states[9]["这条回复前面几段"] == ["[shyly]ほわっ……（哇……）"]

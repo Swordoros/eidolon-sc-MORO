@@ -621,7 +621,9 @@ async def evaluate(
         ))
     affinity = []
     for case in judge_eval.affinity:
-        state = turn_state(characters[case.character], case.history, case.said)
+        state = turn_state(
+            characters[case.character], case.history, case.said, include_character=False
+        )
         start = clock()
         try:
             merged = await _ask_affinity(metered, state, judge_questions(affinity=True), thresholds)
@@ -656,7 +658,9 @@ async def evaluate(
         photo.append(PhotoResult(case, merged, alone, input_tokens, seconds))
     considerate = []
     for case in judge_eval.considerate:
-        state = turn_state(characters[case.character], case.history, case.said)
+        state = turn_state(
+            characters[case.character], case.history, case.said, include_character=False
+        )
         start = clock()
         try:
             asked = await _ask_affinity(

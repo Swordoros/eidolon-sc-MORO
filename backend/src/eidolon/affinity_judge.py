@@ -13,10 +13,10 @@ has nothing to do with it, or they were considerate of it, read as the five leve
 likely as each other taken as nothing to do with it. On her other days the request is as it
 was without it. Nothing records its answer, nor whether it was asked.
 
-Where retrieval is on, they are asked in the same request as retrieval's questions
-(`retrieval.ModelRetrievalJudge`); otherwise in one of their own (`ModelAffinityJudge`),
-which asks whether the user asks her for a photo too, in a turn that could have one, or
-asks only that where affinity is off (`photo_judge`).
+Where retrieval is on, they are asked in a second request of their own
+(`retrieval.ModelRetrievalJudge`), without her replies, while retrieval keeps the full
+conversation. Otherwise (`ModelAffinityJudge`) they are asked without her replies too;
+where affinity is off, the photo question is asked alone (`photo_judge`).
 The user's words are what is judged, never instructions to the judge model; the messages
 before them only tell what they answer. Unsure, the judge model leaves affinity as it is:
 two levels as likely as each other are taken as no effect.
@@ -311,7 +311,9 @@ class ModelAffinityJudge:
         questions = (questions_for(character, days) if affinity else {}) | (
             PHOTO_QUESTIONS if photo else {}
         )
-        answers = await self._judge_model.ask(turn_state(character, history, text), questions)
+        answers = await self._judge_model.ask(
+            turn_state(character, history, text, include_character=False), questions
+        )
         judged, asked = None, False
         if affinity:
             try:

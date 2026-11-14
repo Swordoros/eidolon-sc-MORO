@@ -26,24 +26,22 @@ level 2：  0 次（0%）
 
 ## 已确认的修改决定
 
-1. **先只看用户发言**
-   - `judge.turn_state()` 不再包含角色的回复；
-   - 不额外发一次 judge 请求，检索和好感共用只含用户发言的上下文。
+1. **retrieval 和 affinity 分开请求**
+   - retrieval judge 使用完整上下文（用户发言 + 她的回复）；
+   - affinity judge 使用只含用户发言的上下文；
+   - 两次请求并行发出，retrieval 失败时不影响原来的检索兜底；
+   - affinity 失败时，好感保持不变，retrieval 仍继续。
 
 2. **接受普通对话以 level 2 为主**
    - level 2 明确为普通对话的默认值；
    - 普通问候、短确认、事务问答、正常请求和拒绝属于 level 2；
    - 普通而真诚的关心（“辛苦了”“早点休息”“今天怎么样”“累不累”）属于 level 3，不是 level 2，也不是 level 4。
 
-3. **暂不拆成两个 judge 请求**
-   - 不为 affinity 单独再发请求；
-   - 先观察全局只给用户发言对检索判断的影响，再决定是否拆分。
-
-4. **保持当前判断模型不变**
+3. **判断模型暂时不换**
    - 继续使用 `decision-model-preview`；
    - 暂不切换 Jev / Cloudflare。
 
-5. **level 4 仍然保留**
+4. **level 4 仍然保留**
    - 只有“记得她说过的重要事情”“让她明显感到被在意”等明确证据才判 4；
    - 不因为普通关心或普通礼貌判 4。
 
@@ -59,7 +57,8 @@ level 2：  0 次（0%）
 
 ## 验证重点
 
-- judge 上下文不包含角色回复；
+- retrieval 请求包含角色回复，affinity 请求不包含；
+- 两次请求的内容确实分开：retrieval 问 retrieval 的题，affinity 只问好感的题；
 - level 2 的默认说明和普通关心示例确实进入 prompt；
 - 普通问候 / 短确认 / 事务问答不会被当作 1；
 - 普通关心是 3；
@@ -73,5 +72,6 @@ level 2：  0 次（0%）
 
 - `backend/src/eidolon/judge.py`
 - `backend/src/eidolon/affinity_judge.py`
+- `backend/src/eidolon/retrieval.py`
 
 不涉及数据库 schema，不需要数据迁移。
