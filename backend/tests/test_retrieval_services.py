@@ -167,7 +167,7 @@ async def test_jev_answers_what_the_turn_needs(
         assert question["criteria"].keys() == {"true", "false"}  # System One wants both
 
 
-async def test_jev_sees_the_latest_messages_and_what_was_just_said():
+async def test_jev_sees_the_latest_user_messages_and_what_was_just_said():
     requests: list[dict] = []
     history = [message("user", f"old {i}") for i in range(5)] + [message("character", "ほわっ")]
 
@@ -175,7 +175,8 @@ async def test_jev_sees_the_latest_messages_and_what_was_just_said():
 
     state = requests[0]["state"]
     assert state["角色"] == "櫻木真乃"
-    assert state["上文"][-1] == "櫻木真乃：ほわっ" and "制作人：old 4" in state["上文"]
+    assert state["上文"][-1] == "制作人：old 4"
+    assert all(line.startswith("制作人：") for line in state["上文"])
     assert "制作人：old 1" not in state["上文"]
     assert state["制作人最新的一句话"] == "那次比赛"
 

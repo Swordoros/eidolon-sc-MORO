@@ -48,13 +48,14 @@ SAID = "制作人最新的一句话"
 
 def turn_state(character: Character, history: Sequence[Message], text: str) -> dict[str, Any]:
     """What the judge model is told of a turn, whatever it is asked about it: who she is,
-    the latest messages before it, and what the user just said (`SAID`)."""
-    recent = []
-    for message in history[-JUDGE_HISTORY:]:
-        if message.role == "user":
-            recent.append(f"制作人：{message.text}")
-        else:
-            recent.append(f"{character.name_zh or character.name}：{message.without_cues().ja}")
+    the latest *user* messages before it, and what the user just said (`SAID`). Her own
+    replies stay out: a cold or warm answer of hers must not decide how his words are
+    judged."""
+    recent = [
+        f"制作人：{message.text}"
+        for message in history[-JUDGE_HISTORY:]
+        if message.role == "user"
+    ]
     return {"角色": character.name_zh or character.name, "上文": recent or "（对话刚开始）", SAID: text}
 
 
