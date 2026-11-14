@@ -64,6 +64,7 @@ export const zh = {
     noFavorites: "还没有收藏的歌曲",
     allSongs: "全部歌曲",
     seek: "播放进度",
+    volume: "音量",
     search: "搜索歌曲、演唱者…",
     noResults: "没有找到歌曲",
     sortTime: "时间",

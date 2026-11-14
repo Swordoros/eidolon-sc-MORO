@@ -3,15 +3,17 @@
 // The shell's player: it owns the one <audio>, so a song keeps playing as pages change.
 // The floating bar shows what is playing, lets the user seek, star it, or stop it.
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { copy } from "@/i18n";
 import { streamUrl } from "@/lib/music";
 import { useMusicFavorites } from "@/lib/musicFavorites";
+import { loadMusicVolume, saveMusicVolume } from "@/lib/musicVolume";
 import { musicPlayback } from "@/lib/musicPlayer";
 import { cn } from "@/lib/utils";
-import { CloseIcon, FavoriteIcon, MusicIcon } from "@/theme/icons";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CloseIcon, FavoriteIcon, MusicIcon, MusicMutedIcon, MusicVolumeIcon } from "@/theme/icons";
 
 const nothing = () => null;
 
@@ -25,6 +27,7 @@ export function MusicPlayer() {
   const playing = useSyncExternalStore(musicPlayback.subscribe, musicPlayback.get, nothing);
   const { call, account } = useDirectory();
   const favorites = useMusicFavorites(account?.id ?? null);
+  const [volume, setVolume] = useState(loadMusicVolume);
   const audio = useRef<HTMLAudioElement | null>(null);
   // Which of the song's other releases is being tried, after the first fails.
   const alternative = useRef(0);
@@ -63,6 +66,11 @@ export function MusicPlayer() {
     }
   }, [playing]);
 
+  // Volume is a device preference; set it whenever the audio element or slider changes.
+  useEffect(() => {
+    if (audio.current) audio.current.volume = volume;
+  }, [volume, playing?.neteaseId]);
+
   if (playing === null || playing.unplayable) return null;
 
   const starred = playing.songId ? favorites.ids.has(playing.songId) : false;
@@ -100,6 +108,41 @@ export function MusicPlayer() {
           <div className="flex items-center gap-2">
             <MusicIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-meta">{playing.title}</span>
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={copy.music.volume}
+                    className="rounded-full p-1 text-muted-foreground hover:text-foreground"
+                  />
+                }
+              >
+                {volume === 0 ? <MusicMutedIcon className="size-4" /> : <MusicVolumeIcon className="size-4" />}
+              </PopoverTrigger>
+              <PopoverContent side="top" align="end" className="w-56">
+                <div className="flex items-center gap-2">
+                  {volume === 0 ? <MusicMutedIcon className="size-4" /> : <MusicVolumeIcon className="size-4" />}
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(volume * 100)}
+                    aria-label={copy.music.volume}
+                    onChange={(event) => {
+                      const next = Number(event.target.value) / 100;
+                      setVolume(next);
+                      saveMusicVolume(next);
+                    }}
+                    className="h-1 min-w-0 flex-1 cursor-pointer accent-foreground"
+                  />
+                  <span className="w-8 text-right text-meta text-muted-foreground tabular-nums">
+                    {Math.round(volume * 100)}
+                  </span>
+                </div>
+              </PopoverContent>
+            </Popover>
             {playing.songId && (
               <button
                 type="button"

@@ -105,6 +105,7 @@ export {
 export { Gift as GiftIcon } from "lucide-react";
 // 歌曲页与导航：曲目、专辑和播放键。
 export { Disc3 as AlbumIcon, Music as MusicIcon, Star as FavoriteIcon } from "lucide-react";
+export { Volume2 as MusicVolumeIcon, VolumeX as MusicMutedIcon } from "lucide-react";
 export { Terminal as DevIcon } from "lucide-react";
 export { TriangleAlert as NsfwIcon } from "lucide-react";
 

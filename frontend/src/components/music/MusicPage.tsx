@@ -27,12 +27,13 @@ import { AlbumIcon, FavoriteIcon, MusicIcon, PlayIcon, SearchIcon } from "@/them
 
 const t = copy.music;
 
-type Tab = "songs" | "albums";
+type Tab = "songs" | "albums" | "favorites";
 
 export function MusicPage() {
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [singers, setSingers] = useState<string[]>([]);
   const [songs, setSongs] = useState<Song[] | null>(null);
+  const [allSongs, setAllSongs] = useState<Song[] | null>(null);
   const [albums, setAlbums] = useState<Album[] | null>(null);
   const [tab, setTab] = useState<Tab>("songs");
   const [picked, setPicked] = useState<string | null>(null);
@@ -61,6 +62,7 @@ export function MusicPage() {
       setCharacters(listed);
       setSingers(shelf.singers);
       setSongs(shelf.songs);
+      setAllSongs(shelf.songs);
       setAlbums(shelfAlbums.albums);
     })();
     return () => {
@@ -140,9 +142,23 @@ export function MusicPage() {
       return ascending ? order : -order;
     });
   }, [songs, needle, sort, ascending, releasedAt, albumTitles]);
+  const allVisibleSongs = useMemo(() => {
+    const matched = (allSongs ?? []).filter((song) => {
+      if (!needle) return true;
+      return [song.title, ...song.singers, song.special_unit ?? "",
+        ...song.releases.map((catalog) => albumTitles.get(catalog) ?? "")]
+        .join(" ").toLocaleLowerCase().includes(needle);
+    });
+    return [...matched].sort((a, b) => {
+      const order = sort === "time"
+        ? dateOf(a) - dateOf(b)
+        : a.title.localeCompare(b.title, "ja");
+      return ascending ? order : -order;
+    });
+  }, [allSongs, needle, sort, ascending, releasedAt, albumTitles]);
   const favoriteSongs = useMemo(
-    () => visibleSongs.filter((song) => favorites.ids.has(song.id)),
-    [visibleSongs, favorites.ids],
+    () => allVisibleSongs.filter((song) => favorites.ids.has(song.id)),
+    [allVisibleSongs, favorites.ids],
   );
   const chooseSort = (next: "time" | "name") => {
     if (next === sort) setAscending((value) => !value);
@@ -151,6 +167,42 @@ export function MusicPage() {
       setAscending(next === "name");
     }
   };
+
+  const filterControls = (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3">
+      <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+        <SearchIcon aria-hidden className="size-4 shrink-0" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t.search}
+          aria-label={t.search}
+          className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+        />
+      </label>
+      <div className="flex gap-1">
+        <Button
+          size="sm"
+          variant={sort === "time" ? "secondary" : "ghost"}
+          aria-pressed={sort === "time"}
+          onClick={() => chooseSort("time")}
+        >
+          {t.sortTime}
+          <span className="sr-only">{ascending ? t.sortOldest : t.sortNewest}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant={sort === "name" ? "secondary" : "ghost"}
+          aria-pressed={sort === "name"}
+          onClick={() => chooseSort("name")}
+        >
+          {t.sortName}
+          <span className="sr-only">{ascending ? t.sortAZ : t.sortZA}</span>
+        </Button>
+      </div>
+    </div>
+  );
 
   const current = picked === null ? null : withSongs.find((character) => character.id === picked) ?? null;
 
@@ -203,7 +255,7 @@ export function MusicPage() {
     <PlayShell header={<PlaySubpageHeader title={t.title} />}>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {current && (
+        {current && tab === "songs" && (
           <span className="text-meta text-muted-foreground">{t.only(current.name_zh ?? current.name)}</span>
         )}
         <div className="ms-auto flex gap-1">
@@ -222,6 +274,14 @@ export function MusicPage() {
           >
             <AlbumIcon data-icon="inline-start" />
             {t.albumsTab}
+          </Button>
+          <Button
+            size="sm"
+            variant={tab === "favorites" ? "secondary" : "ghost"}
+            onClick={() => setTab("favorites")}
+          >
+            <FavoriteIcon data-icon="inline-start" />
+            {t.favorites}
           </Button>
         </div>
       </div>
@@ -270,39 +330,7 @@ export function MusicPage() {
             ))}
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3">
-            <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
-              <SearchIcon aria-hidden className="size-4 shrink-0" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t.search}
-                aria-label={t.search}
-                className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
-              />
-            </label>
-            <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant={sort === "time" ? "secondary" : "ghost"}
-                aria-pressed={sort === "time"}
-                onClick={() => chooseSort("time")}
-              >
-                {t.sortTime}
-                <span className="sr-only">{ascending ? t.sortOldest : t.sortNewest}</span>
-              </Button>
-              <Button
-                size="sm"
-                variant={sort === "name" ? "secondary" : "ghost"}
-                aria-pressed={sort === "name"}
-                onClick={() => chooseSort("name")}
-              >
-                {t.sortName}
-                <span className="sr-only">{ascending ? t.sortAZ : t.sortZA}</span>
-              </Button>
-            </div>
-          </div>
+          {filterControls}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28">
             {songs === null ? (
@@ -312,30 +340,38 @@ export function MusicPage() {
             ) : songs.length === 0 ? (
               <p className="py-10 text-center text-body text-muted-foreground">{t.noSongs}</p>
             ) : (
-              <div className="flex flex-col gap-5">
-                {favorites.failed && (
-                  <p className="text-meta text-muted-foreground">{t.favoriteFailed}</p>
-                )}
-                <section aria-labelledby="favorite-songs">
-                  <h2 id="favorite-songs" className="mb-1 flex items-center gap-1.5 text-body font-medium">
-                    <FavoriteIcon aria-hidden className="size-4" />
-                    {t.favorites}
-                  </h2>
-                  {favoriteSongs.length > 0 ? (
-                    <ul className="divide-y">{songRows(favoriteSongs)}</ul>
-                  ) : (
-                    <p className="py-2 text-meta text-muted-foreground">{t.noFavorites}</p>
-                  )}
-                </section>
-                <section aria-labelledby="all-songs">
+              <section aria-labelledby="all-songs">
                   <h2 id="all-songs" className="mb-1 text-body font-medium">{t.allSongs}</h2>
                   {visibleSongs.length > 0 ? (
                     <ul className="divide-y">{songRows(visibleSongs)}</ul>
                   ) : (
                     <p className="py-2 text-meta text-muted-foreground">{t.noResults}</p>
                   )}
-                </section>
+              </section>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === "favorites" && (
+        <>
+          {filterControls}
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28">
+            {allSongs === null ? (
+              <div className="flex h-full items-center justify-center">
+                <Spinner className="size-6 text-muted-foreground" aria-label={t.loading} />
               </div>
+            ) : favoriteSongs.length === 0 ? (
+              <p className="py-10 text-center text-body text-muted-foreground">
+                {query.trim() ? t.noResults : t.noFavorites}
+              </p>
+            ) : (
+              <>
+                {favorites.failed && (
+                  <p className="mb-2 text-meta text-muted-foreground">{t.favoriteFailed}</p>
+                )}
+                <ul className="divide-y">{songRows(favoriteSongs)}</ul>
+              </>
             )}
           </div>
         </>
