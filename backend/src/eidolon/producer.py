@@ -15,7 +15,7 @@ recalls stay as they happened.
 import calendar
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import cache
 from typing import Literal
 from zoneinfo import ZoneInfo, available_timezones
@@ -144,6 +144,53 @@ def effective_timezone(profile: ProducerProfile, device_timezone: str | None) ->
 def local_date(now: datetime, timezone: str) -> date:
     """The day it is at `now` where the producer is: the day `now_prompt` tells."""
     return now.astimezone(ZoneInfo(timezone)).date()
+
+
+def _part_of_day(hour: int) -> str:
+    """The part of the day the timestamp says, in the producer's local time."""
+    if hour >= 23 or hour < 5:
+        return "深夜"
+    if hour < 8:
+        return "清晨"
+    if hour < 11:
+        return "上午"
+    if hour < 13:
+        return "中午"
+    if hour < 17:
+        return "下午"
+    if hour < 19:
+        return "傍晚"
+    return "晚上"
+
+
+def _local_moment(at: datetime, zone: ZoneInfo) -> datetime:
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=UTC)
+    return at.astimezone(zone)
+
+
+def current_message_stamp(now: datetime, timezone: str) -> str:
+    """The stamp before the user's latest message: date, time and part of the day."""
+    local = _local_moment(now, ZoneInfo(timezone))
+    return f"[{local:%Y-%m-%d %H:%M} {_part_of_day(local.hour)}]"
+
+
+def earlier_message_stamp(created_at: str, now: datetime, timezone: str) -> str:
+    """The stamp before an earlier user message: how long ago, and the part of the day."""
+    zone = ZoneInfo(timezone)
+    at = _local_moment(datetime.fromisoformat(created_at.replace("Z", "+00:00")), zone)
+    local_now = _local_moment(now, zone)
+    part = _part_of_day(at.hour)
+    minutes = max(int((local_now - at).total_seconds() // 60), 0)
+    if at.date() == local_now.date():
+        when = "刚刚" if minutes < 1 else (
+            f"{minutes}分钟前" if minutes < 60 else f"{minutes // 60}小时前"
+        )
+    elif at.date() == local_now.date() - timedelta(days=1):
+        when = f"昨天 {at:%H:%M}"
+    else:
+        when = f"{at.month}月{at.day}日 {at:%H:%M}"
+    return f"[{when} {part}]"
 
 
 def producer_prompt(profile: ProducerProfile) -> str:

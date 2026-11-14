@@ -150,7 +150,10 @@ from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.photo_prompt import SCENE_MARK, keepsake_words
-from eidolon.producer import ProducerProfile, effective_timezone, local_date, producer_prompt
+from eidolon.producer import (
+    ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
+    local_date, producer_prompt,
+)
 from eidolon.schedules import LIVE_CITIES, bath_began
 from eidolon.schedules import lines as schedule_lines
 from eidolon.schedules import rest as schedule_rest
@@ -1663,7 +1666,8 @@ class ConversationEngine:
                 *([asmr_rules(voiced_by)] if in_call is not None and in_call.asmr else []),
             ],
             [p for p in (retrieved.memories_prompt, relationship, retrieved.prompt) if p],
-            (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text, voiced_by,
+            (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
+            voiced_by, stamp_user=True, now=now, timezone=timezone,
         )
         self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
 
@@ -2262,6 +2266,10 @@ class ConversationEngine:
         closing: list[str],
         text: str,
         voiced_by: FishAudioModel | None,
+        *,
+        stamp_user: bool = False,
+        now: datetime | None = None,
+        timezone: str = "Asia/Shanghai",
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2272,10 +2280,16 @@ class ConversationEngine:
             ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
             ChatMessage("system", about_producer),
         ]
-        for message in history:
+        users = [index for index, message in enumerate(history) if message.role == "user"]
+        stamped = set(users[-2:]) if stamp_user and now is not None else set()
+        for index, message in enumerate(history):
             if message.role == "user":
                 told = narration.get(message.id, "")
-                prompt.append(ChatMessage("user", f"{told}{message.text or ANSWERED}"))
+                stamp = (
+                    f"{earlier_message_stamp(message.created_at, now, timezone)} "
+                    if index in stamped and now is not None else ""
+                )
+                prompt.append(ChatMessage("user", f"{told}{stamp}{message.text or ANSWERED}"))
             else:
                 prompt.append(ChatMessage("assistant", format_reply(
                     message.segments,
@@ -2289,5 +2303,9 @@ class ConversationEngine:
             context.append(NOT_RECEIVED)
         context += closing
         prompt.append(ChatMessage("system", "\n\n".join(context)))
-        prompt.append(ChatMessage("user", f"{narration.get(None, '')}{text}"))
+        current = (
+            f"{current_message_stamp(now, timezone)} "
+            if stamp_user and now is not None else ""
+        )
+        prompt.append(ChatMessage("user", f"{narration.get(None, '')}{current}{text}"))
         return prompt
