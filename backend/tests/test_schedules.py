@@ -126,6 +126,8 @@ def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
     assert between[1] == "现在（12:30）你没什么安排。"
     assert early[1] == "现在（07:00）今天的安排还没开始。"
     assert "不要像念行程表" in during[2]
+    assert "已经结束、现在不在做的安排" in during[3]
+    assert "现在正在做的只有" in during[3]
     assert lines(None, datetime.combine(on, time(9)), names) == []
 
 

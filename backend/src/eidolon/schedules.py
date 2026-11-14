@@ -585,6 +585,15 @@ def lines(
         now,
         "这是大概的安排，可以有出入。被问到在干嘛时自然地说，不要像念行程表一样一条条背出来。",
     ]
+    past = [slot for slot in schedule.slots if slot.end <= at.time()]
+    if past:
+        ended = "；".join(_said(slot, names) for slot in past)
+        told.append(
+            f"已经结束、现在不在做的安排：{ended}。"
+            + ("现在正在做的只有上面「现在」那一项；" if current is not None
+               else "现在没有正在做的安排；")
+            + "不要把已经结束的安排说成现在正在做。"
+        )
     if resting == "bedtime":
         told.append(BEDTIME_NEAR)
     return told
