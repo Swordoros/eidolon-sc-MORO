@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS keepsake_due (
     given_at TEXT,
     tries INTEGER NOT NULL DEFAULT 0,
     last_at TEXT,
+    done_at TEXT,
     UNIQUE (user_id, character_id, key)
 );
 """
@@ -634,11 +635,14 @@ def _open(db: sqlite3.Connection) -> None:
     db.executescript(_SCHEMA)
     if "drawn" not in {r[1] for r in db.execute("PRAGMA table_info(keepsakes)")}:
         db.execute("ALTER TABLE keepsakes ADD COLUMN drawn INTEGER NOT NULL DEFAULT 0")
+    if "done_at" not in {r[1] for r in db.execute("PRAGMA table_info(keepsake_due)")}:
+        db.execute("ALTER TABLE keepsake_due ADD COLUMN done_at TEXT")
 
 
 def _due(db: sqlite3.Connection, now: datetime) -> list[_Due]:
     rows = by_name(db).execute(
-        "SELECT * FROM keepsake_due WHERE due_at <= ? AND tries < ? ORDER BY due_at",
+        "SELECT * FROM keepsake_due WHERE due_at <= ? AND tries < ?"
+        " AND done_at IS NULL ORDER BY due_at",
         (now.astimezone(UTC).isoformat(), TRIES),
     ).fetchall()
     return [
@@ -675,7 +679,9 @@ def _keep(
             image, due.letter_id, given_at,
         ),
     )
-    db.execute("DELETE FROM keepsake_due WHERE id = ?", (due.id,))
+    # Keep the due row as a record that this source was given, so `_plan` cannot
+    # recreate it on its next tick (a trip's yesterday is looked at again and again).
+    db.execute("UPDATE keepsake_due SET done_at = ? WHERE id = ?", (given_at, due.id))
     assert cursor.lastrowid is not None
     if conversation_id is not None:
         give_keepsake(db, conversation_id, cursor.lastrowid, draft.name)

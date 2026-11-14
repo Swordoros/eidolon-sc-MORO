@@ -440,3 +440,28 @@ async def test_taken_out_it_leaves_the_cabinet_and_the_conversation(
     assert (await cabinet(client))["keepsakes"] == []
     assert [e for e in await record(client, conversation) if e.get("type") == "event"] == []
     assert (await other.delete(f"/api/keepsakes/{given['id']}")).status_code == 404
+
+
+async def test_a_trip_souvenir_is_not_planned_again_after_it_was_given(
+    make_client: ClientFactory, settings: Settings
+):
+    # A trip whose souvenir was given must not be re-planned by the next tick,
+    # nor come back after the three-day cooldown.
+    clock = FakeClock(at(10))
+    client, llm, conversation = await talked(
+        make_client, settings, GIVES, clock=clock, schedules=True,
+    )
+    last_contact(settings.database_path, conversation, at(9))
+    me = user_id(settings.database_path, "producer")
+    await backend_of(client).daily.keep(
+        me, "mano", TODAY - timedelta(days=1),
+        [Slot(time(10), time(12), "work", "Osaka", "work")], [], trip="Osaka",
+    )
+
+    keepsakes = backend_of(client).keepsakes
+    await keepsakes.run_due()
+    await keepsakes.run_due()
+    clock.advance(days=3)
+    await keepsakes.run_due()
+
+    assert len((await cabinet(client))["keepsakes"]) == 1
