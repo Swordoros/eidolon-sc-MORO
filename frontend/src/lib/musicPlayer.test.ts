@@ -21,6 +21,7 @@ describe("跨页面的歌曲播放状态", () => {
       at: 0,
       duration: 0,
       paused: false,
+      singers: [],
       unplayable: false,
     });
   });
@@ -103,7 +104,10 @@ describe("跨页面的歌曲播放状态", () => {
       "one",
       "1",
       [],
-      [{ songId: "song-1", title: "one" }, { songId: "song-2", title: "two" }],
+      [
+        { songId: "song-1", title: "one", singers: [] },
+        { songId: "song-2", title: "two", singers: [] },
+      ],
       0,
     );
 

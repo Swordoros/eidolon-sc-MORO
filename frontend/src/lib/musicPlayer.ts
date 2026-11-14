@@ -13,6 +13,7 @@ export type PlayMode = "sequence" | "repeat-one" | "shuffle";
 export type QueuedSong = {
   songId: string;
   title: string;
+  singers: string[];
   neteaseId?: string;
   alternatives?: string[];
 };
@@ -26,6 +27,7 @@ export type Playing = {
   /** The world setting's song id, for its star; empty when the caller has none. */
   songId: string;
   title: string;
+  singers: string[];
   neteaseId: string;
   /** Other NetEase ids of the same song, tried if this one cannot be streamed. */
   alternatives: string[];
@@ -95,6 +97,7 @@ async function start(index: number): Promise<boolean> {
   current = {
     songId: item.songId,
     title: item.title,
+    singers: item.singers,
     neteaseId,
     alternatives,
     at: 0,
@@ -145,19 +148,20 @@ export const musicPlayback = {
     alternatives: string[] = [],
     list?: QueuedSong[],
     index = 0,
+    singers: string[] = [],
   ): void {
     if (list && list.length > 0) {
       queue = list;
       queueIndex = Math.max(0, Math.min(index, list.length - 1));
     } else {
-      queue = [{ songId, title, neteaseId, alternatives }];
+      queue = [{ songId, title, singers, neteaseId, alternatives }];
       queueIndex = 0;
     }
     blocked.delete(songId);
     if (current?.neteaseId === neteaseId && !current.unplayable) return;
     seekRequest = null;
     current = {
-      songId, title, neteaseId, alternatives, at: 0, duration: 0, paused: false,
+      songId, title, singers, neteaseId, alternatives, at: 0, duration: 0, paused: false,
       unplayable: false,
     };
     emit();

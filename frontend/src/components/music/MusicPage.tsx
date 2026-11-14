@@ -115,9 +115,13 @@ export function MusicPage() {
       return;
     }
     const list = tab === "favorites" ? favoriteSongs : visibleSongs;
-    const queue = list.map((item) => ({ songId: item.id, title: item.title }));
+    const queue = list.map((item) => ({
+      songId: item.id,
+      title: item.title,
+      singers: item.singers,
+    }));
     const index = Math.max(0, list.findIndex((item) => item.id === song.id));
-    musicPlayback.play(song.id, title, hit.id, hit.alternatives ?? [], queue, index);
+    musicPlayback.play(song.id, title, hit.id, hit.alternatives ?? [], queue, index, song.singers);
   }
 
   const albumTitles = useMemo(

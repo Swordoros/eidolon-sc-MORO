@@ -28,6 +28,34 @@ function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
+/** The title and singers, scrolling only when they do not fit the bar. */
+function Marquee({ text }: { text: string }) {
+  const outer = useRef<HTMLDivElement | null>(null);
+  const first = useRef<HTMLSpanElement | null>(null);
+  const [overflow, setOverflow] = useState(false);
+
+  useEffect(() => {
+    const box = outer.current;
+    const content = first.current;
+    if (!box || !content) return;
+    const measure = () => setOverflow(content.scrollWidth > box.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [text]);
+
+  return (
+    <div ref={outer} className="min-w-0 flex-1 overflow-hidden">
+      <div className={cn("flex w-max whitespace-nowrap", overflow && "animate-marquee motion-reduce:animate-none")}>
+        <span ref={first}>{text}</span>
+        {overflow && <span aria-hidden className="ps-8">{text}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function MusicPlayer() {
   const playing = useSyncExternalStore(musicPlayback.subscribe, musicPlayback.get, nothing);
   const { call, account } = useDirectory();
@@ -214,7 +242,11 @@ export function MusicPlayer() {
             >
               <DragHandleIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
               <MusicIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-meta">{playing.title}</span>
+              <Marquee
+                text={playing.singers.length > 0
+                  ? `${playing.title} · ${playing.singers.join(" / ")}`
+                  : playing.title}
+              />
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               <button
