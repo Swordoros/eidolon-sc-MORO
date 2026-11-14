@@ -20,6 +20,7 @@ describe("跨页面的歌曲播放状态", () => {
       alternatives: [],
       at: 0,
       duration: 0,
+      paused: false,
       unplayable: false,
     });
   });
@@ -110,5 +111,15 @@ describe("跨页面的歌曲播放状态", () => {
     const before = musicPlayback.mode();
     musicPlayback.cycleMode();
     expect(musicPlayback.mode()).not.toBe(before);
+  });
+
+  it("pauses and resumes without losing the song", () => {
+    musicPlayback.play("song-1", "song", "1");
+
+    musicPlayback.pause();
+    expect(musicPlayback.get()?.paused).toBe(true);
+
+    musicPlayback.togglePaused();
+    expect(musicPlayback.get()?.paused).toBe(false);
   });
 });

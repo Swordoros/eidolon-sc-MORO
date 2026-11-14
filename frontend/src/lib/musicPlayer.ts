@@ -31,6 +31,8 @@ export type Playing = {
   alternatives: string[];
   at: number;
   duration: number;
+  /** Paused by the user; the queue and position stay. */
+  paused: boolean;
   unplayable: boolean;
 } | null;
 
@@ -40,6 +42,7 @@ const MODES: PlayMode[] = ["sequence", "repeat-one", "shuffle"];
 let current: Playing = null;
 let queue: QueuedSong[] = [];
 let queueIndex = -1;
+const blocked = new Set<string>();
 let mode: PlayMode = loadMode();
 let seekRequest: { at: number; key: number } | null = null;
 let seekKey = 0;
@@ -66,25 +69,25 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-async function start(index: number): Promise<void> {
+async function start(index: number): Promise<boolean> {
   const item = queue[index];
-  if (!item) return;
+  if (!item) return false;
   let neteaseId = item.neteaseId;
   let alternatives = item.alternatives ?? [];
   if (!neteaseId) {
     try {
       const hit = await musicLookup(item.title);
       if (!hit) {
-        musicPlayback.stop();
-        return;
+        blocked.add(item.songId);
+        return false;
       }
       neteaseId = hit.id;
       alternatives = hit.alternatives ?? [];
       item.neteaseId = neteaseId;
       item.alternatives = alternatives;
     } catch {
-      musicPlayback.stop();
-      return;
+      blocked.add(item.songId);
+      return false;
     }
   }
   queueIndex = index;
@@ -96,9 +99,24 @@ async function start(index: number): Promise<void> {
     alternatives,
     at: 0,
     duration: 0,
+    paused: false,
     unplayable: false,
   };
   emit();
+  return true;
+}
+
+async function advance(step: 1 | -1): Promise<void> {
+  if (queue.length === 0) return;
+  let index = queueIndex;
+  for (let tried = 0; tried < queue.length; tried++) {
+    index = mode === "shuffle"
+      ? randomIndex()
+      : (index + step + queue.length) % queue.length;
+    if (blocked.has(queue[index]?.songId ?? "")) continue;
+    if (await start(index)) return;
+  }
+  musicPlayback.stop();
 }
 
 export const musicPlayback = {
@@ -135,26 +153,38 @@ export const musicPlayback = {
       queue = [{ songId, title, neteaseId, alternatives }];
       queueIndex = 0;
     }
+    blocked.delete(songId);
     if (current?.neteaseId === neteaseId && !current.unplayable) return;
     seekRequest = null;
-    current = { songId, title, neteaseId, alternatives, at: 0, duration: 0, unplayable: false };
+    current = {
+      songId, title, neteaseId, alternatives, at: 0, duration: 0, paused: false,
+      unplayable: false,
+    };
     emit();
+  },
+  /** Pause without losing the queue or the position. */
+  pause(): void {
+    if (current === null || current.paused) return;
+    current = { ...current, paused: true };
+    emit();
+  },
+  /** Resume the paused song. */
+  resume(): void {
+    if (current === null || !current.paused) return;
+    current = { ...current, paused: false };
+    emit();
+  },
+  togglePaused(): void {
+    if (current?.paused) musicPlayback.resume();
+    else musicPlayback.pause();
   },
   /** Play the next song, wrapping at the end; shuffle picks one at random. */
   async next(): Promise<void> {
-    if (queue.length === 0) return;
-    const index = mode === "shuffle"
-      ? randomIndex()
-      : (queueIndex + 1 + queue.length) % queue.length;
-    await start(index);
+    await advance(1);
   },
   /** Play the previous song, wrapping at the start; shuffle picks one at random too. */
   async previous(): Promise<void> {
-    if (queue.length === 0) return;
-    const index = mode === "shuffle"
-      ? randomIndex()
-      : (queueIndex - 1 + queue.length) % queue.length;
-    await start(index);
+    await advance(-1);
   },
   /** Cycle sequence → repeat one → shuffle, keeping the choice on this device. */
   cycleMode(): void {
@@ -189,7 +219,8 @@ export const musicPlayback = {
 
   markUnplayable(): void {
     if (current === null || current.unplayable) return;
-    current = { ...current, unplayable: true };
+    blocked.add(current.songId);
+    current = { ...current, unplayable: true, paused: true };
     emit();
   },
   /** 停下来。她的语音开口、通话接通，都会调这个。 */

@@ -113,6 +113,9 @@ export {
   Shuffle as ShuffleModeIcon,
   SkipBack as PreviousSongIcon,
   SkipForward as NextSongIcon,
+  Play as MusicPlayIcon,
+  Pause as MusicPauseIcon,
+  Square as MusicStopIcon,
 } from "lucide-react";
 export { Terminal as DevIcon } from "lucide-react";
 export { TriangleAlert as NsfwIcon } from "lucide-react";

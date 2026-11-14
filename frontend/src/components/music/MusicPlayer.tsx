@@ -15,8 +15,9 @@ import { musicPlayback } from "@/lib/musicPlayer";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  CloseIcon, DragHandleIcon, FavoriteIcon, MusicIcon, MusicMutedIcon, MusicVolumeIcon,
-  NextSongIcon, PreviousSongIcon, RepeatOneModeIcon, SequenceModeIcon, ShuffleModeIcon,
+  DragHandleIcon, FavoriteIcon, MusicIcon, MusicMutedIcon, MusicPauseIcon, MusicPlayIcon,
+  MusicStopIcon, MusicVolumeIcon, NextSongIcon, PreviousSongIcon, RepeatOneModeIcon,
+  SequenceModeIcon, ShuffleModeIcon,
 } from "@/theme/icons";
 
 const nothing = () => null;
@@ -115,9 +116,20 @@ export function MusicPlayer() {
     }
     if (playing.unplayable) return;
     element.src = streamUrl(playing.neteaseId, playing.title);
-    void element.play().catch(() => musicPlayback.stop());
+    if (playing.paused) {
+      element.pause();
+    } else {
+      void element.play().catch(() => musicPlayback.stop());
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing?.neteaseId, playing?.unplayable]);
+
+  useEffect(() => {
+    const element = audio.current;
+    if (!element || !playing || playing.unplayable) return;
+    if (playing.paused) element.pause();
+    else void element.play().catch(() => musicPlayback.stop());
+  }, [playing?.paused, playing?.neteaseId, playing?.unplayable]);
 
   // A seek is applied once, after the render that asked for it.
   useEffect(() => {
@@ -172,6 +184,7 @@ export function MusicPlayer() {
             void element.play().catch(() => musicPlayback.stop());
           } else {
             musicPlayback.markUnplayable();
+            void musicPlayback.next();
           }
         }}
       />
@@ -212,6 +225,14 @@ export function MusicPlayer() {
                 onClick={() => void musicPlayback.previous()}
               >
                 <PreviousSongIcon className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={playing.paused ? copy.music.resume : copy.music.pause}
+                className="rounded-full p-1 text-muted-foreground hover:text-foreground"
+                onClick={() => musicPlayback.togglePaused()}
+              >
+                {playing.paused ? <MusicPlayIcon className="size-4" /> : <MusicPauseIcon className="size-4" />}
               </button>
               <button
                 type="button"
@@ -290,7 +311,7 @@ export function MusicPlayer() {
               className="rounded-full p-1 text-muted-foreground hover:text-foreground"
               onClick={() => musicPlayback.stop()}
             >
-              <CloseIcon className="size-4" />
+              <MusicStopIcon className="size-4" />
             </button>
           </div>
           <div className="flex items-center gap-2">

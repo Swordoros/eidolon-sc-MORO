@@ -97,7 +97,7 @@ export function MusicPage() {
   async function play(song: Song) {
     const title = song.title;
     if (now?.songId === song.id) {
-      musicPlayback.stop();
+      musicPlayback.togglePaused();
       return;
     }
     let hit = found[title];
