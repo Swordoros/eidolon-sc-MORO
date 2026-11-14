@@ -34,6 +34,7 @@ USER_DATA = [
     ("calls", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
+    ("music_favorites", "user_id = ?"),
     ("affinities", "user_id = ?"),
     ("daily_talk_bonuses", "user_id = ?"),
     ("affinity_scenes", "user_id = ?"),

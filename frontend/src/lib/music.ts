@@ -1,7 +1,7 @@
 // 歌曲页（fork，FORK.md「歌曲」）：曲目与专辑来自世界设定，播放交给网易云的外链播放器——
 // 音频始终在网易云那边，我这里只拼一个 iframe 地址。
 
-import { api, json } from "@/lib/api";
+import { api, expectNoContent, json } from "@/lib/api";
 
 /** 一首歌：谁唱的、在哪几张碟里。 */
 export type Song = {
@@ -62,4 +62,22 @@ export function playerUrl(id: string): string {
 /** 她在网易云的那首单曲页，播放器之外再给一条出口。 */
 export function songPageUrl(id: string): string {
   return `https://music.163.com/song?id=${encodeURIComponent(id)}`;
+}
+
+
+/** One song the signed-in user has starred, and when. */
+export type MusicFavorite = { song_id: string; created_at: string };
+
+export async function musicFavorites(): Promise<{ favorites: MusicFavorite[] }> {
+  return json(await api("/api/music/favorites"));
+}
+
+/** Star a song for the signed-in user; starring it again changes nothing. */
+export async function starSong(id: string): Promise<void> {
+  await expectNoContent(await api(`/api/music/favorites/${encodeURIComponent(id)}`, { method: "PUT" }));
+}
+
+/** Unstar a song for the signed-in user; unstarring one not starred changes nothing. */
+export async function unstarSong(id: string): Promise<void> {
+  await expectNoContent(await api(`/api/music/favorites/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }

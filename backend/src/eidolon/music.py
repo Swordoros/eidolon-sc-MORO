@@ -275,6 +275,10 @@ class MusicLibrary:
     def albums(self) -> list[Album]:
         return self._albums
 
+    def has(self, song_id: str) -> bool:
+        """Whether the world setting has a song with this id."""
+        return any(track.id == song_id for track in self._tracks)
+
     def alternatives(self, title: str) -> list[str]:
         """同一首在别的碟上的网易云 id：这张没版权时换下一张。"""
         hit = self._found.get(title)

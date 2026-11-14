@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS users (
     nsfw_voice INTEGER NOT NULL DEFAULT 0,
     nsfw_photo INTEGER NOT NULL DEFAULT 0
 );
+-- One row for each song the user has starred; the song itself is in the world setting.
+CREATE TABLE IF NOT EXISTS music_favorites (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    song_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, song_id)
+);
 -- Only a hash of each session's token is kept; the times are epoch seconds.
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
@@ -620,6 +627,18 @@ class Store:
         """The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each off by
         default and never for an under-age character."""
         return await self._db.read(_nsfw, user_id)
+
+    async def music_favorites(self, user_id: str) -> list[tuple[str, str]]:
+        """The songs the user has starred, newest first: their ids and when each was starred."""
+        return await self._db.read(_music_favorites, user_id)
+
+    async def add_music_favorite(self, user_id: str, song_id: str) -> None:
+        """Star a song for the user; starring one already starred changes nothing."""
+        await self._db.write(_add_music_favorite, user_id, song_id, _now())
+
+    async def remove_music_favorite(self, user_id: str, song_id: str) -> None:
+        """Unstar a song for the user; unstarring one not starred changes nothing."""
+        await self._db.write(_remove_music_favorite, user_id, song_id)
 
     async def set_nsfw(self, user_id: str, conversation: bool | None, voice: bool | None, photo: bool | None) -> None:
         """Turn the user's own switches for the adult scenes on or off; None leaves one as it
@@ -1485,6 +1504,32 @@ def read_whole_conversations(db: sqlite3.Connection, user_id: str) -> list[Whole
         )
         for c in conversations
     ]
+
+
+def _music_favorites(db: sqlite3.Connection, user_id: str) -> list[tuple[str, str]]:
+    rows = db.execute(
+        "SELECT song_id, created_at FROM music_favorites WHERE user_id = ?"
+        " ORDER BY created_at DESC, song_id",
+        (user_id,),
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
+def _add_music_favorite(
+    db: sqlite3.Connection, user_id: str, song_id: str, at: str
+) -> None:
+    db.execute(
+        "INSERT INTO music_favorites (user_id, song_id, created_at) VALUES (?, ?, ?)"
+        " ON CONFLICT (user_id, song_id) DO NOTHING",
+        (user_id, song_id, at),
+    )
+
+
+def _remove_music_favorite(db: sqlite3.Connection, user_id: str, song_id: str) -> None:
+    db.execute(
+        "DELETE FROM music_favorites WHERE user_id = ? AND song_id = ?",
+        (user_id, song_id),
+    )
 
 
 def _contacts(db: sqlite3.Connection, user_id: str) -> list[Contact]:

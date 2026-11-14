@@ -16,6 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from eidolon.assembly import Backend
 from eidolon.music import MusicLibrary
+from eidolon.sessions import UserId
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,28 @@ def add_music_routes(app: FastAPI, backend: Backend) -> None:
     def music_albums() -> dict:
         """The releases, newest first, with their track lists."""
         return {"albums": [album.described() for album in songs.albums()]}
+
+    @app.get("/api/music/favorites")
+    async def music_favorites(user_id: UserId) -> dict:
+        """The songs this user has starred, newest first."""
+        return {
+            "favorites": [
+                {"song_id": song_id, "created_at": at}
+                for song_id, at in await backend.store.music_favorites(user_id)
+            ]
+        }
+
+    @app.put("/api/music/favorites/{song_id}", status_code=204)
+    async def star_song(song_id: str, user_id: UserId) -> None:
+        """Star a song; 404 if the world setting has none with this id."""
+        if not songs.has(song_id):
+            raise HTTPException(404, "没有这首歌")
+        await backend.store.add_music_favorite(user_id, song_id)
+
+    @app.delete("/api/music/favorites/{song_id}", status_code=204)
+    async def unstar_song(song_id: str, user_id: UserId) -> None:
+        """Unstar a song; nothing if it was not starred."""
+        await backend.store.remove_music_favorite(user_id, song_id)
 
     @app.get("/api/music/stream")
     async def music_stream(id: str, request: Request, title: str = "") -> Response:

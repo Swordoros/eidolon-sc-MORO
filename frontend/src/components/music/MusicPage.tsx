@@ -5,6 +5,8 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
+
 import { Button } from "@/components/ui/button";
 import { PlayShell, PlaySubpageHeader } from "@/components/play/PlayShell";
 import { Spinner } from "@/components/ui/spinner";
@@ -18,17 +20,12 @@ import {
   type FoundSong,
   type Song,
 } from "@/lib/music";
+import { useMusicFavorites } from "@/lib/musicFavorites";
 import { musicPlayback } from "@/lib/musicPlayer";
 import { cn } from "@/lib/utils";
-import { AlbumIcon, MusicIcon, PlayIcon } from "@/theme/icons";
+import { AlbumIcon, FavoriteIcon, MusicIcon, PlayIcon, SearchIcon } from "@/theme/icons";
 
 const t = copy.music;
-
-/** 秒数写成 0:07 / 5:12。 */
-function clock(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
 
 type Tab = "songs" | "albums";
 
@@ -46,18 +43,25 @@ export function MusicPage() {
   const [found, setFound] = useState<Record<string, FoundSong | null>>({});
   const [searching, setSearching] = useState<string | null>(null);
   const [openAlbum, setOpenAlbum] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"time" | "name">("time");
+  const [ascending, setAscending] = useState(false);
+  const { account } = useDirectory();
+  const favorites = useMusicFavorites(account?.id ?? null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [listed, shelf] = await Promise.all([
+      const [listed, shelf, shelfAlbums] = await Promise.all([
         json(await api("/api/characters")) as Promise<Character[]>,
         musicSongs(),
+        musicAlbums(),
       ]);
       if (!alive) return;
       setCharacters(listed);
       setSingers(shelf.singers);
       setSongs(shelf.songs);
+      setAlbums(shelfAlbums.albums);
     })();
     return () => {
       alive = false;
@@ -86,17 +90,11 @@ export function MusicPage() {
     };
   }, [picked]);
 
-  useEffect(() => {
-    if (tab !== "albums" || albums !== null) return;
-    void (async () => {
-      const shelf = await musicAlbums();
-      setAlbums(shelf.albums);
-    })();
-  }, [tab, albums]);
 
   /** 点一首：先查它在网易云是哪一首，再交给外壳的播放器（切页面也不停）。 */
-  async function play(title: string) {
-    if (now?.title === title) {
+  async function play(song: Song) {
+    const title = song.title;
+    if (now?.songId === song.id) {
       musicPlayback.stop();
       return;
     }
@@ -114,10 +112,92 @@ export function MusicPage() {
       setNowPlaying(title);   // 没查到：展开那句「网易云没有这首」
       return;
     }
-    musicPlayback.play(title, hit.id, hit.alternatives ?? []);
+    musicPlayback.play(song.id, title, hit.id, hit.alternatives ?? []);
   }
 
+  const albumTitles = useMemo(
+    () => new Map((albums ?? []).map((album) => [album.catalog, album.title])),
+    [albums],
+  );
+  const releasedAt = useMemo(
+    () => new Map((albums ?? []).map((album) => [album.catalog, Date.parse(album.date)])),
+    [albums],
+  );
+  const dateOf = (song: Song) =>
+    Math.max(0, ...song.releases.map((catalog) => releasedAt.get(catalog) ?? 0));
+  const needle = query.trim().toLocaleLowerCase();
+  const visibleSongs = useMemo(() => {
+    const matched = (songs ?? []).filter((song) => {
+      if (!needle) return true;
+      return [song.title, ...song.singers, song.special_unit ?? "",
+        ...song.releases.map((catalog) => albumTitles.get(catalog) ?? "")]
+        .join(" ").toLocaleLowerCase().includes(needle);
+    });
+    return [...matched].sort((a, b) => {
+      const order = sort === "time"
+        ? dateOf(a) - dateOf(b)
+        : a.title.localeCompare(b.title, "ja");
+      return ascending ? order : -order;
+    });
+  }, [songs, needle, sort, ascending, releasedAt, albumTitles]);
+  const favoriteSongs = useMemo(
+    () => visibleSongs.filter((song) => favorites.ids.has(song.id)),
+    [visibleSongs, favorites.ids],
+  );
+  const chooseSort = (next: "time" | "name") => {
+    if (next === sort) setAscending((value) => !value);
+    else {
+      setSort(next);
+      setAscending(next === "name");
+    }
+  };
+
   const current = picked === null ? null : withSongs.find((character) => character.id === picked) ?? null;
+
+  const songRows = (items: Song[]) => items.map((song) => {
+    const starred = favorites.ids.has(song.id);
+    return (
+      <li key={song.id} className="py-2">
+        <div className="flex items-center gap-3">
+          <Button
+            size="icon-sm"
+            variant={now?.songId === song.id ? "secondary" : "ghost"}
+            aria-label={now?.songId === song.id ? t.stop : t.play(song.title)}
+            onClick={() => void play(song)}
+          >
+            <PlayIcon />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-body font-medium">{song.title}</p>
+            <p className="truncate text-meta text-muted-foreground">
+              {song.singers.join(" · ")}
+              {song.special_unit ? ` · ${song.special_unit}` : ""}
+            </p>
+          </div>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={starred ? t.unstar(song.title) : t.star(song.title)}
+            aria-pressed={starred}
+            onClick={() => void favorites.toggle(song.id).catch(() => {})}
+          >
+            <FavoriteIcon className={cn("size-4", starred && "fill-current")} />
+          </Button>
+        </div>
+        {(now?.songId === song.id || nowPlaying === song.title) && (
+          <div className="mt-2 ps-12">
+            {searching === song.title ? (
+              <p className="text-meta text-muted-foreground">{t.searching}</p>
+            ) : now?.songId === song.id && now.unplayable ? (
+              <p className="text-meta text-muted-foreground">{t.cannotPlay}</p>
+            ) : found[song.title] === null ? (
+              <p className="text-meta text-muted-foreground">{t.notOnNetease}</p>
+            ) : null}
+          </div>
+        )}
+      </li>
+    );
+  });
 
   return (
     <PlayShell header={<PlaySubpageHeader title={t.title} />}>
@@ -190,7 +270,41 @@ export function MusicPage() {
             ))}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3">
+            <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+              <SearchIcon aria-hidden className="size-4 shrink-0" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t.search}
+                aria-label={t.search}
+                className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant={sort === "time" ? "secondary" : "ghost"}
+                aria-pressed={sort === "time"}
+                onClick={() => chooseSort("time")}
+              >
+                {t.sortTime}
+                <span className="sr-only">{ascending ? t.sortOldest : t.sortNewest}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant={sort === "name" ? "secondary" : "ghost"}
+                aria-pressed={sort === "name"}
+                onClick={() => chooseSort("name")}
+              >
+                {t.sortName}
+                <span className="sr-only">{ascending ? t.sortAZ : t.sortZA}</span>
+              </Button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28">
             {songs === null ? (
               <div className="flex h-full items-center justify-center">
                 <Spinner className="size-6 text-muted-foreground" aria-label={t.loading} />
@@ -198,58 +312,30 @@ export function MusicPage() {
             ) : songs.length === 0 ? (
               <p className="py-10 text-center text-body text-muted-foreground">{t.noSongs}</p>
             ) : (
-              <ul className="divide-y">
-                {songs.map((song) => (
-                  <li key={song.id} className="py-2">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        size="icon-sm"
-                        variant={now?.title === song.title ? "secondary" : "ghost"}
-                        aria-label={now?.title === song.title ? t.stop : t.play(song.title)}
-                        onClick={() => void play(song.title)}
-                      >
-                        <PlayIcon />
-                      </Button>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-body font-medium">{song.title}</p>
-                        <p className="truncate text-meta text-muted-foreground">
-                          {song.singers.join(" · ")}
-                          {song.special_unit ? ` · ${song.special_unit}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                    {(now?.title === song.title || nowPlaying === song.title) && (
-                      <div className="mt-2">
-                        {searching === song.title ? (
-                          <p className="text-meta text-muted-foreground">{t.searching}</p>
-                        ) : now?.title === song.title && now.unplayable ? (
-                          // 唯一要说明的情况：取不到那条音频（多半是网易云没版权）
-                          <p className="text-meta text-muted-foreground">{t.cannotPlay}</p>
-                        ) : now?.title === song.title ? (
-                          <div className="ms-12 flex items-center gap-2">
-                            <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className="h-full bg-foreground/40"
-                                style={{
-                                  width:
-                                    now.duration > 0
-                                      ? `${Math.min(100, (now.at / now.duration) * 100)}%`
-                                      : "0%",
-                                }}
-                              />
-                            </div>
-                            <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
-                              {clock(now.at)} / {now.duration > 0 ? clock(now.duration) : "…"}
-                            </span>
-                          </div>
-                        ) : found[song.title] === null ? (
-                          <p className="text-meta text-muted-foreground">{t.notOnNetease}</p>
-                        ) : null}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <div className="flex flex-col gap-5">
+                {favorites.failed && (
+                  <p className="text-meta text-muted-foreground">{t.favoriteFailed}</p>
+                )}
+                <section aria-labelledby="favorite-songs">
+                  <h2 id="favorite-songs" className="mb-1 flex items-center gap-1.5 text-body font-medium">
+                    <FavoriteIcon aria-hidden className="size-4" />
+                    {t.favorites}
+                  </h2>
+                  {favoriteSongs.length > 0 ? (
+                    <ul className="divide-y">{songRows(favoriteSongs)}</ul>
+                  ) : (
+                    <p className="py-2 text-meta text-muted-foreground">{t.noFavorites}</p>
+                  )}
+                </section>
+                <section aria-labelledby="all-songs">
+                  <h2 id="all-songs" className="mb-1 text-body font-medium">{t.allSongs}</h2>
+                  {visibleSongs.length > 0 ? (
+                    <ul className="divide-y">{songRows(visibleSongs)}</ul>
+                  ) : (
+                    <p className="py-2 text-meta text-muted-foreground">{t.noResults}</p>
+                  )}
+                </section>
+              </div>
             )}
           </div>
         </>
