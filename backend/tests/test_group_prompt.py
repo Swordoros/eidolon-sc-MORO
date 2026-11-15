@@ -9,7 +9,7 @@ def test_group_history_has_relative_time_and_no_producer_state():
     now = datetime(2026, 11, 15, 22, 0, tzinfo=UTC)
     lines = [Line("mano", "こんばんは", (now - timedelta(minutes=5)).isoformat(), "晚上好")]
     told = history_block(lines, now, "Asia/Shanghai", {"mano": "真乃"})
-    assert "真乃：こんばんは" in told
+    assert "真乃：晚上好" in told
     assert "制作人" not in told
 
 

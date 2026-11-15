@@ -1298,30 +1298,34 @@ def _say_prompt(
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
     now_told: str = "", material: str = "", history: str = "", reference: str = "",
 ) -> list[ChatMessage]:
+    """The next line's prompt: Chinese history, the group's present, and no producer state."""
     spoken = {member.id: member.name for member in members}
     recent = list(said)[-RECENT_LINES:]
-    # Her Japanese, not its subtitle: shown the Chinese, the model drifts into Chinese mid-line.
+    # The history is Chinese, like the single chat's; the output format still asks for Japanese.
     context = "\n".join(
-        f"{spoken.get(line.speaker, '制作人')}：{line.text}" for line in [*past, *recent]
+        f"{spoken.get(line.speaker, '制作人')}：{line.zh or line.text}"
+        for line in [*past, *recent]
     )
     hint = ""
     if outsiders:
         names_out = "、".join(m.name for m in outsiders)
         if secrets.randbelow(100) / 100 < mention:
-            hint = f"如果话头合适，可以顺带提到{names_out}；不合适就别硬提。"
+            hint = f"如果话题合适，可以顺带提到{names_out}；不合适就别硬提。"
         else:
             hint = f"这次别提到{names_out}，就事论事。"
     user = (
-        f"群聊记录：\n{context}\n\n"
+        (f"# 现在\n{now_told}\n\n" if now_told else "")
+        + (f"# 相关资料\n{reference}\n\n" if reference else "")
+        + f"群聊记录：\n{history or context}\n\n"
         "你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
         "补一句你自己的看法、或者顺着这个话题聊出一个相关的小话题。"
         "一到两句，口语，像群里随口说的；不要复述别人刚说过的，不要旁白，不要每句都提问。"
         + hint
         + "\n"
         + names
-        + "\n用 <ja>日语原文</ja><zh>中文字幕</zh> 输出；<ja> 里只写日语、不要混入中文；"
-        "<zh> 是这句日语的中文翻译；专有名词和拟声词可以保留原文，其余都要译成中文、不要夹日语；"
-        "「ちゃん」「さん」这类称呼译成「酱」「小姐」或省略；不要留孤零零的假名；只输出这一组标签。"
+        + "\n群聊记录是中文。请用 <ja>日语原文</ja><zh>中文字幕</zh> 输出："
+        "<ja> 里只写日语、不要混入中文；<zh> 是这句日语的中文翻译，专有名词和拟声词可以保留原文，"
+        "其余都要译成中文、不要夹日语。"
     )
     return [ChatMessage("system", system), ChatMessage("user", user)]
 
@@ -1441,9 +1445,9 @@ def _owner(lines: Sequence[Line], members: Sequence[Member]) -> Member | None:
 
 
 def _context(lines: Sequence[dict]) -> str:
-    """The recent lines as the model reads them: her Japanese, the user's own Chinese."""
+    """The recent lines as the model reads them: Chinese subtitles, the user's own Chinese."""
     return "\n".join(
-        f"{line.get('name') or '你'}：{line['text']}" for line in lines
+        f"{line.get('name') or '你'}：{line.get('zh') or line['text']}" for line in lines
     )
 
 
