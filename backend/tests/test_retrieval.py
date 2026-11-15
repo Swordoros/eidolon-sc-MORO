@@ -16,6 +16,7 @@ from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, context_of, system_of
 from tests.test_live_config import until
+from tests.test_world_setting import write_world
 from tests.test_shared_memory import CAT, memorized
 from tests.stories import corpus_in
 from tests.test_text_turn import send_turn, start_conversation
@@ -68,7 +69,7 @@ async def system_prompt(
     conversation_id = await start_conversation(client, character)
     events = await send_turn(client, conversation_id, text)
     assert events[-1]["type"] == "done"
-    return system_of(llm.prompts[-1])
+    return context_of(llm.prompts[-1])
 
 
 def reference_count(system: str) -> int:
@@ -372,3 +373,25 @@ async def test_a_recall_question_is_recalled_though_her_facts_cannot_be_embedded
 
     assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
     assert f"真乃：{PARK_LINE}" in system
+
+
+async def test_a_playing_song_searches_only_her_work_facts(
+    make_client: ClientFactory, embedder: FakeEmbedder, characters: CharacterConfig
+):
+    write_world(characters)
+    llm, judge = FakeLLM(REPLY), FakeJudge(answer="nothing")
+    reranker = FakeReranker("MAGICAL FOREST")
+    client = make_client(
+        llm, retrieval_judge=judge, embedder=embedder, reranker=reranker,
+    )
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "这首真好", listening="MAGICAL FOREST")
+
+    context = context_of(llm.prompts[-1])
+    assert "制作人现在正在听：MAGICAL FOREST。" in context
+    references = context[context.index("# 回忆与资料") :]
+    assert "## 作品资料" in references
+    assert "MAGICAL FOREST" in references
+    # Another idol's song is not her work, even if the query is about a song.
+    assert "アポイント・シグナル" not in references

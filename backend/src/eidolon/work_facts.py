@@ -46,7 +46,7 @@ class WorkFacts:
     ) -> list[Reference]:
         return [
             Reference(self.kind, e.text, e.title, similarity)
-            for e, similarity in await self._nearest(query_vector, limit)
+            for e, similarity in await self._nearest(query_vector, limit, character=character)
         ]
 
     async def search_entries(
@@ -54,19 +54,26 @@ class WorkFacts:
         query_vector: Sequence[float],
         limit: int,
         kinds: Collection[EntryKind] | None = None,
+        character: Character | None = None,
     ) -> list[WorldEntry]:
         """The entries (of `kinds`, or any) most similar to a query embedded with this
-        source's embedder, best first."""
-        return [e for e, _ in await self._nearest(query_vector, limit, kinds)]
+        source's embedder, best first; only those `character` has a part in, unless none is
+        given (recall's own use)."""
+        return [e for e, _ in await self._nearest(query_vector, limit, kinds, character)]
 
     async def _nearest(
         self,
         query_vector: Sequence[float],
         limit: int,
         kinds: Collection[EntryKind] | None = None,
+        character: Character | None = None,
     ) -> list[tuple[WorldEntry, float]]:
         """As `search_entries`, with their similarity."""
-        among = [i for i, e in enumerate(self._entries) if kinds is None or e.kind in kinds]
+        among = [
+            i for i, e in enumerate(self._entries)
+            if (kinds is None or e.kind in kinds)
+            and (character is None or character.name in e.characters)
+        ]
         best = await self._texts.search(WORK_SCOPE, self._documents, query_vector, limit, among)
         return [(self._entries[i], similarity) for i, similarity in best]
 

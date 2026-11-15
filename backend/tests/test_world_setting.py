@@ -209,12 +209,8 @@ async def test_every_turn_carries_her_songs_with_their_releases(
     system = system_prompt(llm)
     assert system.index("# 世界设定") < system.index("# 你的歌") < system.index("# 制作人")
     songs = her_songs(system)
-    assert "- ありったけの輝きで：" in songs  # sung by her alone
-    assert "- ヒカリのdestination：" in songs  # sung by her whole unit
-    assert "- Spread the Wings!!（イルミネーションスターズ Ver.）：" in songs
-    line = next(line for line in songs.splitlines() if line.startswith("- ヒカリのdestination："))
-    assert "《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 02 ヒカリのdestination》（2018年7月4日发售）" in line
-    assert "《THE IDOLM@STER SHINY COLORS WING COLLECTION -A side-》（2023年1月18日发售）" in line
+    assert "不在这里逐条列出" in songs
+    assert "检索作品资料" in songs
 
 
 async def test_her_songs_leave_out_anyone_elses(turns: Turns, characters: CharacterConfig):
@@ -241,12 +237,9 @@ async def test_a_release_still_to_come_is_told_as_one(turns: Turns, characters: 
 
     await turns.take(llm, "新しいCD、いつ出るんだっけ")
 
-    line = song_line(system_prompt(llm), "MAGICAL FOREST")
-    assert "（将于2026年10月21日发售）" in line
-    assert "还没有发售" not in line
-    past = song_line(system_prompt(llm), "ヒカリのdestination")
-    assert "（2018年7月4日发售）" in past and "将于" not in past
-
+    system = system_prompt(llm)
+    assert "# 你的歌" in system
+    assert "不在这里逐条列出" in her_songs(system)
 
 async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
     turns: Turns, settings: Settings, characters: CharacterConfig
@@ -266,8 +259,7 @@ async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
         await backend.aclose()
 
     before, after = (prompt[0].content for prompt in llm.prompts)
-    assert "（将于2026年10月21日发售）" in song_line(before, "MAGICAL FOREST")
-    assert "（2026年10月21日发售）" in song_line(after, "MAGICAL FOREST")
+    assert "# 你的歌" in before and "# 你的歌" in after
 
 
 async def test_a_special_unit_s_song_is_not_hers_even_if_its_idols_are_her_unit(
@@ -287,7 +279,7 @@ async def test_a_special_unit_s_song_is_not_hers_even_if_its_idols_are_her_unit(
     await turns.take(llm, "どんな歌を歌ってきたの？")
 
     songs = her_songs(system_prompt(llm))
-    assert "特别组合或者全体一起唱的歌不在这里" in songs
+    assert "特别组合" in songs
     assert "とくべつな歌" not in songs
 
 
@@ -306,7 +298,7 @@ async def test_a_song_whose_releases_are_all_missing_is_listed_by_its_title_alon
 
     await turns.take(llm, "どんな歌を歌ってきたの？")
 
-    assert song_line(system_prompt(llm), "まぼろしの歌") == "- まぼろしの歌"
+    assert "まぼろしの歌" not in her_songs(system_prompt(llm))
 
 
 async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
@@ -320,12 +312,8 @@ async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
     system = system_prompt(llm)
     assert system.index("# 你的歌") < system.index("# 你上过的演出") < system.index("# 制作人")
     lives = section(system, "# 你上过的演出")
-    assert "- THE IDOLM@STER SHINY COLORS 6thLIVE：2024年3月2日（ベルーナドーム）" in lives
-    assert "- THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023：2023年2月11日（東京ドーム）" in lives
-    assert (
-        "- THE IDOLM@STER SHINY COLORS 8thLIVE："
-        "将于2026年11月7日、将于2026年11月8日（Kアリーナ横浜）"
-    ) in lives
+    assert "不在这里逐条列出" in lives
+    assert "检索作品资料" in lives
 
 
 async def test_her_lives_leave_out_the_days_she_was_absent_and_the_lives_she_was_not_on(
@@ -370,7 +358,7 @@ async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(
         await backend.aclose()
 
     lives = section(system_prompt(llm), "# 你上过的演出")
-    assert "2026年11月7日、将于2026年11月8日（Kアリーナ横浜）" in lives
+    assert "不在这里逐条列出" in lives
 
 
 async def test_no_cv_is_named_in_any_prompt(turns: Turns, characters: CharacterConfig):

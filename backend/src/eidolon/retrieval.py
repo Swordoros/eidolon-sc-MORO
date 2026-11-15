@@ -94,6 +94,10 @@ RECALL_ENTRIES = 3
 """The most lives and releases of the work facts recalling brings back along with the
 episodes."""
 RECALL_KINDS: tuple[EntryKind, ...] = ("live", "release")
+
+_MUSIC_WORDS = ("歌", "曲", "听", "唱", "live", "演唱会", "演出", "专辑", "唱片", "这首", "那首")
+"""Words that make a turn with a song playing ask about works, even where the judge
+would otherwise call it nothing."""
 """What of the work facts recalling looks in: how a live or a release went, not a song."""
 RECALL_EPISODE_CHARS = 3000
 """How much of an episode's dialogue the recall-story tool brings back before cutting it short."""
@@ -340,11 +344,15 @@ class Retrieval:
         affinity: bool = False,
         photo: bool = False,
         days: Days | None = None,
+        listening: str | None = None,
     ) -> Retrieved:
         """Look up what this turn needs, finding the user's memories through `memory`; and
         judge what it does to her affinity, in her `days` if she is in them, and whether it
-        asks her for a photo, if asked to."""
+        asks her for a photo, if asked to. `listening` is what the producer is playing, if
+        anything, and searches the works with the turn's context."""
         query = memory_query(history, text)
+        if listening:
+            query = f"{query}\n制作人正在听：{listening}"
         embedding = asyncio.ensure_future(self._embed(query))
         finding = asyncio.ensure_future(self._find(character, embedding, memory))
         looked_up = False
@@ -356,6 +364,11 @@ class Retrieval:
                 )
             except JudgeError:
                 log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
+                need = "references"
+            if (
+                need in ("nothing", "memories") and listening
+                and any(word in text.casefold() for word in _MUSIC_WORDS)
+            ):
                 need = "references"
             if need == "nothing":
                 retrieved = Retrieved(None)
@@ -463,7 +476,7 @@ class Retrieval:
                 # Another source failed: the story's are still to be had.
                 else await self._sources.candidates(found.query_vector, character, ("episode",))
             )
-            entries = await _search_work(self._sources.work, found.query_vector)
+            entries = await _search_work(self._sources.work, found.query_vector, character)
         except EmbeddingError:
             log.warning("recall failed", exc_info=True)
             return _CANNOT_RECALL
@@ -547,7 +560,9 @@ async def _find_memories(
     return await memory.find(query, candidates) if memory else None
 
 
-async def _search_work(work: WorkFacts | None, query_vector: Sequence[float]) -> list[WorldEntry]:
+async def _search_work(
+    work: WorkFacts | None, query_vector: Sequence[float], character: Character,
+) -> list[WorldEntry]:
     if work is None:
         return []
     return await work.search_entries(query_vector, CANDIDATES_PER_SOURCE, RECALL_KINDS)

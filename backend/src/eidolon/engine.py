@@ -1623,7 +1623,8 @@ class ConversationEngine:
             )
             retrieved = (
                 await self._retrieval.retrieve(
-                    character, history, text, memory, judging, asking_photo, days
+                    character, history, text, memory, judging, asking_photo, days,
+                    listening,
                 )
                 if self._retrieval and not opening
                 else Retrieved(None)

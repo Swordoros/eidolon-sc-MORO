@@ -18,6 +18,11 @@ async def start_conversation(client: httpx.AsyncClient, character: str = "mano")
     return res.json()["id"]
 
 
+def without_stamp(content: str) -> str:
+    """A prompt line without the time stamp the turn puts before the user's latest words."""
+    return content.split("] ", 1)[1] if content.startswith("[") and "] " in content else content
+
+
 async def send_turn(
     client: httpx.AsyncClient,
     conversation_id: str,
@@ -214,7 +219,9 @@ async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
     system = system_of(llm.prompts[1])
     assert "櫻木真乃" in system
     assert "<ja>" in system and "<zh>" in system
-    assert [(m.role, m.content) for m in llm.prompts[1] if m.role != "system"] == [
+    assert [
+        (m.role, without_stamp(m.content)) for m in llm.prompts[1] if m.role != "system"
+    ] == [
         ("user", "这只鸽子叫什么？"),
         ("assistant", "<ja>ピーちゃんです！</ja><zh>是小皮！</zh>"),
         ("user", "好可爱"),
@@ -231,7 +238,9 @@ async def test_conversations_are_kept_apart(make_client: ClientFactory):
     await send_turn(client, second, "第二次")
 
     # The second conversation opens with the tail of the first, so it does not start blank.
-    assert [(m.role, m.content) for m in llm.prompts[1] if m.role != "system"] == [
+    assert [
+        (m.role, without_stamp(m.content)) for m in llm.prompts[1] if m.role != "system"
+    ] == [
         ("user", "第一次"),
         ("assistant", "<ja>一</ja><zh>一</zh>"),
         ("user", "第二次"),

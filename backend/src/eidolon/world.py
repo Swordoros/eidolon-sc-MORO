@@ -159,6 +159,10 @@ class WorldEntry:
     title: str
     """What it is about: 歌曲「…」, 唱片《…》, or 演出「…」 and the day."""
     text: str
+    characters: frozenset[str] = frozenset()
+    """The idols whose work this is: her own songs and unit songs, the releases with one of
+    them on it, and the live days she performed on. Empty for another idol's or an
+    everyone song, and for a release with none of hers."""
 
 
 @dataclass(frozen=True)
@@ -225,12 +229,23 @@ class World:
             if live_day.date == day
         ]
 
+    def _owners(self, song: Song) -> frozenset[str]:
+        """The idols whose own or unit song this is, by the same rule as `songs_of`:
+        none for a special unit's or everyone's song."""
+        if song.special_unit is not None:
+            return frozenset()
+        unit = next((u for u in self.units if set(u.members) == set(song.singers)), None)
+        if unit is not None:
+            return frozenset(unit.members)
+        return frozenset(song.singers) if len(song.singers) == 1 else frozenset()
+
     def entries(self) -> list[WorldEntry]:
         """The work facts retrieval searches: each song with who sings it and the releases
         it is on, each release with its date and tracks, and each live day with its venue,
         performers and setlist. No CV is in them, and they do not change with the day: a
         date after the turn's is told by the prompt of the day, not the entry."""
         releases = {release.catalog: release for release in self.releases}
+        owners = {song.id: self._owners(song) for song in self.songs}
         found = []
         for song in self.songs:
             lines = [f"歌曲「{song.title}」", f"演唱：{self._singers(song)}"]
@@ -241,13 +256,16 @@ class World:
             ]
             if on:
                 lines.append(f"收录于：{'、'.join(on)}")
-            found.append(WorldEntry("song", lines[0], "\n".join(lines)))
+            found.append(WorldEntry("song", lines[0], "\n".join(lines), owners[song.id]))
         for release in self.releases:
+            owners_of = frozenset().union(*(
+                owners.get(track.song or "", frozenset()) for track in release.tracks
+            ))
             lines = [f"唱片《{release.title}》（{release.catalog}）", f"发售日：{_day(release.date)}"]
             if release.tracks:
                 lines.append("曲目：")
                 lines += [f"{i}. {track.title}" for i, track in enumerate(release.tracks, 1)]
-            found.append(WorldEntry("release", lines[0], "\n".join(lines)))
+            found.append(WorldEntry("release", lines[0], "\n".join(lines), owners_of))
         for live in self.lives:
             for day in live.days:
                 performers = "、".join(day.performers) or "（资料里没有记录）"
@@ -264,7 +282,7 @@ class World:
                         for i, item in enumerate(day.setlist, 1)
                     ]
                 title = f"{lines[0]}{_day(day.date)}"  # one entry for each of its days
-                found.append(WorldEntry("live", title, "\n".join(lines)))
+                found.append(WorldEntry("live", title, "\n".join(lines), frozenset(day.performers)))
         return found
 
     def _singers(self, song: Song) -> str:
@@ -320,8 +338,19 @@ class World:
         `today` told as still to come; for one of the staff, neither. No CV is in it."""
         if self.is_staff(name):
             return self._setting_prompt(staff=True)
-        return "\n\n".join(
-            [self._setting_prompt(), self._songs_prompt(name, today), self._lives_prompt(name, today)]
+        return "\n\n".join([self._setting_prompt(), self._works_prompt()])
+
+    def _works_prompt(self) -> str:
+        """The compact index of an idol's works; the facts themselves are retrieval's
+        (`WorkFacts`), not carried in every prompt."""
+        return (
+            "# 你的歌\n"
+            "你唱过的歌、组合曲和收录它们的唱片不在这里逐条列出；"
+            "别的偶像的歌、特别组合或者全体一起唱的歌也不在这里；"
+            "需要具体歌名、唱片或发售日时，检索作品资料。\n\n"
+            "# 你上过的演出\n"
+            "你站上过的舞台不在这里逐条列出；"
+            "需要具体日期、会场或出演者时，检索作品资料。"
         )
 
     def _lives_prompt(self, name: str, today: date) -> str:

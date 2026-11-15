@@ -531,7 +531,7 @@ class Memories:
                 log.warning("embedding memories failed; reaching out with the latest only",
                             exc_info=True)
                 candidates = []
-            found = await self._relevant(last_turn, candidates)
+            found = await self._relevant(last_turn, candidates, conversation.character_id)
         now = self._clock()
         since = (now - LATELY).astimezone(UTC)
         latest = [
