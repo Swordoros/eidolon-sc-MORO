@@ -114,7 +114,7 @@ async def test_typing_she_knows_her_moment_his_like_his_comment_and_her_reply(
     await send_turn(client, conversation, "昨天发了什么？")
 
     line = (
-        f"昨天 06:00　{JA}　制作人赞了；他评论「{COMMENT}」，你回了「ピーちゃんも喜んでます！」"
+        f"昨天 07:00　{JA}　制作人赞了；他评论「{COMMENT}」，你回了「ピーちゃんも喜んでます！」"
     )
     told_after_now(llm.prompts[-1], f"{HEADING}\n{line}\n{BRING_UP}")
 
@@ -147,7 +147,7 @@ async def test_reaching_out_she_knows_her_moments_and_may_reach_out_about_them(
     assert len(llm.prompts) == 2
     told_after_now(
         llm.prompts[-1],
-        f"{HEADING}\n昨天 06:00　{JA}　制作人赞了，没评论\n{BRING_UP}{LOOKING_FORWARD}",
+        f"{HEADING}\n昨天 07:00　{JA}　制作人赞了，没评论\n{BRING_UP}{LOOKING_FORWARD}",
     )
     assert REACH_OUT_RULES_WITH_MOMENTS in context_of(llm.prompts[-1])
 
@@ -185,9 +185,9 @@ async def test_she_knows_the_latest_three_of_those_shown_within_three_days_her_o
 
     assert section is not None
     assert section.splitlines()[1:-1] == [
-        "昨天 00:00　30時間前　他还没赞也没评论",
-        "昨天 10:00　20時間前　他还没赞也没评论",
-        "今天 05:00　1時間前　他还没赞也没评论",
+        "昨天 01:00　30時間前　他还没赞也没评论",
+        "昨天 11:00　20時間前　他还没赞也没评论",
+        "今天 06:00　1時間前　他还没赞也没评论",
     ]
 
 
@@ -196,7 +196,7 @@ async def test_each_line_says_what_he_made_of_it_and_she_of_his_comment(
 ):
     client, *_ = await talked(make_client, at=NEXT_DAY)
     database = settings.database_path
-    at = NEXT_DAY - timedelta(hours=71)  # 07:00 on October 17 in Shanghai
+    at = NEXT_DAY - timedelta(hours=71)  # 10:00 on October 17 in Shanghai
     put(database, at, "写真つき", note="公园长椅上的鸽子", pictured=True)
     put(database, at + timedelta(hours=1), "まだ返事なし\n", note="没生成出来的图", liked=True,
         commented=" 早点睡\n明天见", reply="まだ", reply_at=NEXT_DAY + timedelta(minutes=5))
@@ -207,9 +207,9 @@ async def test_each_line_says_what_he_made_of_it_and_she_of_his_comment(
 
     assert section is not None
     assert section.splitlines()[1:-1] == [
-        "10月17日 07:00　写真つき（配图：公园长椅上的鸽子）　他还没赞也没评论",
-        "10月17日 08:00　まだ返事なし　制作人赞了；他评论「早点睡 明天见」",
-        "10月17日 09:00　返事あり　制作人没赞，评论「好看」，你回了「ありがとう」",
+        "10月17日 08:00　写真つき（配图：公园长椅上的鸽子）　他还没赞也没评论",
+        "10月17日 09:00　まだ返事なし　制作人赞了；他评论「早点睡 明天见」",
+        "10月17日 10:00　返事あり　制作人没赞，评论「好看」，你回了「ありがとう」",
     ]
 
 

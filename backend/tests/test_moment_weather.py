@@ -63,7 +63,7 @@ async def test_she_is_told_tokyos_weather_and_the_moment_shows_it(
     [asked] = weather.hours_asked()
     assert (asked["latitude"], asked["longitude"]) == ("35.6895", "139.6917")
     assert asked["models"] == "jma_msm"
-    assert asked["start_hour"] == "2026-10-18T22:00"
+    assert asked["start_hour"] == "2026-10-18T23:00"
 
 
 async def test_in_rain_snow_or_thunder_she_is_given_only_places_under_a_roof(

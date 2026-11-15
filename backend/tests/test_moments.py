@@ -61,9 +61,9 @@ POST = [
     "<zh>今天和小哔在公园晒太阳(^^)</zh></post>",
 ]
 MOMENTS = "/api/admin/config/moments"
-START = datetime(2026, 10, 18, 15, 30, tzinfo=UTC)
-"""00:30 on October 19 in Tokyo: the first tick of the day."""
-SEVEN = datetime(2026, 10, 18, 22, tzinfo=UTC)
+START = datetime(2026, 10, 18, 22, 30, tzinfo=UTC)
+"""06:30 and 07:00 on October 19 in the producer time zone."""
+SEVEN = datetime(2026, 10, 18, 23, 0, tzinfo=UTC)
 """07:00 that day in Tokyo, the earliest a moment planned at `START` is due."""
 
 FACTS = """\
@@ -160,7 +160,7 @@ async def test_planned_after_midnight_she_posts_at_her_time_asked_as_a_turn_with
     assert posting[1].content.startswith("# 制作人")
     assert posting[-1].content == WANTS_TO_POST
     told = context_of(posting)
-    assert "2026年10月19日（星期一）07:00（东京时间，早上）" in told
+    assert "2026年10月19日（星期一）07:00（制作人时间，早上）" in told
     assert "你这会儿在发朋友圈" in told and "上次和制作人说话" not in told
     assert "- 家人：真乃和父母以及鸽子ピーちゃん住在一起。" in told
     assert "- 小时候：真乃小时候就喜欢偶像。" in told and "- 兴趣：喜欢在公园晒太阳。" in told
@@ -234,7 +234,7 @@ async def test_one_back_in_the_day_is_planned_for_what_is_left_of_it(
     make_client: ClientFactory, settings: Settings
 ):
     """At 10:00 in Tokyo, the morning is over: lunch, from 12:00."""
-    ten = START + timedelta(hours=9, minutes=30)
+    ten = START + timedelta(hours=3, minutes=30)
     client, _, clock, _ = await talked(make_client, POST, at=ten)
 
     await tick(client, clock, ten)
@@ -263,7 +263,7 @@ async def test_one_come_up_to_trust_since_the_day_was_planned_waits_for_the_next
 
 
 @pytest.mark.parametrize(
-    ("restarted", "posts"), [(START + timedelta(hours=3), 1), (SEVEN + timedelta(hours=1), 0)]
+    ("restarted", "posts"), [(START + timedelta(minutes=15), 1), (SEVEN + timedelta(hours=1), 0)]
 )
 async def test_the_plan_is_read_again_after_a_restart_but_what_came_while_down_is_not_made_up_for(
     make_client: ClientFactory, settings: Settings, restarted: datetime, posts: int

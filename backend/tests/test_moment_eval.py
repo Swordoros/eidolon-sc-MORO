@@ -145,7 +145,7 @@ async def test_each_scenario_is_asked_as_the_background_loop_asks_and_marked_for
     # What she is given is the scenario's, asked as the background loop asks it.
     work = llm.prompts[0]
     told = work[2].content
-    assert "现在是 2026年11月3日（星期二）19:40（东京时间，傍晚）" in told
+    assert "现在是 2026年11月3日（星期二）19:40（制作人时间，傍晚）" in told
     assert "东京这会儿的天气：雨，12°C。" in told and "文化の日" in told
     assert JOBS_OPENING in told and "- 杂志拍摄：秋季特辑的外景" in told
     assert "- 制作人最近在学做饭（六天前，制作人对你说的）" in told

@@ -309,11 +309,11 @@ def posting_now_prompt(
     `replying` to the producer's comment on one: the time in Tokyo, where she lives and posts,
     never when they were last in touch; Tokyo's `weather`, if known; whether it is the
     producer's birthday, in their own `timezone`; then `affinity_lines`."""
-    local = now.astimezone(_TOKYO)
+    local = now.astimezone(ZoneInfo(timezone))
     lines = [
         "# 此刻",
         f"现在是 {local.year}年{local.month}月{local.day}日"
-        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（东京时间，{_SLOT_NAMES[local.hour]}）。",
+        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人时间，{_SLOT_NAMES[local.hour]}）。",
         _REPLYING if replying else _POSTING,
     ]
     if weather is not None:

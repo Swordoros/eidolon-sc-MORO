@@ -787,7 +787,7 @@ class Moments:
         yesterday = await self._daily.of(
             plan.user_id, plan.character_id, plan.day - timedelta(days=1)
         )
-        if not _awake(schedule, yesterday, now):
+        if not _awake(schedule, yesterday, now.astimezone(zone)):
             await self._db.write(_drop_plan, plan.id)
             return
         slots = _work_slots(schedule)
@@ -1117,8 +1117,8 @@ class Moments:
             places,
             [f"{s.start:%H:%M}–{s.end:%H:%M} {s.what}：{s.where}" for s in jobs],
             circle,
-            work_status,
             compositions,
+            work_status,
         )
 
     def _circle(self, character: Character, day: date, birthday: bool) -> list[Member]:

@@ -107,7 +107,7 @@ async def test_one_planned_and_switched_off_and_on_again_before_its_time_posts_a
     await tick(client, clock, START)
 
     await switch(client, False)
-    await tick(client, clock, START + timedelta(hours=1))
+    await tick(client, clock, START + timedelta(minutes=10))
     await switch(client, True)
     await tick(client, clock, SEVEN)
 

@@ -445,7 +445,7 @@ async def test_she_is_asked_with_her_moment_her_circle_so_far_his_like_their_las
     ]
     assert asking[-1].content == COMMENTED + COMMENT
     told = context_of(asking)
-    assert "（东京时间，早上）" in told and "你这会儿在看自己朋友圈下面的评论" in told
+    assert "（制作人时间，早上）" in told and "你这会儿在看自己朋友圈下面的评论" in told
     assert "# 你这条朋友圈\n今日は公園でピーちゃんと日向ぼっこ(^^)（配图：公园长椅上的小哔）" in told
     assert "赞：月岡恋鐘" in told and "- 月岡恋鐘：うちも行きたか～！" in told
     assert "ピーちゃん元気" not in told

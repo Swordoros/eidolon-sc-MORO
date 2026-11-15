@@ -253,8 +253,8 @@ class PostMaterial:
     places: Sequence[Place] = ()
     jobs: Sequence[str] = ()
     circle: Sequence[Member] = ()
-    work_status: str | None = None
     compositions: Sequence[Composition] = ()
+    work_status: str | None = None
 
 
 @dataclass(frozen=True)
