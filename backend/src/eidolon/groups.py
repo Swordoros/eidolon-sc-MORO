@@ -15,7 +15,7 @@
 
 用户发言与成员地位相同：插进当前对话，同样按相关度被回应，不是「必须每个人回复」的焦点。
 
-她说的每句是日语原文 + 中文字幕，和私聊一样；她怎么对用户说话带上好感度的档位。
+她说的每句是日语原文 + 中文字幕，和私聊一样；提示词只带她自己的好感度档位，不把其他成员的好感度给她看。
 
 一段对话结束后，把这段群聊里用户透露的事写进每个参与成员的记忆（`memories` 表，
 `conversation_id` 为空），私聊检索记忆时同样能查到。
@@ -36,7 +36,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from datetime import time as clock_time
 from zoneinfo import ZoneInfo
 
-from eidolon.affinity import Affinities
+from eidolon.affinity import Affinities, tier_prompt
 from eidolon.characters import Character, chinese_name_map
 from eidolon.weather import Weathers
 from eidolon.world import World
@@ -920,20 +920,42 @@ class Groups:
         return Said(line.ja, subtitle) if subtitle else line
 
     async def _system(self, user_id: str, member: Member) -> str:
-        """Who she is, the world she lives in, and how she feels about the producer."""
+        """Who she is, the world she lives in, and only her own affinity with the producer."""
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
         parts = [member.sheet]
         if not member.sheet.lstrip().startswith("# 群聊摘要"):
             parts.insert(0, f"你叫{label}。")
-        if self._world is not None and self._store is not None:
+        profile = None
+        if self._store is not None:
             try:
                 profile = await self._store.get_profile(user_id)
+            except Exception:
+                log.warning("reading the producer for the group failed", exc_info=True)
+        if self._world is not None and profile is not None:
+            try:
                 timezone = effective_timezone(profile, None)
                 parts.append(self._world.prompt(member.name, local_date(self._clock(), timezone)))
             except Exception:
                 log.warning("reading the world for the group failed", exc_info=True)
+        if self._affinities is not None:
+            try:
+                status = await self._affinities.status(user_id, member.id)
+                character = self._characters.get(member.id)
+                lines = tier_prompt(
+                    status,
+                    character.heart if character is not None else None,
+                    profile.gender == "female" if profile is not None else False,
+                )
+                if lines:
+                    parts.extend(lines)
+                    parts.append(
+                        "这只影响你直接对制作人说话时的态度。对群里其他人按你自己的关系说话；"
+                        "不要提好感度、不要比较谁和制作人更亲近，也不要替别人表态。"
+                    )
+            except Exception:
+                log.warning("reading her affinity for the group failed", exc_info=True)
         parts.append("你们在群聊里。制作人也在群里。")
-        # 不把制作人资料、好感度或制作人的私事写进群聊发言：她是在和其他角色说话。
+        # 只放她自己的好感度；其他人的好感度不进入她的提示词。
         return "\n".join(parts)
 
     async def _asleep(self, user_id: str, character_id: str, now: datetime) -> bool:

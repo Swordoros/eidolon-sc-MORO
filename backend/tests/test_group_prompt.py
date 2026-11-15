@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from eidolon.affinity import Status
 from eidolon.characters import load_characters
 from eidolon.group_context import GroupMemberNow, GroupNow
 from eidolon.group_prompt import history_block
@@ -63,3 +64,23 @@ def test_a_member_uses_her_group_sheet():
 def test_the_topic_cooldown_is_eight_hours():
     assert TOPIC_INTERVAL == timedelta(hours=8)
     assert TOPIC_GAP == (timedelta(hours=8), timedelta(hours=8))
+
+
+async def test_group_system_injects_only_her_own_affinity():
+    characters = load_characters(Path(__file__).resolve().parents[2] / "characters" / "characters.toml")
+    groups = object.__new__(Groups)
+    groups._characters = characters  # type: ignore[attr-defined]
+    groups._store = None  # type: ignore[attr-defined]
+    groups._world = None  # type: ignore[attr-defined]
+
+    class Affinities:
+        async def status(self, user_id: str, character_id: str) -> Status:
+            assert character_id == "nichika"
+            return Status("cold", None)
+
+    groups._affinities = Affinities()  # type: ignore[attr-defined]
+    member = groups._members_by_id("nichika")
+    assert member is not None
+    told = await groups._system("user", member)
+    assert "对制作人态度很冷" in told
+    assert "不要提好感度" in told
