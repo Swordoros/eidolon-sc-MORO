@@ -42,14 +42,16 @@ async def test_the_groups_last_prompt_is_read_only_with_the_development_switch(
         "/api/groups", json={"name": "群聊", "character_ids": ["mano", "kogane"]}
     )
     group_id = created.json()["id"]
-    backend_of(client).groups._last_prompts[group_id] = "PROMPT"
+    backend_of(client).groups._last_prompts[group_id] = {
+        "prompt": "PROMPT", "speaker_id": "mano", "speaker_name": "真乃",
+    }
 
     off = (await client.get(f"/api/group/{group_id}/last-prompt")).json()
     await client.put("/api/account/dev", json={"on": True})
     on = (await client.get(f"/api/group/{group_id}/last-prompt")).json()
 
-    assert off == {"prompt": None}
-    assert on == {"prompt": "PROMPT"}
+    assert off == {"prompt": None, "speaker_id": None, "speaker_name": None}
+    assert on == {"prompt": "PROMPT", "speaker_id": "mano", "speaker_name": "真乃"}
 
 
 async def test_a_group_with_no_members_picked_gets_the_default_ones(make_client: ClientFactory):

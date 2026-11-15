@@ -350,6 +350,8 @@ export const zh = {
     asmrCall: "ASMR 模式",
     /** 开发开关打开时更多菜单里查看上一次完整提示词的项（GLOSSARY.md「开发」）。 */
     devPrompt: "提示词",
+    devPromptFor: (name: string) => `最近一次对话：${name}`,
+    devPromptSpeaker: (name: string) => `上一次发言：${name}`,
     /** 提示词窗口的两个标签页。 */
     devTabs: {
       prompt: "提示词",

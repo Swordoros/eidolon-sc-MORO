@@ -19,8 +19,8 @@ async def dev_on(client: httpx.AsyncClient) -> bool:
     return res.json()["dev"]
 
 
-async def last_prompt(client: httpx.AsyncClient) -> str | None:
-    res = await client.get("/api/dev/last-prompt")
+async def last_prompt(client: httpx.AsyncClient, character_id: str = "mano") -> str | None:
+    res = await client.get(f"/api/dev/last-prompt?character_id={character_id}")
     assert res.status_code == 200, res.text
     return res.json()["prompt"]
 

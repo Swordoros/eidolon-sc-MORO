@@ -1195,19 +1195,21 @@ class ConversationEngine:
         self._recorded_listeners: list[
             Callable[[Conversation, Message, datetime, str], Awaitable[None]]
         ] = []
-        self._last_prompt: dict[str, str] = {}
-        """Each user's last conversation prompt, as the chat model read it, for the
+        self._last_prompt: dict[tuple[str, str], str] = {}
+        """Each user's last prompt with each character, as the chat model read it, for the
         development switch (GLOSSARY.md「开发」); kept in memory, gone on restart."""
 
-    def last_prompt(self, user_id: str) -> str | None:
-        """The user's last conversation prompt, as the chat model read it, or None if none
-        was generated since the backend started (GLOSSARY.md「开发」)."""
-        return self._last_prompt.get(user_id)
+    def last_prompt(self, user_id: str, character_id: str) -> str | None:
+        """The last prompt with `character_id`, or None if none was generated since the
+        backend started (GLOSSARY.md「开发」)."""
+        return self._last_prompt.get((user_id, character_id))
 
-    def record_prompt(self, user_id: str, prompt: Sequence[ChatMessage]) -> None:
-        """Keep `prompt` as the user's last one for the development switch, for a prompt
-        assembled outside a turn, such as a night visit."""
-        self._last_prompt[user_id] = _dump_prompt(prompt)
+    def record_prompt(
+        self, user_id: str, character_id: str, prompt: Sequence[ChatMessage]
+    ) -> None:
+        """Keep `prompt` as the last one with `character_id` for the development switch, for
+        a prompt assembled outside a turn, such as a night visit."""
+        self._last_prompt[(user_id, character_id)] = _dump_prompt(prompt)
 
     def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
         """Have `listener` told the conversation's id, and why, as she ends one, once it is
@@ -1836,7 +1838,7 @@ class ConversationEngine:
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history,
         )
-        self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
+        self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
         # Offered on every turn, so that what goes before the history (the tools, with
         # many services) opens every turn's prompt alike, for the service to cache it.
@@ -2037,7 +2039,7 @@ class ConversationEngine:
             [*([memories] if memories else []), rules],
             wants, voiced_by,
         )
-        self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
+        self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
         parser = ReplyParser(zh_names=self._zh_names)
         tag: str | None = None
         stream = llm.stream(prompt)

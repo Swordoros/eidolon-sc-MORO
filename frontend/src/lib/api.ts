@@ -1076,8 +1076,12 @@ export async function clearMemories(): Promise<void> {
 
 /** The user's last conversation prompt, for the development tools (GLOSSARY.md「开发」):
  * null when their switch is off or none was generated since the backend started. */
-export async function lastPrompt(): Promise<string | null> {
-  return (await json<{ prompt: string | null }>(await api("/api/dev/last-prompt"))).prompt;
+export async function lastPrompt(characterId: string): Promise<string | null> {
+  return (
+    await json<{ prompt: string | null }>(
+      await api(`/api/dev/last-prompt?character_id=${encodeURIComponent(characterId)}`),
+    )
+  ).prompt;
 }
 
 /** Turn the user's development switch on or off (GLOSSARY.md「开发」). */

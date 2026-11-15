@@ -94,8 +94,15 @@ def add_group_routes(app: FastAPI, backend: Backend) -> None:
         backend started."""
         await shown(user_id, group_id)
         if not await store.get_dev(user_id):
-            return {"prompt": None}
-        return {"prompt": groups.last_prompt(group_id)}
+            return {"prompt": None, "speaker_id": None, "speaker_name": None}
+        found = groups.last_prompt(group_id)
+        if found is None:
+            return {"prompt": None, "speaker_id": None, "speaker_name": None}
+        return {
+            "prompt": found["prompt"],
+            "speaker_id": found["speaker_id"],
+            "speaker_name": found["speaker_name"],
+        }
 
     @app.post("/api/group/{group_id}/messages")
     async def say(group_id: str, body: SayInput, user_id: UserId) -> dict:

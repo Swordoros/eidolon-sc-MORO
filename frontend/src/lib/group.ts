@@ -67,14 +67,18 @@ export async function getGroup(groupId: string): Promise<GroupDetail> {
   return json(await api(`/api/group/${encodeURIComponent(groupId)}`));
 }
 
-/** The group's last prompt, for the development tools: null when the switch is off or no
- * line has been generated since the backend started. */
-export async function lastGroupPrompt(groupId: string): Promise<string | null> {
-  return (
-    await json<{ prompt: string | null }>(
-      await api(`/api/group/${encodeURIComponent(groupId)}/last-prompt`),
-    )
-  ).prompt;
+/** The group's last prompt, for the development tools: who said it and the prompt, or
+ * nulls when the switch is off or no line has been generated since the backend started. */
+export type GroupPrompt = {
+  prompt: string | null;
+  speaker_id: string | null;
+  speaker_name: string | null;
+};
+
+export async function lastGroupPrompt(groupId: string): Promise<GroupPrompt> {
+  return json<GroupPrompt>(
+    await api(`/api/group/${encodeURIComponent(groupId)}/last-prompt`),
+  );
 }
 
 /** Start a group with these members (拉群), the first topic raised right away. */

@@ -55,6 +55,7 @@ import {
   setGroupMembers,
   type GroupDetail,
   type GroupLine,
+  type GroupPrompt,
   type GroupTopic,
 } from "@/lib/group";
 import { formatTimestamp } from "@/lib/timestamp";
@@ -107,7 +108,7 @@ export function GroupConversation({
   const [chosen, setChosen] = useState<string[]>([]);
   const [askingDissolve, setAskingDissolve] = useState(false);
   const [devPromptOpen, setDevPromptOpen] = useState(false);
-  const [devPrompt, setDevPrompt] = useState<string | null | undefined>(undefined);
+  const [devPrompt, setDevPrompt] = useState<GroupPrompt | null | undefined>(undefined);
   const byId = useMemo(
     () => new Map((characters ?? []).map((c) => [c.id, c])),
     [characters],
@@ -490,9 +491,16 @@ export function GroupConversation({
           {devPrompt === undefined ? (
             <p className="text-body text-muted-foreground">…</p>
           ) : (
-            <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
-              {devPrompt ?? copy.conversation.devPromptNone}
-            </pre>
+            <>
+              {devPrompt?.speaker_name && (
+                <p className="text-meta text-muted-foreground">
+                  {copy.conversation.devPromptSpeaker(devPrompt.speaker_name)}
+                </p>
+              )}
+              <pre className="max-h-[64vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-muted p-4 text-subtitle">
+                {devPrompt?.prompt ?? copy.conversation.devPromptNone}
+              </pre>
+            </>
           )}
         </DialogContent>
       </Dialog>

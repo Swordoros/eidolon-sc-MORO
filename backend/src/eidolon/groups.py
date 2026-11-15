@@ -342,8 +342,9 @@ class Groups:
         self._delay = delay
         self._busy: set[str] = set()
         """Groups whose topic is being talked through right now."""
-        self._last_prompts: dict[str, str] = {}
-        """The last prompt each group asked the chat model with, for the development tools."""
+        self._last_prompts: dict[str, dict] = {}
+        """The last prompt each group asked the chat model with, its speaker, for the
+        development tools."""
         self._tasks: dict[str, asyncio.Task[None]] = {}
         """Each group's conversation under way, to cancel as it is dissolved or the backend closes."""
         self._task: asyncio.Task[None] | None = None
@@ -435,9 +436,9 @@ class Groups:
             await self._db.write(self._mark_seen, group_id, self._clock())
         return state
 
-    def last_prompt(self, group_id: str) -> str | None:
-        """The last prompt `group_id` asked the chat model with, for the development tools;
-        None before any line since the backend started."""
+    def last_prompt(self, group_id: str) -> dict | None:
+        """The last prompt `group_id` asked the chat model with, and whose speech it was, for
+        the development tools; None before any line since the backend started."""
         return self._last_prompts.get(group_id)
 
     def _mark_seen(self, db: sqlite3.Connection, group_id: str, now: datetime) -> None:
@@ -701,7 +702,7 @@ class Groups:
             system, raiser, members, recent,
             self._names_block(members), past, material, now_told,
         )
-        answer = await self._ask(prompt, group_id)
+        answer = await self._ask(prompt, group_id, raiser)
         said = _parse_line(answer) or Said("今天想聊点什么呢。", "今天想聊点什么好呢。")
         return said if said.zh else await self._subtitle(said)
 
@@ -853,7 +854,7 @@ class Groups:
                     reference,
                 )
                 try:
-                    answer = await self._ask(prompt, group_id)
+                    answer = await self._ask(prompt, group_id, speaker)
                 except Exception:
                     log.warning("a member could not answer in the group", exc_info=True)
                     break
@@ -1014,12 +1015,20 @@ class Groups:
         log.info("group relevance for %r: %s", topic[:40], scores)
         return scores
 
-    async def _ask(self, messages: Sequence[ChatMessage], group_id: str | None = None) -> str:
+    async def _ask(
+        self, messages: Sequence[ChatMessage], group_id: str | None = None,
+        speaker: Member | None = None,
+    ) -> str:
         """One model answer; asked twice when the first comes back empty, which happens
         now and then and would otherwise end a conversation on the spot. With `group_id`,
-        the prompt is kept as the group's last one for the development tools."""
+        the prompt is kept as the group's last one for the development tools, with `speaker`
+        as whose line it was."""
         if group_id is not None:
-            self._last_prompts[group_id] = _dump_prompt(messages)
+            self._last_prompts[group_id] = {
+                "prompt": _dump_prompt(messages),
+                "speaker_id": speaker.id if speaker is not None else None,
+                "speaker_name": speaker.name if speaker is not None else None,
+            }
         for attempt in range(2):
             lease = self._lease_of()
             try:

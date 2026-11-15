@@ -203,7 +203,7 @@ export function ConversationView({
   const openDevPrompt = () => {
     setDevPromptOpen(true);
     setDevPrompt(undefined);
-    lastPrompt().then(setDevPrompt, () => setDevPrompt(null));
+    lastPrompt(character.id).then(setDevPrompt, () => setDevPrompt(null));
   };
 
   // 朗读她的话：通话一开始（这一页上拨的，或者别处拨的）、离开这一页时，正在放的停下。
@@ -546,7 +546,9 @@ export function ConversationView({
         <DialogContent className="flex max-h-[82dvh] max-w-[min(48rem,92vw)] flex-col">
           <DialogHeader>
             <DialogTitle>{t.devPrompt}</DialogTitle>
-            <DialogDescription className="sr-only">{t.devPrompt}</DialogDescription>
+            <DialogDescription className="text-meta text-muted-foreground">
+              {t.devPromptFor(character.name)}
+            </DialogDescription>
           </DialogHeader>
           <Tabs defaultValue="prompt" className="min-h-0 flex-1">
             <TabsList>
