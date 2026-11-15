@@ -209,7 +209,10 @@ async def test_every_turn_carries_her_songs_with_their_releases(
     system = system_prompt(llm)
     assert system.index("# 世界设定") < system.index("# 你的歌") < system.index("# 制作人")
     songs = her_songs(system)
-    assert "不在这里逐条列出" in songs
+    assert "- ありったけの輝きで" in songs
+    assert "- ヒカリのdestination" in songs
+    assert "- Spread the Wings!!（イルミネーションスターズ Ver.）" in songs
+    assert "BRILLI@NT WING 02" not in songs
     assert "检索作品资料" in songs
 
 
@@ -239,7 +242,8 @@ async def test_a_release_still_to_come_is_told_as_one(turns: Turns, characters: 
 
     system = system_prompt(llm)
     assert "# 你的歌" in system
-    assert "不在这里逐条列出" in her_songs(system)
+    assert "- MAGICAL FOREST" in her_songs(system)
+    assert "2026年10月21日" not in her_songs(system)
 
 async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
     turns: Turns, settings: Settings, characters: CharacterConfig
@@ -298,7 +302,9 @@ async def test_a_song_whose_releases_are_all_missing_is_listed_by_its_title_alon
 
     await turns.take(llm, "どんな歌を歌ってきたの？")
 
-    assert "まぼろしの歌" not in her_songs(system_prompt(llm))
+    songs = her_songs(system_prompt(llm))
+    assert "- まぼろしの歌" in songs
+    assert "NONE-0000" not in songs
 
 
 async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
@@ -312,7 +318,9 @@ async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
     system = system_prompt(llm)
     assert system.index("# 你的歌") < system.index("# 你上过的演出") < system.index("# 制作人")
     lives = section(system, "# 你上过的演出")
-    assert "不在这里逐条列出" in lives
+    assert "- THE IDOLM@STER SHINY COLORS 6thLIVE" in lives
+    assert "- THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023" in lives
+    assert "2024年3月2日" not in lives
     assert "检索作品资料" in lives
 
 
@@ -358,7 +366,8 @@ async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(
         await backend.aclose()
 
     lives = section(system_prompt(llm), "# 你上过的演出")
-    assert "不在这里逐条列出" in lives
+    assert "- THE IDOLM@STER SHINY COLORS 8thLIVE" in lives
+    assert "2026年11月7日" not in lives
 
 
 async def test_no_cv_is_named_in_any_prompt(turns: Turns, characters: CharacterConfig):

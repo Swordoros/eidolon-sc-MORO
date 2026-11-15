@@ -334,24 +334,32 @@ class World:
 
     def prompt(self, name: str, today: date) -> str:
         """The world setting as a turn on `today` with the character called `name` carries
-        it: for an idol, her songs and her lives included, those on releases and days after
-        `today` told as still to come; for one of the staff, neither. No CV is in it."""
+        it: for an idol, a title index of her songs and lives, the details of which retrieval
+        carries (`WorkFacts`); for one of the staff, neither. No CV is in it."""
         if self.is_staff(name):
             return self._setting_prompt(staff=True)
-        return "\n\n".join([self._setting_prompt(), self._works_prompt()])
+        return "\n\n".join([self._setting_prompt(), self._works_prompt(name)])
 
-    def _works_prompt(self) -> str:
-        """The compact index of an idol's works; the facts themselves are retrieval's
-        (`WorkFacts`), not carried in every prompt."""
-        return (
-            "# 你的歌\n"
-            "你唱过的歌、组合曲和收录它们的唱片不在这里逐条列出；"
-            "别的偶像的歌、特别组合或者全体一起唱的歌也不在这里；"
-            "需要具体歌名、唱片或发售日时，检索作品资料。\n\n"
-            "# 你上过的演出\n"
-            "你站上过的舞台不在这里逐条列出；"
-            "需要具体日期、会场或出演者时，检索作品资料。"
-        )
+    def _works_prompt(self, name: str) -> str:
+        """The title index of an idol's works; the facts themselves are retrieval's
+        (`WorkFacts`), not carried in every prompt. A title with no release is still listed
+        by its title alone."""
+        songs = self.songs_of(name)
+        lines = [
+            "# 你的歌",
+            "下面只是歌名索引；唱片、发售日等具体资料需要时检索作品资料。",
+            "别的偶像的歌、特别组合或者全体一起唱的歌不在这里。",
+        ]
+        lines += [f"- {song.title}" for song in songs] or ["资料里还没有你唱的歌。"]
+        lines += [
+            "",
+            "# 你上过的演出",
+            "下面只是演出名索引；日期、会场、出演者等具体资料需要时检索作品资料。",
+            "你没有上台的演出和日子不在这里。",
+        ]
+        lives = self.lives_of(name)
+        lines += [f"- {live.name}" for live, _ in lives] or ["资料里还没有你站上过的舞台。"]
+        return "\n".join(lines)
 
     def _lives_prompt(self, name: str, today: date) -> str:
         lives = self.lives_of(name)
