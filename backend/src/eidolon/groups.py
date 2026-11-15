@@ -1274,6 +1274,7 @@ def _topic_prompt(
     tired = "".join(f"- {text}\n" for text in past)
     user = (
         (f"# 现在\n{now_told}\n\n" if now_told else "")
+        + (f"# 她手边的素材\n{material}\n\n" if material else "")
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
         + names
