@@ -375,9 +375,6 @@ export function GroupConversation({
             <SendIcon aria-hidden className="size-5" />
           </Button>
         </div>
-        {busy === "sending" && (
-          <p className="mt-1 text-meta text-muted-foreground">{t.sending}</p>
-        )}
       </div>
 
       <Dialog open={rosterOpen} onOpenChange={setRosterOpen}>

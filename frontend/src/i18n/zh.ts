@@ -2263,7 +2263,6 @@ export const zh = {
       empty: "还没有聊过，等着谁先开口。",
       placeholder: "说点什么……",
       send: "发送",
-      sending: "发送中……",
       you: "你",
       failed: "没连上，稍后再试。",
       /** 开关的说明。 */
