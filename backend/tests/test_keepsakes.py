@@ -442,6 +442,25 @@ async def test_taken_out_it_leaves_the_cabinet_and_the_conversation(
     assert (await other.delete(f"/api/keepsakes/{given['id']}")).status_code == 404
 
 
+async def test_a_souvenir_more_than_a_day_after_its_trip_is_let_go(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(at(10))
+    client, _, conversation = await talked(
+        make_client, settings, GIVES, clock=clock, schedules=True,
+    )
+    last_contact(settings.database_path, conversation, at(9))
+    me = user_id(settings.database_path, "producer")
+    keepsakes = backend_of(client).keepsakes
+    await keepsakes._put_down(
+        me, "mano", f"souvenir:{TODAY - timedelta(days=2)}", "souvenir", "京都", at(10),
+    )
+
+    await keepsakes.run_due()
+
+    assert (await cabinet(client))["keepsakes"] == []
+
+
 async def test_a_trip_souvenir_is_not_planned_again_after_it_was_given(
     make_client: ClientFactory, settings: Settings
 ):

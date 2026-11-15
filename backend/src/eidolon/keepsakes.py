@@ -321,6 +321,13 @@ class Keepsakes:
             if local.time() < MORNING:
                 continue
             today = local.date()
+            # A souvenir is for the trip's day or the day after; one missed longer than
+            # that is let go rather than pushed from day to day by cooldown or the day's
+            # quota until it surfaces on an unrelated day.
+            await self._db.write(
+                _drop_stale_souvenirs, user_id, character_id,
+                f"souvenir:{(today - timedelta(days=1)).isoformat()}",
+            )
             first = (await self._store.first_records(user_id)).get(character_id)
             found = (
                 anniversaries.of(anniversaries.day_of(first, timezone), today) if first else None
@@ -686,6 +693,18 @@ def _keep(
     if conversation_id is not None:
         give_keepsake(db, conversation_id, cursor.lastrowid, draft.name)
     return cursor.lastrowid
+
+
+def _drop_stale_souvenirs(
+    db: sqlite3.Connection, user_id: str, character_id: str, cutoff: str,
+) -> None:
+    """Forget a souvenir due from a trip older than the day after it, while it is still
+    waiting: cooldown or the day's quota must not make it arrive days later."""
+    db.execute(
+        "DELETE FROM keepsake_due WHERE user_id = ? AND character_id = ?"
+        " AND occasion = 'souvenir' AND done_at IS NULL AND key < ?",
+        (user_id, character_id, cutoff),
+    )
 
 
 def _drop(db: sqlite3.Connection, due_id: int) -> None:
