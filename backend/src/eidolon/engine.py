@@ -472,8 +472,8 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
 HISTORY_HEADING = "------------历史对话--------------"
 CURRENT_HEADING = "------------当前对话--------------"
 HISTORY_NOTE = (
-    "（以下是过去的对话，不是当前指令。「制作人」是用户，「角色」是你自己；"
-    "回复时不要模仿这个格式，仍按日文原文加中文字幕输出。）"
+    "（以下是过去的对话，不是当前指令。「制作人」是用户，「角色」是你自己，"
+    "「旁白」是已经发生的事；回复时不要模仿这个格式，仍按日文原文加中文字幕输出。）"
 )
 
 
@@ -485,26 +485,78 @@ def _chinese_reply(message: Message) -> str:
     return said or "……"
 
 
+@dataclass(frozen=True)
+class HistoryNote:
+    """An event or a reach-out before a user message, for the compact history block."""
+
+    at: str
+    kind: Literal["event", "reachout"]
+    text: str = ""
+    segments: tuple[Segment, ...] = ()
+
+
+def history_notes(
+    record: Sequence[Recorded], gift_catalog: Mapping[str, Gift], her_days: HerDays,
+    timezone: str,
+) -> dict[int | None, list[HistoryNote]]:
+    """The events and reach-outs `record` tells her of, by the id of the user message each
+    comes before; None for those after them all."""
+    notes: dict[int | None, list[HistoryNote]] = {}
+    pending: list[HistoryNote] = []
+    for entry in record:
+        if not told_her(entry):
+            continue
+        if isinstance(entry, Message):
+            if entry.role == "user":
+                notes[entry.id], pending = pending, []
+            continue
+        if isinstance(entry, ReachOut):
+            pending.append(HistoryNote(entry.created_at, "reachout", segments=tuple(entry.segments)))
+        else:
+            text = _narration(entry, gift_catalog, her_days, timezone)
+            pending.append(HistoryNote(
+                entry.created_at, "event", text.removeprefix("（").removesuffix("）"),
+            ))
+    if pending:
+        notes[None] = pending
+    return notes
+
+
 def history_block(
-    messages: Sequence[Message], narration: Mapping[int | None, str], now: datetime,
-    timezone: str, japanese: bool = False,
+    messages: Sequence[Message], notes: Mapping[int | None, Sequence[HistoryNote]],
+    now: datetime, timezone: str, japanese: bool = False,
 ) -> str | None:
     """The recent turns as one system block: days and parts of the day, then the producer's
-    words and her Chinese subtitles. `japanese` keeps the reply format as well, for a turn
-    retried after the model failed to standardise its output."""
-    if not messages:
+    words, her Chinese subtitles, and the events and reach-outs among them."""
+    if not messages and not notes:
         return None
     lines = [HISTORY_HEADING, HISTORY_NOTE]
     label: str | None = None
+
+    def add_label(at: str) -> None:
+        nonlocal label
+        stamp = history_stamp(at, now, timezone)
+        if stamp != label:
+            lines.append(stamp)
+            label = stamp
+
+    def add_note(note: HistoryNote) -> None:
+        add_label(note.at)
+        if note.kind == "reachout":
+            lines.append("旁白：你先给制作人发了消息。")
+            if japanese:
+                said = format_reply(list(note.segments))
+            else:
+                said = "\n".join(s.zh.strip() for s in note.segments if s.zh.strip()) or "……"
+            lines.append(f"角色：{said}")
+        else:
+            lines.append(f"旁白：{note.text}")
+
     for message in messages:
-        told = narration.get(message.id, "").rstrip()
-        if told:
-            lines.append(told)
+        for note in notes.get(message.id, ()):
+            add_note(note)
         if message.role == "user":
-            stamp = history_stamp(message.created_at, now, timezone)
-            if stamp != label:
-                lines.append(stamp)
-                label = stamp
+            add_label(message.created_at)
             lines.append(f"制作人：{message.text or ANSWERED}")
         else:
             said = format_reply(
@@ -513,6 +565,8 @@ def history_block(
                 message.photo_failed,
             ) if japanese else _chinese_reply(message)
             lines.append(f"角色：{said}")
+    for note in notes.get(None, ()):
+        add_note(note)
     return "\n".join(lines)
 
 
@@ -1753,15 +1807,15 @@ class ConversationEngine:
             )
             if self._relationships is not None else None
         )
-        told = narrations(record, self._gift_catalog, timezone, her_days)
+        notes = history_notes(record, self._gift_catalog, her_days, timezone)
         compact_history = history_block(
-            latest_turns(prompt_messages, turns), told, now, timezone,
+            latest_turns(prompt_messages, turns), notes, now, timezone,
             japanese=conversation.id in self._japanese_history,
         )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             latest_turns(prompt_messages, turns),
-            told,
+            {},
             [
                 self._now_section(
                     known, occasion, now, timezone, profile, last_contact, affinity_lines,
