@@ -926,7 +926,8 @@ class Affinities:
         return await self._db.read(self._cools, user_id, character_id, judged)
 
     def change(
-        self, db: sqlite3.Connection, user_id: str, character_id: str, judged: Judged
+        self, db: sqlite3.Connection, user_id: str, character_id: str, judged: Judged,
+        step: float | None = None,
     ) -> tuple[Change | None, Status]:
         """Change the user's affinity with the character as the turn `judged` says, through
         `db`, in the transaction the turn is recorded in: how it changed (None for not at
@@ -940,7 +941,7 @@ class Affinities:
         today = day_of(now).isoformat()
         gained_today = gained if gained_on == today else 0.0
         considerate_today = considerate if gained_on == today else 0.0
-        step = _limited(judged.step, GAINS_PER_DAY - gained_today)
+        step = _limited(judged.step if step is None else step, GAINS_PER_DAY - gained_today)
         more = _limited(judged.considerate_step, CONSIDERATE_GAINS_PER_DAY - considerate_today)
         after = before.stepped(step + more)
         scenes = self._scene_rows(db, user_id, character_id)

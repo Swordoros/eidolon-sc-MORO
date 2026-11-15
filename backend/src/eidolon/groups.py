@@ -36,7 +36,10 @@ from datetime import UTC, datetime, timedelta, timezone
 from datetime import time as clock_time
 from zoneinfo import ZoneInfo
 
-from eidolon.affinity import Affinities, tier_prompt
+from eidolon.affinity import Affinities, Judged, tier_prompt
+from eidolon.affinity_judge import AffinityJudge
+from eidolon.group_affinity import step as group_step
+from eidolon.group_affinity import targets as group_targets
 from eidolon.characters import Character, chinese_name_map
 from eidolon.weather import Weathers
 from eidolon.world import World
@@ -50,7 +53,7 @@ from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, pa
 from eidolon.own_keys import DeployerLease
 from eidolon.producer import effective_timezone, local_date
 from eidolon.schedules import Schedules, rest
-from eidolon.store import Store, read_profile
+from eidolon.store import Message, Store, read_profile
 
 log = logging.getLogger(__name__)
 
@@ -339,6 +342,7 @@ class Groups:
         world: World | None = None,
         weathers: Weathers | None = None,
         retrieval: Any | None = None,
+        affinity_judge: AffinityJudge | None = None,
         member_count: int = DEFAULT_MEMBERS,
         gap: tuple[timedelta, timedelta] = TOPIC_GAP,
         delay: tuple[float, float] = DEFAULT_DELAY,
@@ -354,6 +358,7 @@ class Groups:
         self._world = world
         self._context = GroupContext(daily, store, weathers)
         self._retrieval = retrieval
+        self._affinity_judge = affinity_judge
         self._member_count = member_count
         self._gap = gap
         self._delay = delay
@@ -1103,6 +1108,8 @@ class Groups:
         lines = await self._lines(topic["id"]) if topic is not None else []
         last_speaker = lines[-1].speaker if lines else USER_SPEAKER
         fresh, mentioned, addressed = await self._shift(members, lines, text)
+        targets = group_targets(addressed, mentioned)
+        judged = await self._judge_group_affinity(user_id, targets, lines, text)
         if (
             not fresh
             and not mentioned
@@ -1117,6 +1124,7 @@ class Groups:
             await self._db.write(
                 self._start_topic, user_id, group_id, topic_id, USER_SPEAKER, text, "", now
             )
+            await self._apply_group_affinity(user_id, judged)
             if members:
                 self._start_conversation(
                     user_id, group_id, topic_id, members, text, USER_SPEAKER,
@@ -1125,6 +1133,7 @@ class Groups:
             return
         topic_id = topic["id"]
         await self._db.write(self._add_line, topic_id, user_id, USER_SPEAKER, text, "", now)
+        await self._apply_group_affinity(user_id, judged)
         if not topic["open"]:
             await self._db.write(self._reopen, topic_id)
         if members and (self._tasks.get(group_id) is None or not topic["open"]):
@@ -1133,6 +1142,58 @@ class Groups:
                 mentioned=[*mentioned, *addressed], threshold=CONTINUE_THRESHOLD,
                 delay=REPLY_DELAY,
             )
+
+    async def _judge_group_affinity(
+        self, user_id: str, target_ids: Sequence[str], lines: Sequence[Line], text: str,
+    ) -> dict[str, Judged]:
+        """Judge the producer's line for each target, one at a time; a failure changes none."""
+        if not target_ids or self._affinities is None or not self._affinities.on:
+            return {}
+        if self._affinity_judge is None:
+            return {}
+        judged: dict[str, Judged] = {}
+        for character_id in target_ids:
+            character = self._characters.get(character_id)
+            if character is None:
+                continue
+            history = [
+                Message(
+                    0,
+                    "user" if line.speaker == USER_SPEAKER else "character",
+                    line.text if line.speaker == USER_SPEAKER else None,
+                    None if line.speaker == USER_SPEAKER else line.text,
+                    "" if line.speaker == USER_SPEAKER else (line.zh or ""),
+                    line.created_at,
+                )
+                for line in lines[-8:]
+                if line.speaker in (USER_SPEAKER, character_id)
+            ]
+            try:
+                found, _ = await self._affinity_judge.judge(
+                    character, history, text, affinity=True, photo=False,
+                )
+            except Exception:
+                log.warning("judging a group line's affinity failed", exc_info=True)
+                continue
+            if found is not None:
+                judged[character_id] = found
+        return judged
+
+    async def _apply_group_affinity(self, user_id: str, judged: dict[str, Judged]) -> None:
+        """Apply the group's quieter steps, inside a write of their own."""
+        if not judged or self._affinities is None:
+            return
+        try:
+            await self._db.write(self._write_group_affinity, user_id, judged)
+        except Exception:
+            log.warning("changing affinity after a group line failed", exc_info=True)
+
+    def _write_group_affinity(
+        self, db: sqlite3.Connection, user_id: str, judged: dict[str, Judged]
+    ) -> None:
+        assert self._affinities is not None
+        for character_id, found in judged.items():
+            self._affinities.change(db, user_id, character_id, found, step=group_step(found))
 
     async def _shift(
         self, members: Sequence[Member], lines: Sequence[Line], text: str
