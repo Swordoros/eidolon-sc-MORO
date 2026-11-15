@@ -266,6 +266,10 @@ export const zh = {
   },
   conversationList: {
     title: "对话",
+    contacts: "联系人",
+    groups: "群聊",
+    noGroups: "还没有群聊",
+    noGroupMatch: "没有匹配的群聊",
     noneSelected: "选一位偶像开始对话",
     resize: "调整对话列表宽度",
     /** 列表顶上的搜索框：按名字（原名、中文译名、假名、罗马字）或组合找偶像。 */

@@ -31,21 +31,22 @@ import sqlite3
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from datetime import time as clock_time
 from zoneinfo import ZoneInfo
 
 from eidolon.affinity import Affinities, tier_prompt
 from eidolon.characters import Character, chinese_name_map
+from eidolon.world import World
 from eidolon.clock import Clock
 from eidolon.data_access import Database
 from eidolon.engine import _dump_prompt
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
-from eidolon.producer import effective_timezone
+from eidolon.producer import effective_timezone, local_date, producer_prompt
 from eidolon.schedules import Schedules, rest
-from eidolon.store import Store
+from eidolon.store import Store, read_profile
 
 log = logging.getLogger(__name__)
 
@@ -191,20 +192,20 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
-def _at_quiet(at: datetime) -> bool:
-    """Whether it is the producer's quiet hours now (1:00–7:00, her own clock)."""
-    local = at.astimezone(QUIET_ZONE).time()
+def _at_quiet(at: datetime, zone_name: str) -> bool:
+    """Whether it is the producer's quiet hours now (1:00–7:00, their own clock)."""
+    local = at.astimezone(ZoneInfo(zone_name)).time()
     return QUIET[0] <= local < QUIET[1]
 
 
-def _seven_am(now: datetime) -> str:
-    """The next 7 in the morning, in the producer's own clock (`QUIET_ZONE`), as ISO in UTC:
-    when a group whose members are all asleep next raises a topic."""
-    local = now.astimezone(QUIET_ZONE)
+def _seven_am(now: datetime, zone_name: str) -> str:
+    """The next 7 in the morning, in the producer's own clock, as ISO in UTC: when a group
+    whose members are all asleep next raises a topic."""
+    local = now.astimezone(ZoneInfo(zone_name))
     at = local.replace(hour=7, minute=0, second=0, microsecond=0)
     if local >= at:
         at += timedelta(days=1)
-    return at.astimezone(timezone.utc).isoformat()
+    return at.astimezone(UTC).isoformat()
 
 
 def _soon_topic_at() -> str:
@@ -314,6 +315,7 @@ class Groups:
         *,
         daily: Schedules | None = None,
         store: Store | None = None,
+        world: World | None = None,
         member_count: int = DEFAULT_MEMBERS,
         gap: tuple[timedelta, timedelta] = TOPIC_GAP,
         delay: tuple[float, float] = DEFAULT_DELAY,
@@ -326,6 +328,7 @@ class Groups:
         self._memories = memories
         self._daily = daily
         self._store = store
+        self._world = world
         self._member_count = member_count
         self._gap = gap
         self._delay = delay
@@ -604,14 +607,17 @@ class Groups:
                 self._busy.discard(group_id)
 
     def _due(self, db: sqlite3.Connection, now: datetime) -> list[tuple[str, str]]:
-        if _at_quiet(now):
-            return []
         rows = db.execute(
             "SELECT id, user_id FROM group_chats WHERE is_on = 1 AND dissolved_at IS NULL"
             " AND (next_topic_at IS NULL OR next_topic_at <= ?)",
             (now.isoformat(),),
         ).fetchall()
-        return [(row[0], row[1]) for row in rows]
+        due: list[tuple[str, str]] = []
+        for group_id, user_id in rows:
+            timezone = effective_timezone(read_profile(db, user_id), None)
+            if not _at_quiet(now, timezone):
+                due.append((group_id, user_id))
+        return due
 
     def _next_topic_at(self, now: datetime) -> str:
         """When this group next raises a topic on its own: 2 to 6 hours from now, at random."""
@@ -636,10 +642,16 @@ class Groups:
         now = self._clock()
         members = await self._awake(user_id, all_members, now)
         if not members:
-            until = _seven_am(now)
+            timezone = "Asia/Shanghai"
+            if self._store is not None:
+                try:
+                    timezone = effective_timezone(await self._store.get_profile(user_id), None)
+                except Exception:
+                    log.warning("reading the producer's time for the group failed", exc_info=True)
+            until = _seven_am(now, timezone)
             if self._daily is not None and self._store is not None:
                 try:
-                    zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
+                    zone = ZoneInfo(timezone)
                     local = now.astimezone(zone)
                     if (awake_at := await self._next_awake_at(user_id, all_members, local)) is not None:
                         until = awake_at.astimezone(timezone.utc).isoformat()
@@ -808,10 +820,13 @@ class Groups:
                 said = await self._lines(topic_id)
                 mention = max(0.0, BASE_MENTION - turn * MENTION_STEP)
                 outsiders = [m for m in members if m.id not in {speaker.id, last_speaker}]
+                now = self._clock()
                 system = await self._system(user_id, speaker)
+                now_told = await self._now_told(user_id, members, now)
+                material = await self._material(user_id, speaker)
                 prompt = _say_prompt(
                     system, speaker, members, said, past, mention, outsiders,
-                    self._names_block([*members, *outsiders]),
+                    self._names_block([*members, *outsiders]), now_told, material,
                 )
                 try:
                     answer = await self._ask(prompt, group_id)
@@ -863,7 +878,7 @@ class Groups:
         return Said(line.ja, subtitle) if subtitle else line
 
     async def _system(self, user_id: str, member: Member) -> str:
-        """Who she is, and how she feels about the producer, as the affinity tier says."""
+        """Who she is, the world she lives in, and how she feels about the producer."""
         tier = ""
         if self._affinities is not None:
             try:
@@ -872,7 +887,19 @@ class Groups:
             except Exception:
                 log.warning("reading her affinity for the group failed", exc_info=True)
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
-        return f"你叫{label}。{member.sheet}\n你们在群聊里。" + (f"\n{tier}" if tier else "")
+        parts = [f"你叫{label}。", member.sheet]
+        if self._world is not None and self._store is not None:
+            try:
+                profile = await self._store.get_profile(user_id)
+                timezone = effective_timezone(profile, None)
+                parts.append(self._world.prompt(member.name, local_date(self._clock(), timezone)))
+                parts.append(producer_prompt(profile))
+            except Exception:
+                log.warning("reading the world for the group failed", exc_info=True)
+        parts.append("你们在群聊里。")
+        if tier:
+            parts.append(tier)
+        return "\n".join(parts)
 
     async def _asleep(self, user_id: str, character_id: str, now: datetime) -> bool:
         """Whether the character is asleep now, by her daily schedule (GLOSSARY.md「行程」);
@@ -1260,6 +1287,7 @@ def _topic_prompt(
 def _say_prompt(
     system: str, speaker: Member, members: Sequence[Member], said: Sequence[Line],
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
+    now_told: str = "", material: str = "",
 ) -> list[ChatMessage]:
     spoken = {member.id: member.name for member in members}
     recent = list(said)[-RECENT_LINES:]

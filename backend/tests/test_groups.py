@@ -87,10 +87,10 @@ def test_what_the_user_revealed_is_remembered_with_feeling_and_tier():
 def test_seven_am_is_the_next_morning_in_shanghai():
     # 23:00 in Shanghai (15:00 UTC) -> the next day's 7, as 23:00 UTC.
     now = datetime(2026, 11, 9, 15, 0, tzinfo=timezone.utc)
-    assert _seven_am(now) == "2026-11-09T23:00:00+00:00"
+    assert _seven_am(now, "Asia/Shanghai") == "2026-11-09T23:00:00+00:00"
     # Just before 7 in Shanghai (22:59 UTC) -> the same day's 7.
     just_before = datetime(2026, 11, 9, 22, 59, tzinfo=timezone.utc)
-    assert _seven_am(just_before) == "2026-11-09T23:00:00+00:00"
+    assert _seven_am(just_before, "Asia/Shanghai") == "2026-11-09T23:00:00+00:00"
 
 
 async def test_the_asleep_are_left_out_of_a_topic():

@@ -59,6 +59,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const { account, characters, latest, pending, preferences, tidy, failure, reload, call, go, onScreen } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"contacts" | "groups">("contacts");
   const [isFilterOpen, setFilterOpen] = useState(false);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [making, setMaking] = useState(false);
@@ -134,34 +135,50 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const showsHidden = query.trim() === "" && hiddenCount > 0;
 
   // 群聊和私聊排在一起：置顶的在最前，其余按最近一条消息的时间交叉排列。
+  // 搜索过滤后的群聊：群名和成员名都能搜。
+  const filteredGroups = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return groups;
+    return groups.filter((group) => {
+      const names = [
+        group.name,
+        ...group.members.map((member) => member.name),
+        ...group.members.map((member) => characters?.find((c) => c.id === member.id)?.name ?? ""),
+      ];
+      return names.some((name) => name.toLocaleLowerCase().includes(needle));
+    });
+  }, [characters, groups, query]);
+
+  // 两个分页各自排序：置顶的在前，其余按最近一条消息的时间。
   const ordered = useMemo(() => {
-    if (!shown) return [];
-    const pinned = [
-      ...shown.rows
-        .filter((row) => row.isPinned)
-        .map((row) => ({ kind: "character" as const, at: "", row })),
-      ...groups
+    if (tab === "groups") {
+      const pinned = filteredGroups
         .filter((group) => groupPins.includes(group.id))
-        .map((group) => ({ kind: "group" as const, at: "", group })),
-    ];
-    const rest = [
-      ...shown.rows
-        .filter((row) => !row.isPinned)
-        .map((row) => ({
-          kind: "character" as const,
-          at: previewOf(effectiveLatest[row.character.id])?.at ?? "",
-          row,
-        })),
-      ...groups
+        .map((group) => ({ kind: "group" as const, at: "", group }));
+      const rest = filteredGroups
         .filter((group) => !groupPins.includes(group.id))
         .map((group) => ({
           kind: "group" as const,
           at: group.last_message_at ?? group.last_topic_at ?? group.created_at,
           group,
-        })),
-    ].sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
+        }))
+        .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
+      return [...pinned, ...rest];
+    }
+    if (!shown) return [];
+    const pinned = shown.rows
+      .filter((row) => row.isPinned)
+      .map((row) => ({ kind: "character" as const, at: "", row }));
+    const rest = shown.rows
+      .filter((row) => !row.isPinned)
+      .map((row) => ({
+        kind: "character" as const,
+        at: previewOf(effectiveLatest[row.character.id])?.at ?? "",
+        row,
+      }))
+      .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
     return [...pinned, ...rest];
-  }, [groups, groupPins, effectiveLatest, shown]);
+  }, [filteredGroups, groupPins, effectiveLatest, shown, tab]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -191,6 +208,38 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         <ListFilter isOpen={isFilterOpen} onOpenChange={setFilterOpen} hiddenCount={hiddenCount} />
       </div>
 
+      <div
+        role="tablist"
+        aria-label={t.title}
+        className="mx-4 mb-2 flex shrink-0 items-stretch border-y border-border"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "contacts"}
+          onClick={() => setTab("contacts")}
+          className={cn(
+            "flex-1 py-2 text-center text-body outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+            tab === "contacts" ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {t.contacts}
+        </button>
+        <span aria-hidden className="my-2 w-px shrink-0 bg-border" />
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "groups"}
+          onClick={() => setTab("groups")}
+          className={cn(
+            "flex-1 py-2 text-center text-body outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+            tab === "groups" ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {t.groups}
+        </button>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {failure ? (
           <Empty>
@@ -208,21 +257,27 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
               )}
             </EmptyContent>
           </Empty>
-        ) : !shown ? (
+        ) : tab === "contacts" && !shown ? (
           <Loading />
-        ) : shown.rows.length === 0 && showsHidden ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>{t.allHidden}</EmptyTitle>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button variant="outline" onClick={() => setFilterOpen(true)}>
-                {t.chooseShown}
-              </Button>
-            </EmptyContent>
-          </Empty>
-        ) : shown.rows.length === 0 ? (
-          <p className="px-4 py-6 text-center text-preview text-muted-foreground">{t.noMatch}</p>
+        ) : ordered.length === 0 ? (
+          tab === "contacts" && showsHidden ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>{t.allHidden}</EmptyTitle>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button variant="outline" onClick={() => setFilterOpen(true)}>
+                  {t.chooseShown}
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : (
+            <p className="px-4 py-6 text-center text-preview text-muted-foreground">
+              {tab === "groups"
+                ? (groups.length === 0 ? t.noGroups : t.noGroupMatch)
+                : t.noMatch}
+            </p>
+          )
         ) : (
           <>
             <ul aria-label={t.title}>
@@ -267,7 +322,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                 ),
               )}
             </ul>
-            {showsHidden && (
+            {tab === "contacts" && showsHidden && (
               <button
                 type="button"
                 onClick={() => setFilterOpen(true)}
@@ -388,7 +443,21 @@ function GroupRow({
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-body">{group.name}</span>
               {group.unseen && !isOpen && (
-                <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
+                <>
+                  <span
+                    aria-hidden
+                    style={herVars(
+                      characters?.find((c) => c.id === group.members[0]?.id)?.color ?? "",
+                    )}
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      characters?.some((c) => c.id === group.members[0]?.id)
+                        ? "bg-her-mark"
+                        : "bg-primary",
+                    )}
+                  />
+                  <span className="sr-only">{t.unseen}</span>
+                </>
               )}
             </span>
             <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground">

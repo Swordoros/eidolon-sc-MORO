@@ -621,7 +621,10 @@ def build(
         database, characters, config, affinities, activity, memories, her_now, clock,
         random or secure_random, weathers, daily, photos, world, places,
     )
-    groups = Groups(database, clock, characters, config.lease, affinities, memories, daily=daily, store=store)
+    groups = Groups(
+        database, clock, characters, config.lease, affinities, memories,
+        daily=daily, store=store, world=world,
+    )
     closers.append(groups.aclose)  # closed before the database, so each conversation is written down
     config.on_change(gifts.notice)
     backend = Backend(
