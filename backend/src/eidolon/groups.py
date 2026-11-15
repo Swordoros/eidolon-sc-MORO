@@ -1268,29 +1268,29 @@ def _topic_prompt(
     system: str, raiser: Member, members: Sequence[Member], recent: Sequence[dict],
     names: str, past: Sequence[str], material: str, now_told: str = "",
 ) -> list[ChatMessage]:
+    """The new-topic prompt: the group's present and history, names, the rules, then the task."""
     context = _context(recent)
     others = "、".join(m.name for m in members if m.id != raiser.id)
     tired = "".join(f"- {text}\n" for text in past)
     user = (
         (f"# 现在\n{now_told}\n\n" if now_told else "")
-        + (f"# 她手边的素材\n{material}\n\n" if material else "")
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
-        + "现在请你主动开一个新话题：像在群里随口说一句，引出你想聊的事。\n"
+        + names
+        + "\n现在请你主动开一个新话题：像在群里随口说一句，引出你想聊的事。\n"
         "- 说一件**具体**的事：今天遇到的、看到的、听到的、想到的一个细节。"
         "不要只是感想、感慨、「今天也要加油」这种空话。\n"
         "- 话题要符合**现在**的时间和大家的处境：早上别聊放学后、晚上别聊还没发生的事，"
         "她正在上课/工作/练习时别假定她有空。\n"
-        "- 上面那些话头都聊过了，别回头再说它们；也别用「说到…」「…话说回来」把上一个"
+        "- 上面那些话头都聊过了，别回头再说它们；也别用「说到……」「……话说回来」把上一个"
         "话题接着往下拖——这次自己另起一件不相干的事。\n"
         "- 不要问「有人在吗」，不要提「换个话题」，不要解释。\n"
         "- 一到两句，口语。\n"
-        + names
-        + "\n用 <ja>日语原文</ja><zh>中文字幕</zh> 输出；<ja> 里只写日语、不要混入中文；"
-        "<zh> 是这句日语的中文翻译；专有名词和拟声词可以保留原文，其余都要译成中文、不要夹日语；"
-        "「ちゃん」「さん」这类称呼译成「酱」「小姐」或省略；不要留孤零零的假名；只输出这一组标签。"
+        + "\n用 <ja>日语原文</ja><zh>中文字幕</zh> 输出：<ja> 里只写日语、不要混入中文；"
+        "<zh> 是这句日语的中文翻译；只输出这一组标签。"
+        + "\n现在直接写出你的新话题，不要解释，也不要写「新话题：」这样的前缀。"
     )
-    return [ChatMessage("system", f"{system}\n群里的其他人：{others}"), ChatMessage("user", user + "\n现在直接写出你的新话题，不要解释，也不要写「新话题：」这样的前缀。")]
+    return [ChatMessage("system", f"{system}\n群里的其他人：{others}"), ChatMessage("user", user)]
 
 
 def _say_prompt(
@@ -1298,10 +1298,9 @@ def _say_prompt(
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
     now_told: str = "", material: str = "", history: str = "", reference: str = "",
 ) -> list[ChatMessage]:
-    """The next line's prompt: Chinese history, the group's present, and no producer state."""
+    """The next line's prompt: Chinese history, names, the rules, then the output format."""
     spoken = {member.id: member.name for member in members}
     recent = list(said)[-RECENT_LINES:]
-    # The history is Chinese, like the single chat's; the output format still asks for Japanese.
     context = "\n".join(
         f"{spoken.get(line.speaker, '制作人')}：{line.zh or line.text}"
         for line in [*past, *recent]
@@ -1324,15 +1323,13 @@ def _say_prompt(
         + (f"# 相关资料\n{reference}\n\n" if reference else "")
         + f"群聊记录：\n{history or context}\n\n"
         + last_told
-        + "你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
+        + names
+        + "\n你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
         "补一句你自己的看法、或者顺着这个话题聊出一个相关的小话题。"
         "一到两句，口语，像群里随口说的；不要复述别人刚说过的，不要旁白，不要每句都提问。"
         + hint
-        + "\n"
-        + names
         + "\n群聊记录是中文。请用 <ja>日语原文</ja><zh>中文字幕</zh> 输出："
-        "<ja> 里只写日语、不要混入中文；<zh> 是这句日语的中文翻译，专有名词和拟声词可以保留原文，"
-        "其余都要译成中文、不要夹日语。"
+        "<ja> 里只写日语、不要混入中文；<zh> 是这句日语的中文翻译；只输出这一组标签。"
     )
     return [ChatMessage("system", system), ChatMessage("user", user)]
 
