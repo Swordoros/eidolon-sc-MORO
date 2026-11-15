@@ -837,26 +837,50 @@ class Groups:
         return "\n".join(parts)
 
     async def _photo_request(
-        self, user_id: str, target_ids: Sequence[str], text: str
+        self, user_id: str, target_ids: Sequence[str], lines: Sequence[Line], text: str
     ) -> str | None:
-        """The one member a photo request is for, if image generation can serve her."""
-        if self._photos is None or self._affinities is None or not target_ids:
+        """The one member a photo request is for, as the judge model reads the line."""
+        if not target_ids or self._photos is None or self._affinity_judge is None:
             return None
-        lower = text.lower()
-        if not any(word in lower for word in ("照片", "图片", "自拍", "拍张", "发张", "photo", "picture", "selfie")):
-            return None
-        character = self._characters.get(target_ids[0])
+        character_id = target_ids[0]
+        character = self._characters.get(character_id)
         if character is None:
             return None
-        try:
-            status = await self._affinities.status(user_id, character.id)
-            if status is None or status.tier == "cold":
+        if self._affinities is not None:
+            try:
+                status = await self._affinities.status(user_id, character.id)
+                if status is None or status.tier == "cold":
+                    return None
+            except Exception:
+                log.warning("reading affinity for a group photo failed", exc_info=True)
                 return None
+        try:
             eligible = await self._db.read(self._photos.eligibility, character, user_id)
         except Exception:
             log.warning("reading photo eligibility for the group failed", exc_info=True)
             return None
-        return character.id if eligible is not None else None
+        if eligible is None:
+            return None
+        history = [
+            Message(
+                0,
+                "user" if line.speaker == USER_SPEAKER else "character",
+                line.text if line.speaker == USER_SPEAKER else None,
+                None if line.speaker == USER_SPEAKER else line.text,
+                "" if line.speaker == USER_SPEAKER else (line.zh or ""),
+                line.created_at,
+            )
+            for line in lines[-8:]
+            if line.speaker in (USER_SPEAKER, character_id)
+        ]
+        try:
+            _, asked = await self._affinity_judge.judge(
+                character, history, text, affinity=False, photo=True
+            )
+        except Exception:
+            log.warning("judging a group photo request failed", exc_info=True)
+            return None
+        return character.id if asked else None
 
     def _start_conversation(
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
@@ -1216,7 +1240,7 @@ class Groups:
         fresh, mentioned, addressed = await self._shift(members, lines, text)
         targets = group_targets(addressed, mentioned)
         judged = await self._judge_group_affinity(user_id, targets, lines, text)
-        photo_for = await self._photo_request(user_id, targets, text)
+        photo_for = await self._photo_request(user_id, targets, lines, text)
         if (
             not fresh
             and not mentioned
