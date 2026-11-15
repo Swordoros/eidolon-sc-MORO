@@ -623,7 +623,7 @@ def build(
     )
     groups = Groups(
         database, clock, characters, config.lease, affinities, memories,
-        daily=daily, store=store, world=world,
+        daily=daily, store=store, world=world, weathers=weathers, retrieval=retrieval,
     )
     closers.append(groups.aclose)  # closed before the database, so each conversation is written down
     config.on_change(gifts.notice)

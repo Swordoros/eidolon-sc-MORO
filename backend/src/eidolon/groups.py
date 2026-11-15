@@ -30,21 +30,25 @@ import secrets
 import sqlite3
 import time
 from collections.abc import Callable, Sequence
+from typing import Any
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from datetime import time as clock_time
 from zoneinfo import ZoneInfo
 
-from eidolon.affinity import Affinities, tier_prompt
+from eidolon.affinity import Affinities
 from eidolon.characters import Character, chinese_name_map
+from eidolon.weather import Weathers
 from eidolon.world import World
+from eidolon.group_context import GroupContext
+from eidolon.group_prompt import history_block
 from eidolon.clock import Clock
 from eidolon.data_access import Database
 from eidolon.engine import _dump_prompt
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
-from eidolon.producer import effective_timezone, local_date, producer_prompt
+from eidolon.producer import effective_timezone, local_date
 from eidolon.schedules import Schedules, rest
 from eidolon.store import Store, read_profile
 
@@ -316,6 +320,8 @@ class Groups:
         daily: Schedules | None = None,
         store: Store | None = None,
         world: World | None = None,
+        weathers: Weathers | None = None,
+        retrieval: Any | None = None,
         member_count: int = DEFAULT_MEMBERS,
         gap: tuple[timedelta, timedelta] = TOPIC_GAP,
         delay: tuple[float, float] = DEFAULT_DELAY,
@@ -329,6 +335,8 @@ class Groups:
         self._daily = daily
         self._store = store
         self._world = world
+        self._context = GroupContext(daily, store, weathers)
+        self._retrieval = retrieval
         self._member_count = member_count
         self._gap = gap
         self._delay = delay
@@ -822,11 +830,27 @@ class Groups:
                 outsiders = [m for m in members if m.id not in {speaker.id, last_speaker}]
                 now = self._clock()
                 system = await self._system(user_id, speaker)
-                now_told = await self._now_told(user_id, members, now)
-                material = await self._material(user_id, speaker)
+                group_now = await self._context.read(user_id, group_id, members, now)
+                now_told = "\n".join(group_now.lines())
+                history = history_block(
+                    [*past, *said[-RECENT_LINES:]], now, group_now.timezone,
+                    {member.id: member.name for member in members},
+                )
+                reference = ""
+                if self._retrieval is not None and (character := self._characters.get(speaker.id)):
+                    try:
+                        found = await self._retrieval.retrieve(
+                            character, [], f"{topic}\n" + "\n".join(
+                                line.text for line in said[-RECENT_LINES:]
+                            ), memory=None,
+                        )
+                        reference = found.prompt or ""
+                    except Exception:
+                        log.warning("retrieving for the group failed", exc_info=True)
                 prompt = _say_prompt(
                     system, speaker, members, said, past, mention, outsiders,
-                    self._names_block([*members, *outsiders]), now_told, material,
+                    self._names_block([*members, *outsiders]), now_told, "", history,
+                    reference,
                 )
                 try:
                     answer = await self._ask(prompt, group_id)
@@ -879,13 +903,6 @@ class Groups:
 
     async def _system(self, user_id: str, member: Member) -> str:
         """Who she is, the world she lives in, and how she feels about the producer."""
-        tier = ""
-        if self._affinities is not None:
-            try:
-                status = await self._affinities.status(user_id, member.id)
-                tier = "\n".join(tier_prompt(status))
-            except Exception:
-                log.warning("reading her affinity for the group failed", exc_info=True)
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
         parts = [f"你叫{label}。", member.sheet]
         if self._world is not None and self._store is not None:
@@ -893,12 +910,10 @@ class Groups:
                 profile = await self._store.get_profile(user_id)
                 timezone = effective_timezone(profile, None)
                 parts.append(self._world.prompt(member.name, local_date(self._clock(), timezone)))
-                parts.append(producer_prompt(profile))
             except Exception:
                 log.warning("reading the world for the group failed", exc_info=True)
-        parts.append("你们在群聊里。")
-        if tier:
-            parts.append(tier)
+        parts.append("你们在群聊里。制作人也在群里。")
+        # 不把制作人资料、好感度或制作人的私事写进群聊发言：她是在和其他角色说话。
         return "\n".join(parts)
 
     async def _asleep(self, user_id: str, character_id: str, now: datetime) -> bool:
@@ -928,27 +943,12 @@ class Groups:
         return awake
 
     async def _now_told(self, user_id: str, members: Sequence[Member], now: datetime) -> str:
-        """The time and what each member is doing now, for the topic raiser, so it does not
-        raise something out of place (e.g. 「放学后」 in the morning). Empty without the
-        schedules or a store to read the producer's time zone."""
-        if self._daily is None or self._store is None:
-            return ""
-        try:
-            zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
-            local = now.astimezone(zone)
-        except Exception:
-            log.warning("reading the time for the group failed", exc_info=True)
-            return ""
-        weekday = "一二三四五六日"[local.weekday()]
-        lines = [
-            f"现在是 {local.year}年{local.month}月{local.day}日（星期{weekday}）"
-            f"{local:%H:%M}。",
-        ]
-        for member in members:
-            state = await self._member_now(user_id, member.id, local)
-            if state:
-                lines.append(f"- {member.name_zh or member.name}：{state}")
-        return "\n".join(lines)
+        """The time and what each member is doing now, without any producer state."""
+        context = getattr(self, "_context", None) or GroupContext(
+            getattr(self, "_daily", None), getattr(self, "_store", None)
+        )
+        group_now = await context.read(user_id, "", members, now)
+        return "\n".join(group_now.lines())
 
     async def _member_now(self, user_id: str, character_id: str, local: datetime) -> str:
         """What she is doing now, one short phrase, by her daily schedule (GLOSSARY.md「行程」);
@@ -1287,7 +1287,7 @@ def _topic_prompt(
 def _say_prompt(
     system: str, speaker: Member, members: Sequence[Member], said: Sequence[Line],
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
-    now_told: str = "", material: str = "",
+    now_told: str = "", material: str = "", history: str = "", reference: str = "",
 ) -> list[ChatMessage]:
     spoken = {member.id: member.name for member in members}
     recent = list(said)[-RECENT_LINES:]
