@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from eidolon.affinity import Status
 from eidolon.characters import load_characters
@@ -84,3 +85,29 @@ async def test_group_system_injects_only_her_own_affinity():
     told = await groups._system("user", member)
     assert "对制作人态度很冷" in told
     assert "不要提好感度" in told
+
+
+async def test_group_memories_are_three_own_and_one_public():
+    class Memories:
+        async def kept(self, user_id: str):
+            return [
+                SimpleNamespace(text="自己的旧记忆", source_character_id="mano", scope="private"),
+                SimpleNamespace(text="自己的记忆一", source_character_id="mano", scope="private"),
+                SimpleNamespace(text="自己的记忆二", source_character_id="mano", scope="private"),
+                SimpleNamespace(text="自己的记忆三", source_character_id="mano", scope="private"),
+                SimpleNamespace(text="别人的私事", source_character_id="hiori", scope="private"),
+                SimpleNamespace(text="公开记忆旧", source_character_id="hiori", scope="shared"),
+                SimpleNamespace(text="另一件公开的事", source_character_id="kogane", scope="shared"),
+            ]
+
+    groups = object.__new__(Groups)
+    groups._memories = Memories()  # type: ignore[attr-defined]
+    member = Member("mano", "真乃", "i", "s", "真乃")
+    told = await groups._material("user", member)
+    assert "自己的记忆一" in told
+    assert "自己的记忆二" in told
+    assert "自己的记忆三" in told
+    assert "自己的旧记忆" not in told
+    assert "别人的私事" not in told
+    assert "公开记忆旧" not in told  # only the latest public one is kept
+    assert "另一件公开的事" in told

@@ -124,8 +124,11 @@ TOPIC_RECALL = 12
 Without this the only material a topic had was her character sheet, and the group went round
 the same three hooks for days (`.scratch/nsfw/`)."""
 
-MATERIAL_MEMORIES = 6
-"""How many of her memories of the producer a speaker is shown as something to talk from."""
+GROUP_OWN_MEMORIES = 3
+"""How many of her own memories a speaker is shown, in a topic or a reply."""
+
+GROUP_PUBLIC_MEMORIES = 1
+"""How many shared memories, not her own, a speaker is shown besides those."""
 
 HISTORY_TOPICS = 50
 """How many topics the page is given: the whole readable history of the group."""
@@ -242,6 +245,14 @@ def _open(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS group_topics_by_group_id"
         " ON group_topics (group_id, created_at)"
     )
+    if "memory_cursor" not in _columns(conn, "group_topics"):
+        conn.execute("ALTER TABLE group_topics ADD COLUMN memory_cursor INTEGER NOT NULL DEFAULT 0")
+        # Topics made before the cursor existed start after their last message, so old
+        # history is not extracted a second time.
+        conn.execute(
+            "UPDATE group_topics SET memory_cursor = COALESCE("
+            "(SELECT MAX(id) FROM group_messages WHERE topic_id = group_topics.id), 0)"
+        )
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'groups'"
     ).fetchone():
@@ -756,10 +767,11 @@ class Groups:
         return "\n".join(lines)
 
     async def _material(self, user_id: str, member: Member) -> str:
-        """What she may talk from besides her own sheet: what she remembers of the producer.
+        """Her three own memories and one shared memory, for a topic or a reply.
 
-        Without something of the day's, a topic could only be made out of her character sheet,
-        and the group went round the same three hooks (`.scratch/nsfw/`)."""
+        Her own memories stay hers; the shared one is public in the office. Other private
+        and unit memories never reach her here, and the same hooks the single chat's own
+        memories use (`.scratch/nsfw/`) apply."""
         if self._memories is None:
             return ""
         try:
@@ -767,12 +779,22 @@ class Groups:
         except Exception:
             log.warning("reading her memories for the group failed", exc_info=True)
             return ""
-        hers = [memory for memory in held if memory.source_character_id == member.id]
-        if not hers:
+        own = [m for m in held if m.source_character_id == member.id][-GROUP_OWN_MEMORIES:]
+        public = [
+            m for m in held
+            if m.scope == "shared" and m.source_character_id != member.id
+        ][-GROUP_PUBLIC_MEMORIES:]
+        if not own and not public:
             return ""
-        return "她记得的和制作人的事：\n" + "".join(
-            f"- {memory.text}\n" for memory in hers[-MATERIAL_MEMORIES:]
-        )
+        parts = ["# 你记得的事"]
+        parts += [f"- {memory.text}" for memory in own] or ["（没有）"]
+        if public:
+            parts.append("\n# 公开的事")
+            parts += [
+                f"- {memory.text}（这是公开的，你听说过，不要说得像你亲眼见过）"
+                for memory in public
+            ]
+        return "\n".join(parts)
 
     def _start_conversation(
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
@@ -870,9 +892,10 @@ class Groups:
                         reference = found.prompt or ""
                     except Exception:
                         log.warning("retrieving for the group failed", exc_info=True)
+                material = await self._material(user_id, speaker)
                 prompt = _say_prompt(
                     system, speaker, members, said, past, mention, outsiders,
-                    self._names_block([*members, *outsiders]), now_told, "", history,
+                    self._names_block([*members, *outsiders]), now_told, material, history,
                     reference,
                 )
                 try:
@@ -892,6 +915,7 @@ class Groups:
                 await self._db.write(
                     self._add_line, topic_id, user_id, speaker.id, line.ja, line.zh, now
                 )
+                await self._remember(user_id, topic_id, members)
                 spoken[speaker.id] = spoken.get(speaker.id, 0) + 1
                 last_speaker = speaker.id
                 # The bar rises with each line; whoever is no longer willing drops out.
@@ -1218,26 +1242,59 @@ class Groups:
     async def _remember(
         self, user_id: str, topic_id: str, members: Sequence[Member]
     ) -> None:
-        """Write down what the user revealed in the group, as a private turn's memories are
-        written down: only what is worth keeping, and once, not once per member."""
+        """Write down what the user revealed since the last extraction.
+
+        Called after a character's line, so the owner is the first character to answer the
+        producer; also at the topic's end as a sweep. Only new lines are read, so the same
+        words are not extracted again."""
         try:
-            lines = await self._lines(topic_id)
-            if not lines or not any(line.speaker == USER_SPEAKER for line in lines):
+            lines, cursor = await self._db.read(self._read_memory_lines, topic_id)
+            if not lines:
+                return
+            if not any(line.speaker == USER_SPEAKER for line in lines):
+                await self._db.write(self._advance_memory_cursor, topic_id, cursor)
                 return
             owner = _owner(lines, members)
             if owner is None:
+                await self._db.write(self._advance_memory_cursor, topic_id, cursor)
                 return
             held = []
             if self._memories is not None:
                 held = (await self._memories.kept(user_id))[-SHOWN_MEMORIES:]
             answer = await self._ask(_memory_prompt(owner, members, lines, held))
             written = parse_memories(answer)
-            if not written:
-                return
             now = self._clock()
-            await self._db.write(self._write_memories, user_id, owner, written, now)
+            if written:
+                await self._db.write(
+                    self._write_memories, user_id, owner, written, now, cursor, topic_id
+                )
+            else:
+                await self._db.write(self._advance_memory_cursor, topic_id, cursor)
         except Exception:
             log.warning("writing the group's memories failed", exc_info=True)
+
+    def _read_memory_lines(
+        self, db: sqlite3.Connection, topic_id: str
+    ) -> tuple[list[Line], int]:
+        """The topic's lines after its memory cursor, and the cursor to advance to."""
+        row = db.execute(
+            "SELECT memory_cursor FROM group_topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+        after = int(row[0]) if row is not None else 0
+        rows = db.execute(
+            "SELECT id, speaker, text, created_at, zh FROM group_messages"
+            " WHERE topic_id = ? AND id > ? ORDER BY id",
+            (topic_id, after),
+        ).fetchall()
+        if not rows:
+            return [], after
+        return [Line(row[1], row[2], row[3], row[4]) for row in rows], int(rows[-1][0])
+
+    @staticmethod
+    def _advance_memory_cursor(db: sqlite3.Connection, topic_id: str, cursor: int) -> None:
+        db.execute(
+            "UPDATE group_topics SET memory_cursor = ? WHERE id = ?", (cursor, topic_id)
+        )
 
     def _write_memories(
         self,
@@ -1246,6 +1303,8 @@ class Groups:
         owner: Member,
         written: Sequence[NewMemory],
         now: datetime,
+        cursor: int | None = None,
+        topic_id: str | None = None,
     ) -> None:
         """Write what the user revealed in the group into the owner's memories, as a private
         turn's are: with the feeling and the tier's strength, kept past its maintenance then
@@ -1265,6 +1324,10 @@ class Groups:
                 " VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'short')",
                 (user_id, owner.id, memory.text, created_at, memory.scope, memory.emotion,
                  strength, maintain_until),
+            )
+        if cursor is not None and topic_id is not None:
+            db.execute(
+                "UPDATE group_topics SET memory_cursor = ? WHERE id = ?", (cursor, topic_id)
             )
 
     # ---- read/write bodies ------------------------------------------------------------
@@ -1377,7 +1440,7 @@ def _topic_prompt(
     tired = "".join(f"- {text}\n" for text in past)
     user = (
         (f"# 现在\n{now_told}\n\n" if now_told else "")
-        + (f"# 她手边的素材\n{material}\n\n" if material else "")
+        + (f"# 记忆\n{material}\n\n" if material else "")
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
         + names
@@ -1427,6 +1490,7 @@ def _say_prompt(
         + (f"# 相关资料\n{reference}\n\n" if reference else "")
         + f"群聊记录：\n{history or context}\n\n"
         + last_told
+        + (f"# 记忆\n{material}\n\n" if material else "")
         + names
         + "\n你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
         "补一句你自己的看法、或者顺着这个话题聊出一个相关的小话题。"
