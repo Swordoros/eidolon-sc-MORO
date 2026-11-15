@@ -1306,6 +1306,12 @@ def _say_prompt(
         f"{spoken.get(line.speaker, '制作人')}：{line.zh or line.text}"
         for line in [*past, *recent]
     )
+    lines = [*past, *recent]
+    last = lines[-1] if lines else None
+    last_told = (
+        f"# 上一个人说的\n{spoken.get(last.speaker, '制作人')}：{last.zh or last.text}\n\n"
+        if last is not None else ""
+    )
     hint = ""
     if outsiders:
         names_out = "、".join(m.name for m in outsiders)
@@ -1317,7 +1323,8 @@ def _say_prompt(
         (f"# 现在\n{now_told}\n\n" if now_told else "")
         + (f"# 相关资料\n{reference}\n\n" if reference else "")
         + f"群聊记录：\n{history or context}\n\n"
-        "你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
+        + last_told
+        + "你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
         "补一句你自己的看法、或者顺着这个话题聊出一个相关的小话题。"
         "一到两句，口语，像群里随口说的；不要复述别人刚说过的，不要旁白，不要每句都提问。"
         + hint

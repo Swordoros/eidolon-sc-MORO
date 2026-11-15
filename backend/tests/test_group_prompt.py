@@ -20,6 +20,16 @@ def test_say_prompt_does_not_carry_producer_state():
     assert "好感" not in told and "生日" not in told and "制作人的事" not in told
 
 
+def test_say_prompt_ends_with_what_the_last_person_said():
+    member = Member("mano", "真乃", "i", "s", "真乃")
+    hiori = Member("hiori", "灯織", "i", "s", "灯织")
+    last = Line("hiori", "おやすみ", "2026-11-15T22:00:00+00:00", "晚安")
+    prompt = _say_prompt("system", member, [member, hiori], [last], [], 0.0, [], "names")
+    told = "\n".join(m.content for m in prompt)
+    assert "# 上一个人说的" in told
+    assert "灯織：晚安" in told
+
+
 def test_group_now_lines_only_the_group_world():
     now = datetime(2026, 11, 15, 22, 0, tzinfo=UTC)
     group = GroupNow(
