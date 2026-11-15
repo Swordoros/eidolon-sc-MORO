@@ -329,7 +329,7 @@ export function GroupConversation({
                 <MessageScrollerContent className="gap-4 px-3 pt-4 pb-4">
                   {group.history.map((entry) => (
                     <MessageScrollerItem key={entry.topic.id}>
-                      <div className="mx-auto w-full max-w-3xl">
+                      <div className="w-full">
                         <TopicBlock entry={entry} byId={byId} />
                       </div>
                     </MessageScrollerItem>
