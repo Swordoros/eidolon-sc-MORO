@@ -100,6 +100,7 @@ import sqlite3
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from typing import TypeVar
 from urllib.parse import quote, urlencode
 
@@ -116,10 +117,12 @@ from eidolon.live_config import LiveConfig
 from eidolon.llm import ChatMessage, Streamed
 from eidolon.memory import Memories, last_turn_query
 from eidolon.moment_draws import (
+    AFTER_WORK,
+    APART,
     CHANCES,
+    PARTS,
     KEPT_APART,
     RELATIONS,
-    Eligible,
     Kind,
     Planned,
     draw_circle,
@@ -128,8 +131,6 @@ from eidolon.moment_draws import (
     draw_reply,
     draw_seeds,
     draw_shown,
-    plan_day,
-    work_time,
 )
 from eidolon.gpt_image_prompt import gpt_picture_prompt
 from eidolon.image_generation import GPT_TIME_LIMIT, ImageFailed
@@ -153,7 +154,7 @@ from eidolon.producer import ProducerProfile, effective_timezone, is_birthday, l
 from eidolon.randomness import Random
 from eidolon.recent_moments import picture_note, read_switched_on
 from eidolon.reply_format import format_reply
-from eidolon.schedule import DayJob, Schedules
+from eidolon.schedules import Schedule, Schedules as DailySchedules, rest as schedule_rest
 from eidolon.store import (
     Conversation,
     InTouch,
@@ -163,7 +164,7 @@ from eidolon.store import (
     read_profile,
     read_record,
 )
-from eidolon.today import TOKYO, tokyo_date, venues_on_this_day
+from eidolon.today import tokyo_date, venues_on_this_day
 from eidolon.usage import read_user_limits
 from eidolon.weather import ALL_KINDS, Weather, Weathers
 from eidolon.world import World
@@ -479,7 +480,7 @@ class Moments:
         clock: Clock,
         random: Random,
         weathers: Weathers,
-        schedules: Schedules,
+        daily: DailySchedules,
         photos: Photos,
         world: World | None = None,
         places: Sequence[Place] = (),
@@ -496,7 +497,7 @@ class Moments:
         self._world = world
         self._places = places
         self._weathers = weathers
-        self._schedules = schedules
+        self._daily = daily
         self._photos = photos
         self._started = clock()
         self._was_off = False
@@ -690,23 +691,31 @@ class Moments:
         return self._config.moments.enabled and self._config.has_service("chat_llm")
 
     async def _plan(self, now: datetime) -> None:
-        """Plan today's moments for each user active and not yet planned for today; one
-        going wrong keeps none of the others from it."""
-        day = tokyo_date(now)
+        """Plan today's moments for each user active and not yet planned for today, in the
+        producer's own time; one going wrong keeps none of the others from it."""
         affinity_on = self._affinities.on
-        unplanned = await self._db.read(self._unplanned, day, now, affinity_on)
-        for user_id, tiers in unplanned.items():
+        unplanned = await self._db.read(self._unplanned, now, affinity_on)
+        for user_id, (day, tiers) in unplanned.items():
             try:
-                jobs = await self._schedules.done_on(user_id, day)
-                eligible = [
-                    Eligible(
-                        id, tier, is_birthday(self._characters[id].birthday, day),
-                        jobs[id][-1].done_at if id in jobs else None,
+                timezone = effective_timezone(
+                    await self._db.read(read_profile, user_id), None
+                )
+                candidates = []
+                for character_id, tier in tiers.items():
+                    if tier is None:
+                        continue
+                    schedule = await self._daily.of(user_id, character_id, day)
+                    yesterday = await self._daily.of(
+                        user_id, character_id, day - timedelta(days=1)
                     )
-                    for id, tier in tiers.items() if tier is not None
-                ]
-                planned = plan_day(
-                    eligible, day, now, self._config.moments.per_day, self._random
+                    candidates.append(_MomentCandidate(
+                        character_id, tier,
+                        is_birthday(self._characters[character_id].birthday, day),
+                        schedule, yesterday,
+                    ))
+                planned = _plan_local(
+                    candidates, day, now, min(self._config.moments.per_day, 3),
+                    timezone, self._random,
                 )
                 await self._db.write(
                     _keep_plan, user_id, day.isoformat(), planned, now.astimezone(UTC).isoformat()
@@ -715,24 +724,24 @@ class Moments:
                 log.exception("planning moments for user %s failed", user_id)
 
     def _unplanned(
-        self, db: sqlite3.Connection, day: date, now: datetime, affinity_on: bool
-    ) -> dict[str, dict[str, Tier | None]]:
-        """Each user active and not planned for `day`, with her tier with each character,
-        read through `db`."""
+        self, db: sqlite3.Connection, now: datetime, affinity_on: bool
+    ) -> dict[str, tuple[date, dict[str, Tier | None]]]:
+        """Each user active and not yet planned for today in their own time, with her tier
+        with each character, read through `db`."""
         in_touch: dict[str, list[InTouch]] = {}
         for each in read_in_touch(db):
             in_touch.setdefault(each.user_id, []).append(each)
-        planned = {
-            user_id
-            for (user_id,) in db.execute(
-                "SELECT user_id FROM moment_users WHERE planned_day = ?", (day.isoformat(),)
-            )
-        }
-        unplanned: dict[str, dict[str, Tier | None]] = {}
-        for user_id in in_touch.keys() - planned:
-            standing = self._standing(db, user_id, now, affinity_on, in_touch[user_id])
+        unplanned: dict[str, tuple[date, dict[str, Tier | None]]] = {}
+        for user_id, contacts in in_touch.items():
+            day = local_date(now, effective_timezone(read_profile(db, user_id), None))
+            (planned,) = db.execute(
+                "SELECT planned_day FROM moment_users WHERE user_id = ?", (user_id,)
+            ).fetchone() or (None,)
+            if planned == day.isoformat():
+                continue
+            standing = self._standing(db, user_id, now, affinity_on, contacts)
             if standing.active:
-                unplanned[user_id] = standing.tiers
+                unplanned[user_id] = (day, standing.tiers)
         return unplanned
 
     def _standing(
@@ -764,26 +773,46 @@ class Moments:
         return _Standing(active, tiers)
 
     async def _post(self, plan: _Plan) -> None:
-        """Post the moment planned, unless it is to be passed over, or is of her jobs while
-        she is still at one, then put off till after the last, and looked at again then;
-        posted or passed over, take it off the plan."""
+        """Post the moment planned, unless it is to be passed over, or is of her work while
+        she is not yet in its window, then put off till it is; posted or passed over, take
+        it off the plan."""
         if plan.due_at < self._started or not await self._still(plan):
             await self._db.write(_drop_plan, plan.id)
             return
         now = self._clock()
-        jobs: list[DayJob] = []
+        profile = await self._db.read(read_profile, plan.user_id)
+        timezone = effective_timezone(profile, None)
+        zone = ZoneInfo(timezone)
+        schedule = await self._daily.of(plan.user_id, plan.character_id, plan.day)
+        yesterday = await self._daily.of(
+            plan.user_id, plan.character_id, plan.day - timedelta(days=1)
+        )
+        if not _awake(schedule, yesterday, now):
+            await self._db.write(_drop_plan, plan.id)
+            return
+        slots = _work_slots(schedule)
+        last = slots[-1] if slots else None
         if plan.kind == "work":
-            jobs = (await self._schedules.done_on(plan.user_id, plan.day)).get(
-                plan.character_id, []
-            )
-            if jobs and jobs[-1].done_at > now:  # scheduled more since it was planned
-                due = work_time(jobs[-1].done_at, now, self._random)
-                assert due is not None  # the last is done after now
-                await self._db.write(_put_off, plan.id, due.astimezone(UTC).isoformat())
+            if last is None:
+                await self._db.write(_drop_plan, plan.id)
+                return
+            slot_start, slot_end = _slot_bounds(plan.day, last, zone)
+            window = slot_end if last.kind == "live" else slot_start + AFTER_WORK[0]
+            if now < window:
+                await self._db.write(_put_off, plan.id, window.astimezone(UTC).isoformat())
+                return
+            if now > slot_end + AFTER_WORK[1]:
+                await self._db.write(_drop_plan, plan.id)
                 return
         character = self._characters[plan.character_id]
         weather = await self._weathers.at(now)
-        material = await self._material(plan, character, now, weather, jobs)
+        jobs = [
+            slot for slot in slots
+            if _slot_bounds(plan.day, slot, zone)[1] <= now
+        ] if plan.kind == "work" else []
+        material = await self._material(
+            plan, character, now, weather, jobs, slots, last, timezone
+        )
         recording = self._activity.begin(
             "moment", plan.user_id, plan.character_id, own_llm=False, exempt=False
         )
@@ -891,8 +920,10 @@ class Moments:
         """Reply to the producer's comment, unless she is not to now, or its time came before
         the backend started, then for good, as her record says how it turned out."""
         now = self._clock()
-        day = tokyo_date(now)
-        start = datetime.combine(day, time(), TOKYO)
+        profile = await self._db.read(read_profile, due.user_id)
+        timezone = effective_timezone(profile, None)
+        day = local_date(now, timezone)
+        start = datetime.combine(day, time(), ZoneInfo(timezone))
         before = await self._db.read(
             self._before_reply, due, self._affinities.on, start, start + timedelta(days=1)
         )
@@ -1018,36 +1049,53 @@ class Moments:
         character: Character,
         now: datetime,
         weather: Weather | None,
-        jobs: Sequence[DayJob],
+        jobs: Sequence,
+        slots: Sequence,
+        last,
+        timezone: str,
     ) -> PostMaterial:
-        """What she posts the moment planned with, read now, in `weather` (None for none
-        known): of `jobs`, her jobs done that day, if any, else of her everyday. Of her jobs,
-        her places are of the kinds they take her to, none if none takes her anywhere."""
+        """What she posts the moment planned with: of `jobs`, the work, lessons and lives
+        already done today, else her everyday; the current work, if any, as it is now."""
         known = await self._her_now.read(plan.user_id, plan.character_id, None, "moments")
         before = await self._db.read(
             _before, plan.user_id, plan.character_id,
             (now - KEPT_APART).astimezone(UTC).isoformat(),
         )
         status = await self._affinities.status(plan.user_id, plan.character_id)
-        timezone = effective_timezone(before.profile, None)
         memories = (
             await self._memory.for_reaching_out(
                 before.conversation, timezone, last_turn_query(before.messages), posting=True
             )
             if before.conversation is not None else None
         )
-        kinds = {kind for each in jobs for kind in each.places or ()}
         places = (
             draw_places(
                 self._places, character.id, None if jobs else character.place_likes,
-                venues_on_this_day(now, character, self._world), now, before.used,
+                venues_on_this_day(now, character, self._world, timezone), now, before.used,
                 self._random, roofed=weather is not None and weather.wet,
-                within=kinds if jobs else None,
+                timezone=timezone,
             )
-            if kinds or not jobs else []
+            if jobs or not slots else []
         )
-        seeds = [] if jobs else [_seed(f.text) for f in draw_seeds(character.facts, now, self._random)]
-        circle = self._circle(character, tokyo_date(now), plan.birthday)
+        seeds = [] if slots else [
+            _seed(f.text)
+            for f in draw_seeds(character.facts, now, self._random, timezone=timezone)
+        ]
+        zone = ZoneInfo(timezone)
+        work_status = None
+        if last is not None:
+            start, end = _slot_bounds(plan.day, last, zone)
+            if now < end:
+                work_status = (
+                    f"你正在{last.what}（{last.start:%H:%M}–{last.end:%H:%M}，"
+                    f"{last.where}）。工作还没有结束。"
+                )
+            else:
+                work_status = (
+                    f"你刚结束今天的最后一项工作：{last.what}"
+                    f"（{last.start:%H:%M}–{last.end:%H:%M}，{last.where}）。"
+                )
+        circle = self._circle(character, local_date(now, timezone), plan.birthday)
         image = self._config.image_settings
         compositions = draw_compositions(
             image is not None, character.photographed, self._random,
@@ -1067,8 +1115,9 @@ class Moments:
             memories,
             before.recent,
             places,
-            [f"{each.job.name}：{each.job.note}" for each in jobs],
+            [f"{s.start:%H:%M}–{s.end:%H:%M} {s.what}：{s.where}" for s in jobs],
             circle,
+            work_status,
             compositions,
         )
 
@@ -1148,6 +1197,120 @@ def _switch(db: sqlite3.Connection, user_id: str, on: bool) -> None:
         db.execute("DELETE FROM moments_off WHERE user_id = ?", (user_id,))
     else:
         db.execute("INSERT OR IGNORE INTO moments_off (user_id) VALUES (?)", (user_id,))
+
+
+
+@dataclass(frozen=True)
+class _MomentCandidate:
+    character_id: str
+    tier: Tier
+    birthday: bool
+    schedule: Schedule | None
+    yesterday: Schedule | None
+
+
+def _work_kind(kind: str) -> bool:
+    return kind in ("work", "lesson", "live")
+
+
+def _work_slots(schedule: Schedule | None) -> list:
+    return [] if schedule is None else [s for s in schedule.slots if _work_kind(s.kind)]
+
+
+def _local(day: date, at: time, zone: ZoneInfo) -> datetime:
+    return datetime.combine(day, at, zone)
+
+
+def _slot_bounds(day: date, slot, zone: ZoneInfo) -> tuple[datetime, datetime]:
+    start = _local(day, slot.start, zone)
+    end = _local(day + timedelta(days=1) if slot.end <= slot.start else day, slot.end, zone)
+    return start, end
+
+
+def _free(
+    start: datetime, end: datetime, after: datetime, taken: Sequence[datetime], apart: timedelta
+) -> list[tuple[datetime, datetime]]:
+    spans = [(max(start, after), end)]
+    for at in taken:
+        spans = [
+            piece
+            for left, right in spans
+            for piece in ((left, min(right, at - apart)), (max(left, at + apart), right))
+        ]
+    return [(left, right) for left, right in spans if left < right]
+
+
+def _pick_time(spans: Sequence[tuple[datetime, datetime]], random: Random) -> datetime | None:
+    length = sum((end - start for start, end in spans), timedelta())
+    if length <= timedelta():
+        return None
+    into = timedelta(seconds=int(length.total_seconds() * (random(1000) / 1000)))
+    for start, end in spans:
+        if into < end - start:
+            return start + into
+        into -= end - start
+    return None
+
+
+def _awake(schedule: Schedule | None, yesterday: Schedule | None, at: datetime) -> bool:
+    return schedule is None or schedule_rest(schedule, yesterday, at) is None
+
+
+def _plan_local(
+    candidates: Sequence[_MomentCandidate], day: date, now: datetime, per_day: int,
+    timezone: str, random: Random,
+) -> list[Planned]:
+    """Today's moments in the producer's own time and waking hours: work/lesson/live
+    moments from their last block, daily ones in the parts of their day."""
+    zone = ZoneInfo(timezone)
+    per_day = min(per_day, 3)
+    posting = [
+        c for c in candidates
+        if c.birthday or random(1000) / 1000 < CHANCES[c.tier]
+    ]
+    kept = [c for c in posting if c.birthday][:per_day]
+    rest = [c for c in posting if not c.birthday]
+    if len(kept) + len(rest) <= per_day:
+        kept += rest
+    else:
+        while len(kept) < per_day and rest:
+            kept.append(rest.pop(random(1000) * len(rest) // 1000))
+    planned: list[Planned] = []
+    taken: list[datetime] = []
+    for candidate in kept:
+        slots = _work_slots(candidate.schedule)
+        last = slots[-1] if slots else None
+        at: datetime | None = None
+        kind = "daily"
+        if last is not None:
+            slot_start, slot_end = _slot_bounds(day, last, zone)
+            work_start = slot_end if last.kind == "live" else slot_start + AFTER_WORK[0]
+            work_end = slot_end + AFTER_WORK[1]
+            spans = _free(work_start, work_end, now, taken, APART)
+            at = _pick_time(spans, random)
+            if at is not None:
+                kind = "work"
+        if at is None and last is None:
+            parts = []
+            for start, end, weight in PARTS:
+                ends = day + timedelta(days=1) if end == time(0) else day
+                spans = _free(
+                    _local(day, start, zone), _local(ends, end, zone), now, taken, APART
+                )
+                if spans:
+                    parts.append((spans, weight))
+            if parts:
+                picked = random(sum(weight for _, weight in parts)) + 1
+                for spans, weight in parts:
+                    picked -= weight
+                    if picked <= 0:
+                        at = _pick_time(spans, random)
+                        break
+        if at is None or not _awake(candidate.schedule, candidate.yesterday, at):
+            continue
+        planned.append(Planned(candidate.character_id, at, candidate.birthday, kind))
+        taken.append(at)
+    return sorted(planned, key=lambda p: p.due_at)
 
 
 def _keep_plan(

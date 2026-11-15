@@ -619,7 +619,7 @@ def build(
     )
     moments = Moments(
         database, characters, config, affinities, activity, memories, her_now, clock,
-        random or secure_random, weathers, schedules, photos, world, places,
+        random or secure_random, weathers, daily, photos, world, places,
     )
     groups = Groups(database, clock, characters, config.lease, affinities, memories, daily=daily, store=store)
     closers.append(groups.aclose)  # closed before the database, so each conversation is written down

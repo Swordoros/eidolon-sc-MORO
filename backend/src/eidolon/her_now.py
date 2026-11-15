@@ -202,7 +202,9 @@ class HerNow:
         if carries.weather and known_weather is not None:
             lines += weather_lines(known_weather)
         if carries.today:
-            lines += today_lines(now, character, self._characters.values(), self._world)
+            lines += today_lines(
+                now, character, self._characters.values(), self._world, timezone
+            )
         if carries.schedule and known.her_jobs is not None:
             lines += schedule_lines(known.her_jobs)
         if carries.cycle:

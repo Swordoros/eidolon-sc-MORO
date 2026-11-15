@@ -123,7 +123,8 @@ PRODUCER_NOT_LIKED = "制作人没有赞这条。"
 HER_BIRTHDAY = "今天是你的生日，这条围绕你的生日写。"
 """What she is told on her birthday, in Tokyo, beside what the day tells her."""
 
-JOBS_OPENING = "# 今天做完的工作\n制作人今天给你排的、你都做完了："
+JOBS_OPENING = "# 今天已完成的工作\n今天已经做完的工作、课程和演出："
+WORK_STATUS_OPENING = "# 当前工作"
 SEEDS_OPENING = "# 日常的素材\n下面是你资料里的几条，可以拿来当由头，也可以不用："
 RECENT_OPENING = "# 你最近发的朋友圈\n最新的在前："
 CIRCLE_OPENING = "# 圈子成员\n下面这几位会看到这条动态。挑 1 到 {likes} 位来赞，0 到 {comments} 位来评论："
@@ -252,6 +253,7 @@ class PostMaterial:
     places: Sequence[Place] = ()
     jobs: Sequence[str] = ()
     circle: Sequence[Member] = ()
+    work_status: str | None = None
     compositions: Sequence[Composition] = ()
 
 
@@ -326,6 +328,8 @@ def post_prompt(material: PostMaterial) -> list[ChatMessage]:
     told = ["\n".join(material.now)]
     if material.birthday:
         told.append(HER_BIRTHDAY)
+    if material.work_status:
+        told.append("\n".join([WORK_STATUS_OPENING, material.work_status]))
     if material.jobs:
         told.append("\n".join([JOBS_OPENING, *(f"- {job}" for job in material.jobs)]))
     if material.seeds:

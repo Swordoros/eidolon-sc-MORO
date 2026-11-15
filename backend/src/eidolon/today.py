@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character, in_idol_order
 from eidolon.japan_holidays import holiday_on
-from eidolon.producer import is_birthday
+from eidolon.producer import is_birthday, local_date
 from eidolon.world import Live, LiveDay, World
 
 TOKYO = ZoneInfo("Asia/Tokyo")
@@ -27,14 +27,15 @@ def tokyo_date(now: datetime) -> date:
 
 
 def today_lines(
-    now: datetime, character: Character, characters: Iterable[Character], world: World | None
+    now: datetime, character: Character, characters: Iterable[Character], world: World | None,
+    timezone: str = "Asia/Tokyo",
 ) -> list[str]:
     """What `character` is told of the day it is in Tokyo at `now`: her birthday, the
     birthdays of the others among `characters`, in idol order, those of her unit mates in
     `world` apart from the rest, which she is only to know of, the holiday, each if it is the
     day; then each of the days of the lives she stood on in `world` on this day in a year
     before, earliest first. Without `world`, only the birthdays and the holiday."""
-    today = tokyo_date(now)
+    today = local_date(now, timezone)
     unit_mates = world.unit_mates(character.name) if world else []
     her_lives = world.lives_of(character.name) if world else []
     lines: list[str] = []
@@ -59,12 +60,14 @@ def today_lines(
     return lines
 
 
-def venues_on_this_day(now: datetime, character: Character, world: World | None) -> list[str]:
+def venues_on_this_day(
+    now: datetime, character: Character, world: World | None, timezone: str = "Asia/Tokyo"
+) -> list[str]:
     """Where the days of the lives `character` stood on in `world` that fell on the day it
     is in Tokyo at `now`, in a year before, were, earliest first: as `today_lines` tells
     them."""
     her_lives = world.lives_of(character.name) if world else []
-    return [day.venue for _, day in _days_on_this_day(tokyo_date(now), her_lives)]
+    return [day.venue for _, day in _days_on_this_day(local_date(now, timezone), her_lives)]
 
 
 def _days_on_this_day(

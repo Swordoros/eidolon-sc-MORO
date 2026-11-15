@@ -43,6 +43,7 @@ number each time draws alike wherever it is asked."""
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from typing import Literal
 
 from eidolon.affinity import Tier
@@ -223,7 +224,9 @@ def work_time(last_done: datetime, after: datetime, random: Random) -> datetime 
     return start + timedelta(seconds=int((end - start).total_seconds() * _draw(random)))
 
 
-def draw_seeds(facts: Sequence[Fact], at: datetime, random: Random) -> list[Fact]:
+def draw_seeds(
+    facts: Sequence[Fact], at: datetime, random: Random, timezone: str = "Asia/Tokyo"
+) -> list[Fact]:
     """`SEEDS` of `facts`, or all if fewer, but for those under `RELATIONS`, in the order
     drawn; of the rest, one clearly of another part of the day than `at` is in in Tokyo
     (`seed_slot`) is held back, unless too few are left then."""
@@ -247,6 +250,7 @@ def draw_places(
     random: Random,
     roofed: bool = False,
     within: Collection[str] | None = None,
+    timezone: str = "Asia/Tokyo",
 ) -> list[Place]:
     """As many as `CANDIDATES` of `places` for her to choose from as she posts `at`: those
     right for its season and its slot in Tokyo (one with slots none late at night, before 6),
@@ -255,7 +259,7 @@ def draw_places(
     year before were) names it, and then first. The rest are drawn by weight: `LIKED` for
     a kind she `likes`, `HOLY` for one whose `idols` are hers. Of her work moment, only those
     of the kinds `within` names, or with `NEARBY` there, any in the outskirts; each as likely."""
-    local = at.astimezone(TOKYO)
+    local = at.astimezone(ZoneInfo(timezone))
     season, slot = _SEASONS[local.month], _slot(local.hour)
     left = [
         p for p in places
