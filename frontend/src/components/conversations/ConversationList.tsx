@@ -184,10 +184,6 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
         <h1 className="flex-1 text-list-title">{t.title}</h1>
-        <Button variant="outline" size="sm" onClick={() => setMaking(true)}>
-          <GroupCardIcon aria-hidden />
-          {copy.play.group.create}
-        </Button>
         <LetterButton />
         <ServiceStatusButton />
         <Announcements userId={account?.id ?? null} />
@@ -211,7 +207,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
       <div
         role="tablist"
         aria-label={t.title}
-        className="mx-4 mb-2 flex shrink-0 items-stretch border-y border-border"
+        className="mx-4 mb-3 grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-1"
       >
         <button
           type="button"
@@ -219,21 +215,24 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           aria-selected={tab === "contacts"}
           onClick={() => setTab("contacts")}
           className={cn(
-            "flex-1 py-2 text-center text-body outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-            tab === "contacts" ? "font-medium text-foreground" : "text-muted-foreground",
+            "rounded-md px-3 py-2 text-center text-body outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
+            tab === "contacts"
+              ? "bg-background font-medium text-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {t.contacts}
         </button>
-        <span aria-hidden className="my-2 w-px shrink-0 bg-border" />
         <button
           type="button"
           role="tab"
           aria-selected={tab === "groups"}
           onClick={() => setTab("groups")}
           className={cn(
-            "flex-1 py-2 text-center text-body outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-            tab === "groups" ? "font-medium text-foreground" : "text-muted-foreground",
+            "rounded-md px-3 py-2 text-center text-body outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
+            tab === "groups"
+              ? "bg-background font-medium text-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {t.groups}
@@ -332,6 +331,18 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
               </button>
             )}
           </>
+        )}
+        {tab === "groups" && (
+          <div className="p-4 pt-2">
+            <Button
+              variant="outline"
+              className="w-full justify-center"
+              onClick={() => setMaking(true)}
+            >
+              <GroupCardIcon aria-hidden />
+              {copy.play.group.create}
+            </Button>
+          </div>
         )}
       </div>
 
