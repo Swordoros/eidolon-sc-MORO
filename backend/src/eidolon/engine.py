@@ -2483,7 +2483,8 @@ class ConversationEngine:
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None and history_block is None else ""
         )
-        prompt.append(ChatMessage(
-            "user", f"{CURRENT_HEADING}\n制作人：{narration.get(None, '')}{current}{text}"
-        ))
+        said = f"{narration.get(None, '')}{current}{text}"
+        if history_block is not None:
+            said = f"{CURRENT_HEADING}\n制作人：{said}"
+        prompt.append(ChatMessage("user", said))
         return prompt

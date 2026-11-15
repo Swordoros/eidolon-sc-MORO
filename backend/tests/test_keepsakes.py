@@ -146,7 +146,10 @@ async def test_given_now_it_comes_in_the_conversation_and_the_cabinet_and_she_kn
     assert shown["missing"] == 1 and shown["can_draw"] is False
     assert unseen == {"unseen": 1}
     assert [(e["kind"], e["keepsake_id"]) for e in events] == [("keepsake", given["id"])]
-    assert "（你送给了制作人「手作的四叶草书签」。）" in llm.prompts[-1][-1].content
+    history = next(
+        m.content for m in llm.prompts[-1] if m.role == "system" and "历史对话" in m.content
+    )
+    assert "旁白：你送给了制作人「手作的四叶草书签」。" in history
     assert (await client.get(f"/api/keepsakes/{given['id']}/image")).status_code == 404
     await client.post("/api/keepsakes/seen")
     assert (await client.get("/api/keepsakes/unseen")).json() == {"unseen": 0}
@@ -484,3 +487,19 @@ async def test_a_trip_souvenir_is_not_planned_again_after_it_was_given(
     await keepsakes.run_due()
 
     assert len((await cabinet(client))["keepsakes"]) == 1
+
+
+async def test_a_given_keepsake_is_also_said_first_in_the_conversation(
+    make_client: ClientFactory, settings: Settings
+):
+    client, _, conversation = await talked(
+        make_client, settings, GIVES, reach_outs=True,
+    )
+
+    res = await client.post("/api/keepsakes/give-now", json={"character_id": "mano"})
+    entries = await record(client, conversation)
+
+    assert res.status_code == 201
+    [announced] = [e for e in entries if e.get("type") == "reach_out"]
+    assert announced["zh"] == "这个，送给制作人"
+    assert announced["ja"] == "これ、プロデューサーさんに"

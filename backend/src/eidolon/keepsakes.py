@@ -218,6 +218,9 @@ class Keepsakes:
         self._letters_on = letters_on
         self._features = features
         self._given: list[Callable[[str, str, str, datetime], Awaitable[None]]] = []
+        self._messaged: list[
+            Callable[[str, str, str, datetime, Sequence[Segment]], Awaitable[None]]
+        ] = []
         self._filling: dict[str, asyncio.Task] = {}
         self._db = db
         db.prepare(_open)
@@ -226,6 +229,14 @@ class Keepsakes:
         """Have `listener` told the user, the character, the keepsake's name and when, as she
         gives one."""
         self._given.append(listener)
+
+    def on_messaged(
+        self,
+        listener: Callable[[str, str, str, datetime, Sequence[Segment]], Awaitable[None]],
+    ) -> None:
+        """Have `listener` told the user, character, name, time and words of a keepsake's
+        giving, so that it can make her say it first in the conversation."""
+        self._messaged.append(listener)
 
     def _on(self, db: sqlite3.Connection, user_id: str) -> bool:
         return self._enabled and self._features.read_on(db, user_id, "keepsakes")
@@ -457,6 +468,15 @@ class Keepsakes:
                 )
             except Exception:
                 log.exception("telling of keepsake %s failed", keepsake_id)
+        if due.letter_id is None:
+            for listener in self._messaged:
+                try:
+                    await listener(
+                        due.user_id, due.character_id, draft.name,
+                        datetime.fromisoformat(given_at), draft.said,
+                    )
+                except Exception:
+                    log.exception("announcing keepsake %s failed", keepsake_id)
 
     async def can_draw(self, user_id: str) -> bool:
         """Whether the user's keepsakes' pictures are drawn: on the deployer's GPT Image where

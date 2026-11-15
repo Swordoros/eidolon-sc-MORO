@@ -44,7 +44,7 @@ import asyncio
 import logging
 import re
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -63,6 +63,7 @@ from eidolon.store import (
     CurrentConversation,
     Message,
     ReachOut,
+    Segment,
     ReachOutRefused,
     Store,
     read_profile,
@@ -241,6 +242,51 @@ class ReachOuts:
                     await self._reach_out(found, now)
             except Exception:
                 log.exception("reaching out in conversation %s failed", found.conversation.id)
+
+    async def keepsake_given(
+        self, user_id: str, character_id: str, name: str, at: datetime,
+        said: Sequence[Segment],
+    ) -> bool:
+        """Have her say `said` first in the current conversation, where a keepsake was just
+        given: a reach-out of its own, not a scheduled one, so it still respects the user's
+        switch and never lands in a turn or a call. False if it could not be said."""
+        if not self._config.reach_outs.enabled:
+            return False
+        if not await self._db.read(_switched_on, user_id):
+            return False
+        current = next(
+            (c for c in await self._store.current_conversations()
+             if c.conversation.user_id == user_id
+             and c.conversation.character_id == character_id),
+            None,
+        )
+        if current is None or current.ended or not current.has_turns:
+            return False
+        if current.last_contact is None or self._clock() - current.last_contact > WINDOW:
+            return False
+        last = await self._db.read(_last_reached_out, user_id)
+        if last is not None and self._clock() - last < MIN_GAP:
+            return False
+        if self._talking(current.conversation.id):
+            return False
+        recording = self._activity.begin(
+            "reach_out", user_id, character_id, own_llm=False, exempt=False,
+        )
+        try:
+            reach_out = await self._store.add_reach_out(
+                current.conversation.id, list(said), current.last_contact, False,
+                at.astimezone(UTC).isoformat(),
+            )
+        except ReachOutRefused:
+            await recording.finish("rejected")
+            return False
+        except Exception:
+            log.exception("announcing keepsake %s failed", name)
+            await recording.finish("failed")
+            return False
+        await recording.finish("success")
+        await self._store.reach_out_recorded_as(reach_out.id, recording.row_id)
+        return True
 
     async def switch_of(self, user_id: str) -> bool | None:
         """Whether the user has their own switch on, as it is by default; None where the

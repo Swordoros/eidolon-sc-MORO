@@ -612,6 +612,7 @@ def build(
         database, store, engine, characters, config, affinities, activity,
         calls.in_call, clock, random or secure_random,
     )
+    keepsakes.on_messaged(reach_outs.keepsake_given)
     schedule_writer = ScheduleWriter(
         daily, store, engine, characters, config, activity, clock,
         random or secure_random, settings.schedules,
