@@ -17,6 +17,7 @@ import {
 } from "@/lib/localOwnKeys";
 import type { LLMOffer, LLMProvider } from "@/lib/llmProviders";
 import type { EffortHint } from "@/lib/reasoningEffort";
+import { getListening } from "@/lib/musicListening";
 import type { ServedBody } from "@/lib/barMixer";
 import type { VisitEvent } from "@/lib/barVisit";
 import type { Letter, LetterSummary } from "@/lib/letter";
@@ -1178,10 +1179,16 @@ export async function getCallSetup(conversationId: string, own: readonly OwnServ
  * server-sent events as they arrive.
  */
 export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
+  const listening = getListening();
   const res = await api(`/api/conversations/${conversationId}/turns?segment_complete=1`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, own_keys: turnOwnKeys(userId), read_aloud_model: readAloudModel(userId) }),
+    body: JSON.stringify({
+      text,
+      own_keys: turnOwnKeys(userId),
+      read_aloud_model: readAloudModel(userId),
+      ...(listening ? { listening } : {}),
+    }),
   });
   yield* serverSentEvents<TurnEvent>(res);
 }

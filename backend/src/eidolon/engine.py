@@ -1514,6 +1514,7 @@ class ConversationEngine:
         voiced_by: FishAudioModel | None = None,
         own_image: ImageSettings | None = None,
         opening: bool = False,
+        listening: str | None = None,
     ) -> AsyncGenerator[TurnEvent, None]:
         """Take one turn on `llms`, `in_call` if it is taken in one, its reply voiced with
         `voiced_by` (for a text turn's, the model it would be read aloud with, GLOSSARY.md
@@ -1525,6 +1526,7 @@ class ConversationEngine:
         first, woken by it (GLOSSARY.md「行程」) or in the tub, and the turn is recorded with
         the user's words blank."""
         text = "" if opening else text.strip()
+        listening = " ".join(listening.split())[:120] if listening else None
         yield UserSaid(text)
         if not opening and (not text or len(text) > MAX_INPUT_LENGTH):
             yield TurnRejected(TOO_LONG if text else BLANK)
@@ -1537,7 +1539,7 @@ class ConversationEngine:
             with taking:
                 async for event in self._reply(
                     conversation, text, llms, device_timezone, stop, in_call, voiced_by, photo,
-                    opening,
+                    opening, listening,
                 ):
                     yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
@@ -1562,6 +1564,7 @@ class ConversationEngine:
         voiced_by: FishAudioModel | None,
         photo: _Photo,
         opening: bool = False,
+        listening: str | None = None,
     ) -> AsyncIterator[TurnEvent]:
         # The database is read and written on threads all through the turn: waiting on it
         # on the event loop would keep everyone's calls on it from going on meanwhile.
@@ -1711,6 +1714,7 @@ class ConversationEngine:
                     known_weather,
                 ),
                 *known_schedule,
+                *([f"制作人现在正在听：{listening}。"] if listening else []),
                 *promises_due.lines,
                 *_moments_told(known, now, timezone, affinity),
                 *_letters_told(read.letters),

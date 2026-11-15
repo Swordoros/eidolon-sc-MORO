@@ -5,6 +5,7 @@
 // interrupt it.
 
 import { musicLookup } from "@/lib/music";
+import { setListening } from "@/lib/musicListening";
 
 /** What happens when a song ends: play the next one, repeat this one, or pick one at random. */
 export type PlayMode = "sequence" | "repeat-one" | "shuffle";
@@ -71,6 +72,11 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+/** The line the chat prompt gets while this song plays; singers after the title if any. */
+function listeningText(title: string, singers: string[]): string {
+  return singers.length > 0 ? `${title} · ${singers.join(" / ")}` : title;
+}
+
 async function start(index: number): Promise<boolean> {
   const item = queue[index];
   if (!item) return false;
@@ -105,6 +111,7 @@ async function start(index: number): Promise<boolean> {
     paused: false,
     unplayable: false,
   };
+  setListening(listeningText(current.title, current.singers));
   emit();
   return true;
 }
@@ -164,18 +171,21 @@ export const musicPlayback = {
       songId, title, singers, neteaseId, alternatives, at: 0, duration: 0, paused: false,
       unplayable: false,
     };
+    setListening(listeningText(title, singers));
     emit();
   },
   /** Pause without losing the queue or the position. */
   pause(): void {
     if (current === null || current.paused) return;
     current = { ...current, paused: true };
+    setListening(null);
     emit();
   },
   /** Resume the paused song. */
   resume(): void {
     if (current === null || !current.paused) return;
     current = { ...current, paused: false };
+    setListening(listeningText(current.title, current.singers));
     emit();
   },
   togglePaused(): void {
@@ -225,13 +235,18 @@ export const musicPlayback = {
     if (current === null || current.unplayable) return;
     blocked.add(current.songId);
     current = { ...current, unplayable: true, paused: true };
+    setListening(null);
     emit();
   },
   /** 停下来。她的语音开口、通话接通，都会调这个。 */
   stop(): void {
-    if (current === null) return;
+    if (current === null) {
+      setListening(null);
+      return;
+    }
     current = null;
     seekRequest = null;
+    setListening(null);
     emit();
   },
 };

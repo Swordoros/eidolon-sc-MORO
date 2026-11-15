@@ -26,6 +26,7 @@ async def send_turn(
     *,
     own_keys: dict | None = None,
     read_aloud_model: str | None = None,
+    listening: str | None = None,
     segment_complete: bool = False,
 ) -> list[dict]:
     """Send a text turn, bringing the user's `own_keys` if given, or else their `own_llm`
@@ -36,7 +37,7 @@ async def send_turn(
     own_keys = own_keys or ({"llm": own_llm} if own_llm else None)
     body = {"text": text} | ({"own_keys": own_keys} if own_keys else {}) | (
         {"read_aloud_model": read_aloud_model} if read_aloud_model else {}
-    )
+    ) | ({"listening": listening} if listening else {})
     query = "?segment_complete=1" if segment_complete else ""
     async with client.stream(
         "POST", f"/api/conversations/{conversation_id}/turns{query}", json=body
@@ -257,3 +258,18 @@ async def test_reply_cut_off_inside_a_closing_tag_keeps_only_the_text(
     events = await send_turn(client, conversation_id, "好吗")
 
     assert events[-1]["message"]["segments"] == [{"ja": "はいっ", "zh": "好的"}]
+
+
+async def test_the_prompt_tells_her_what_the_producer_is_listening_to(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>その曲、いいですね</ja><zh>那首歌，真好呢</zh>"])
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    await send_turn(
+        client, conversation_id, "晚上好", listening="アルストロメリア · 大崎甘奈",
+    )
+
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "制作人现在正在听：アルストロメリア · 大崎甘奈。" in told

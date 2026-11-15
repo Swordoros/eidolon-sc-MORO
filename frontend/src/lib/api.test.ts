@@ -17,6 +17,7 @@ import {
   type TurnEvent,
 } from "@/lib/api";
 import { keepOwnKey, localOwnKeys } from "@/lib/localOwnKeys";
+import { setListening } from "@/lib/musicListening";
 
 describe("redirectFor", () => {
   it("sends a browser that is not signed in to the landing page, to sign in there", () => {
@@ -179,6 +180,21 @@ describe("sendTurn", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_keys: { llm } });
     expect(JSON.parse(fetch.mock.calls[1][1].body as string)).toEqual({ text: "おはよう" });
+  });
+
+  it("tells the backend what the producer is listening to", async () => {
+    const fetch = answerWith([]);
+    setListening("アルストロメリア · 大崎甘奈");
+    try {
+      await events("c1", "晚上好");
+    } finally {
+      setListening(null);
+    }
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({
+      text: "晚上好",
+      listening: "アルストロメリア · 大崎甘奈",
+    });
   });
 
   it("names the model of the user's own key for speech synthesis, but brings not the key", async () => {

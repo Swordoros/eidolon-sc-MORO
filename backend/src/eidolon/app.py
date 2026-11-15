@@ -139,6 +139,9 @@ class MemoryScopeInput(BaseModel):
 
 class TurnInput(BaseModel):
     text: str
+    listening: str | None = Field(default=None, max_length=120)
+    """What the producer is listening to as they write, if the song page is playing one;
+    put before her as what he is doing now."""
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the turn to run on; the shape
     calls bring too. A turn uses only the LLMs and image generation, voice keys brought
@@ -778,7 +781,7 @@ def create_app(backend: Backend) -> FastAPI:
                 async with aclosing(engine.turn(
                     conversation, body.text, admission.llms, device_timezone,
                     voiced_by=backend.own_keys.read_aloud_model(body.read_aloud_model),
-                    own_image=brought.image,
+                    own_image=brought.image, listening=body.listening,
                 )) as turn:
                     async for event in turn:
                         outcome.see(event)

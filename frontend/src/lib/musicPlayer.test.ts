@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { musicPlayback } from "@/lib/musicPlayer";
+import { getListening } from "@/lib/musicListening";
 
 describe("跨页面的歌曲播放状态", () => {
   beforeEach(() => {
@@ -115,6 +116,17 @@ describe("跨页面的歌曲播放状态", () => {
     const before = musicPlayback.mode();
     musicPlayback.cycleMode();
     expect(musicPlayback.mode()).not.toBe(before);
+  });
+
+  it("keeps the prompt's listening line only while the song is playing", () => {
+    musicPlayback.play("song-1", "星", "1", [], undefined, 0, ["大崎甘奈"]);
+    expect(getListening()).toBe("星 · 大崎甘奈");
+    musicPlayback.pause();
+    expect(getListening()).toBeNull();
+    musicPlayback.resume();
+    expect(getListening()).toBe("星 · 大崎甘奈");
+    musicPlayback.stop();
+    expect(getListening()).toBeNull();
   });
 
   it("pauses and resumes without losing the song", () => {
