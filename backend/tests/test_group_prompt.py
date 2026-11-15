@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from eidolon.group_context import GroupMemberNow, GroupNow
 from eidolon.group_prompt import history_block
-from eidolon.groups import Line, Member, _say_prompt
+from eidolon.groups import Line, Member, _say_prompt, _topic_prompt
 
 
 def test_group_history_has_relative_time_and_no_producer_state():
@@ -39,3 +39,10 @@ def test_group_now_lines_only_the_group_world():
     lines = "\n".join(group.lines())
     assert "真乃：现在在宿舍休息" in lines
     assert "制作人" not in lines
+
+
+def test_topic_prompt_ends_with_the_task():
+    member = Member("mano", "真乃", "i", "s", "真乃")
+    prompt = _topic_prompt("system", member, [member], [], "names", [], "")
+    told = prompt[-1].content
+    assert told.rstrip().endswith("不要写「新话题：」这样的前缀。")

@@ -1290,7 +1290,7 @@ def _topic_prompt(
         "<zh> 是这句日语的中文翻译；专有名词和拟声词可以保留原文，其余都要译成中文、不要夹日语；"
         "「ちゃん」「さん」这类称呼译成「酱」「小姐」或省略；不要留孤零零的假名；只输出这一组标签。"
     )
-    return [ChatMessage("system", f"{system}\n群里的其他人：{others}"), ChatMessage("user", user)]
+    return [ChatMessage("system", f"{system}\n群里的其他人：{others}"), ChatMessage("user", user + "\n现在直接写出你的新话题，不要解释，也不要写「新话题：」这样的前缀。")]
 
 
 def _say_prompt(
