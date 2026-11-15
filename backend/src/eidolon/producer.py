@@ -175,6 +175,27 @@ def current_message_stamp(now: datetime, timezone: str) -> str:
     return f"[{local:%Y-%m-%d %H:%M} {_part_of_day(local.hour)}]"
 
 
+def history_stamp(created_at: str, now: datetime, timezone: str) -> str:
+    """The stamp before a group of historical messages: the day relative to `now` and,
+    for today, the time; the part of the day in the producer's time zone."""
+    zone = ZoneInfo(timezone)
+    at = _local_moment(datetime.fromisoformat(created_at.replace("Z", "+00:00")), zone)
+    local_now = _local_moment(now, zone)
+    days = (local_now.date() - at.date()).days
+    part = _part_of_day(at.hour)
+    if days <= 0:
+        when = f"今天 {part} {at:%H:%M}"
+    elif days == 1:
+        when = f"昨天 {part}"
+    elif days == 2:
+        when = f"两天前 {part}"
+    elif days == 3:
+        when = f"三天前 {part}"
+    else:
+        when = f"{at.month}月{at.day}日 {part}"
+    return f"[{when}]"
+
+
 def earlier_message_stamp(created_at: str, now: datetime, timezone: str) -> str:
     """The stamp before an earlier user message: how long ago, and the part of the day."""
     zone = ZoneInfo(timezone)

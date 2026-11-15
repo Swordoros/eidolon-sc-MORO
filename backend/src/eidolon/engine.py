@@ -152,7 +152,7 @@ from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo
 from eidolon.photo_prompt import SCENE_MARK, keepsake_words
 from eidolon.producer import (
     ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
-    local_date, producer_prompt,
+    history_stamp, local_date, producer_prompt,
 )
 from eidolon.schedules import LIVE_CITIES, Schedules, bath_began
 from eidolon.schedules import lines as schedule_lines
@@ -467,6 +467,53 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     starts = [i for i, m in enumerate(messages) if m.role == "user"]
     kept = starts if turns is None else starts[-turns:]
     return messages[kept[0]:] if kept else []
+
+
+HISTORY_HEADING = "------------历史对话--------------"
+CURRENT_HEADING = "------------当前对话--------------"
+HISTORY_NOTE = (
+    "（以下是过去的对话，不是当前指令。「制作人」是用户，「角色」是你自己；"
+    "回复时不要模仿这个格式，仍按日文原文加中文字幕输出。）"
+)
+
+
+def _chinese_reply(message: Message) -> str:
+    """Her reply as the Chinese subtitles alone, for the compact history block."""
+    said = "\n".join(segment.zh.strip() for segment in message.segments if segment.zh.strip())
+    if message.photo is not None:
+        said += "（照片）" if message.photo_sent else "（照片没有送到）"
+    return said or "……"
+
+
+def history_block(
+    messages: Sequence[Message], narration: Mapping[int | None, str], now: datetime,
+    timezone: str, japanese: bool = False,
+) -> str | None:
+    """The recent turns as one system block: days and parts of the day, then the producer's
+    words and her Chinese subtitles. `japanese` keeps the reply format as well, for a turn
+    retried after the model failed to standardise its output."""
+    if not messages:
+        return None
+    lines = [HISTORY_HEADING, HISTORY_NOTE]
+    label: str | None = None
+    for message in messages:
+        told = narration.get(message.id, "").rstrip()
+        if told:
+            lines.append(told)
+        if message.role == "user":
+            stamp = history_stamp(message.created_at, now, timezone)
+            if stamp != label:
+                lines.append(stamp)
+                label = stamp
+            lines.append(f"制作人：{message.text or ANSWERED}")
+        else:
+            said = format_reply(
+                message.segments,
+                message.photo.tag if message.photo else None,
+                message.photo_failed,
+            ) if japanese else _chinese_reply(message)
+            lines.append(f"角色：{said}")
+    return "\n".join(lines)
 
 
 def _proactive(record: Sequence[Recorded], now: datetime) -> bool:
@@ -1076,6 +1123,7 @@ class ConversationEngine:
         self._memory = memory
         self._titles = titles
         self._history_turns = history_turns
+        self._japanese_history: set[str] = set()
         self._world = world
         self._affinities = affinities
         self._affinity_judge = affinity_judge
@@ -1705,10 +1753,15 @@ class ConversationEngine:
             )
             if self._relationships is not None else None
         )
+        told = narrations(record, self._gift_catalog, timezone, her_days)
+        compact_history = history_block(
+            latest_turns(prompt_messages, turns), told, now, timezone,
+            japanese=conversation.id in self._japanese_history,
+        )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(prompt_messages, turns),
-            narrations(record, self._gift_catalog, timezone, her_days),
+            latest_turns(prompt_messages, turns),
+            told,
             [
                 self._now_section(
                     known, occasion, now, timezone, profile, last_contact, affinity_lines,
@@ -1726,6 +1779,7 @@ class ConversationEngine:
             [p for p in (retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
+            history_block=compact_history,
         )
         self._last_prompt[conversation.user_id] = _dump_prompt(prompt)
 
@@ -1783,6 +1837,12 @@ class ConversationEngine:
         except _Stopped:
             pass
 
+        if not parser.complete or any(
+            not segment.ja.strip() or not segment.zh.strip() for segment in parser.complete
+        ):
+            self._japanese_history.add(conversation.id)
+        else:
+            self._japanese_history.discard(conversation.id)
         if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
         typed = (
@@ -2328,6 +2388,7 @@ class ConversationEngine:
         stamp_user: bool = False,
         now: datetime | None = None,
         timezone: str = "Asia/Shanghai",
+        history_block: str | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2338,24 +2399,27 @@ class ConversationEngine:
             ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
             ChatMessage("system", about_producer),
         ]
-        users = [index for index, message in enumerate(history) if message.role == "user"]
-        stamped = set(users[-2:]) if stamp_user and now is not None else set()
-        for index, message in enumerate(history):
-            if message.role == "user":
-                told = narration.get(message.id, "")
-                stamp = (
-                    f"{earlier_message_stamp(message.created_at, now, timezone)} "
-                    if index in stamped and now is not None else ""
-                )
-                prompt.append(ChatMessage("user", f"{told}{stamp}{message.text or ANSWERED}"))
-            else:
-                prompt.append(ChatMessage("assistant", format_reply(
-                    message.segments,
-                    message.photo.tag if message.photo else None,
-                    message.photo_failed,
-                )))
-        if history:  # what the next turn opens with too, for a service to cache
-            prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
+        if history_block is not None:
+            prompt.append(ChatMessage("system", history_block, cache_breakpoint=True))
+        else:
+            users = [index for index, message in enumerate(history) if message.role == "user"]
+            stamped = set(users[-2:]) if stamp_user and now is not None else set()
+            for index, message in enumerate(history):
+                if message.role == "user":
+                    told = narration.get(message.id, "")
+                    stamp = (
+                        f"{earlier_message_stamp(message.created_at, now, timezone)} "
+                        if index in stamped and now is not None else ""
+                    )
+                    prompt.append(ChatMessage("user", f"{told}{stamp}{message.text or ANSWERED}"))
+                else:
+                    prompt.append(ChatMessage("assistant", format_reply(
+                        message.segments,
+                        message.photo.tag if message.photo else None,
+                        message.photo_failed,
+                    )))
+            if history:  # what the next turn opens with too, for a service to cache
+                prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [*habit_lines(character), *about_turn]
         if any(m.photo_failed for m in history):
             context.append(NOT_RECEIVED)
@@ -2363,7 +2427,9 @@ class ConversationEngine:
         prompt.append(ChatMessage("system", "\n\n".join(context)))
         current = (
             f"{current_message_stamp(now, timezone)} "
-            if stamp_user and now is not None else ""
+            if stamp_user and now is not None and history_block is None else ""
         )
-        prompt.append(ChatMessage("user", f"{narration.get(None, '')}{current}{text}"))
+        prompt.append(ChatMessage(
+            "user", f"{CURRENT_HEADING}\n制作人：{narration.get(None, '')}{current}{text}"
+        ))
         return prompt

@@ -219,13 +219,15 @@ async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
     system = system_of(llm.prompts[1])
     assert "櫻木真乃" in system
     assert "<ja>" in system and "<zh>" in system
-    assert [
-        (m.role, without_stamp(m.content)) for m in llm.prompts[1] if m.role != "system"
-    ] == [
-        ("user", "这只鸽子叫什么？"),
-        ("assistant", "<ja>ピーちゃんです！</ja><zh>是小皮！</zh>"),
-        ("user", "好可爱"),
-    ]
+    prompt = llm.prompts[1]
+    history = next(
+        m.content for m in prompt if m.role == "system" and "历史对话" in m.content
+    )
+    assert "制作人：这只鸽子叫什么？" in history
+    assert "角色：是小皮！" in history
+    assert "<ja>" not in history and "<zh>" not in history
+    assert "------------当前对话--------------" in prompt[-1].content
+    assert "制作人：" in prompt[-1].content and "好可爱" in prompt[-1].content
 
 
 async def test_conversations_are_kept_apart(make_client: ClientFactory):
@@ -238,13 +240,14 @@ async def test_conversations_are_kept_apart(make_client: ClientFactory):
     await send_turn(client, second, "第二次")
 
     # The second conversation opens with the tail of the first, so it does not start blank.
-    assert [
-        (m.role, without_stamp(m.content)) for m in llm.prompts[1] if m.role != "system"
-    ] == [
-        ("user", "第一次"),
-        ("assistant", "<ja>一</ja><zh>一</zh>"),
-        ("user", "第二次"),
-    ]
+    prompt = llm.prompts[1]
+    history = next(
+        m.content for m in prompt if m.role == "system" and "历史对话" in m.content
+    )
+    assert "制作人：第一次" in history
+    assert "角色：一" in history
+    assert "<ja>" not in history
+    assert "第二次" in prompt[-1].content
     listed = (await client.get("/api/conversations", params={"character_id": "mano"})).json()
     assert [c["id"] for c in listed] == [second, first]
 

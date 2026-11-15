@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from eidolon.producer import current_message_stamp, earlier_message_stamp
+from eidolon.producer import current_message_stamp, earlier_message_stamp, history_stamp
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -29,7 +29,16 @@ def test_earlier_message_stamp_says_how_long_ago_and_that_messages_part_of_day()
     assert earlier_message_stamp("2026-11-12T10:10:00+00:00", now, "Asia/Shanghai") == "[11月12日 18:10 傍晚]"
 
 
-async def test_the_latest_user_message_is_stamped_and_the_two_before_it_are_relative(
+def test_history_stamps_use_relative_days_and_the_part_of_the_day():
+    now = datetime(2026, 11, 14, 15, 35, tzinfo=SHANGHAI)
+
+    assert history_stamp("2026-11-14T06:50:00+00:00", now, "Asia/Shanghai") == "[今天 下午 14:50]"
+    assert history_stamp("2026-11-14T04:20:00+00:00", now, "Asia/Shanghai") == "[今天 中午 12:20]"
+    assert history_stamp("2026-11-13T13:10:00+00:00", now, "Asia/Shanghai") == "[昨天 晚上]"
+    assert history_stamp("2026-11-12T10:10:00+00:00", now, "Asia/Shanghai") == "[两天前 傍晚]"
+
+
+async def test_history_is_one_chinese_block_with_relative_days_and_the_latest_turn(
     make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch,
 ):
     clock = FakeClock(datetime(2026, 11, 14, 4, 0, tzinfo=timezone.utc))
@@ -49,7 +58,12 @@ async def test_the_latest_user_message_is_stamped_and_the_two_before_it_are_rela
     clock.now = datetime(2026, 11, 14, 7, 35, tzinfo=timezone.utc)
     await send_turn(client, conversation, "第三句")
 
-    contents = [m.content for m in llm.prompts[-1]]
-    assert contents[-1] == "[2026-11-14 15:35 下午] 第三句"
-    assert "[3小时前 中午] 第一句" in contents
-    assert "[45分钟前 下午] 第二句" in contents
+    prompt = llm.prompts[-1]
+    contents = [m.content for m in prompt]
+    history = next(m.content for m in prompt if m.role == "system" and "历史对话" in m.content)
+    assert "[今天 中午 12:00]" in history
+    assert "[今天 下午 14:50]" in history
+    assert "制作人：第一句" in history and "角色：好的" in history
+    assert "制作人：第二句" in history
+    assert "<ja>" not in history and "<zh>" not in history
+    assert contents[-1] == "------------当前对话--------------\n制作人：第三句"
