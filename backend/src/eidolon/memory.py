@@ -1604,23 +1604,23 @@ def _memories_prompt(
                     lines.append(f"- {text}（{when}，制作人对你说的）")
                 else:
                     lines.append(
-                        f"- {text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
-                        f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
+                        f"- {text}（{when}，制作人对{name}说的；你知道这件事，"
+                        "但不要把它说成你亲历的，需要提及时自然带过）"
                     )
             elif subject == "both":
                 if memory.source_character_id == character.id:
                     lines.append(f"- {text}（{when}，是你们一起经历的）")
                 else:
                     lines.append(
-                        f"- {text}（{when}，是{name}和制作人一起经历的，你是听{name}说的："
-                        f"提起时要用转述的口吻，不要说成是你自己的经历）"
+                        f"- {text}（{when}，是{name}和制作人一起经历的；你知道这件事，"
+                        "但不要声称自己也在场，需要提及时自然带过）"
                     )
             elif memory.source_character_id == character.id:
                 lines.append(f"- {text}（{when}，是你自己说的）")
             else:
                 lines.append(
-                    f"- {text}（{when}，是{name}自己说的，你是听{name}说的：提起时要用转述的口吻，"
-                    f"例如「听{name}说……」，不要说成是你自己的经历）"
+                    f"- {text}（{when}，是{name}自己说的；你知道她说过这件事，"
+                    "不要当成你自己的经历，需要提及时自然带过）"
                 )
         sections.append("\n".join(lines))
     return "\n\n".join(sections)

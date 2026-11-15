@@ -153,7 +153,8 @@ async def test_what_the_user_told_mano_reaches_kogane_as_hearsay(
     section = await find(memories, world, await world.conversation("kogane"), "你知道我家的猫吗？")
 
     line = line_of(section, CAT)
-    assert "櫻木真乃" in line and "转述" in line
+    assert "櫻木真乃" in line and "知道这件事" in line
+    assert "听说" not in line
     assert "（今天，制作人对櫻木真乃说的" in line
 
 
@@ -203,7 +204,8 @@ async def test_a_memory_told_to_a_character_since_removed_is_hearsay_from_anothe
     [cat] = await memories.entries(world.producer)
     await memories.aclose()
 
-    assert "听事务所的另一位偶像说" in line_of(section, CAT)
+    assert "对事务所的另一位偶像说的" in line_of(section, CAT)
+    assert "知道这件事" in line_of(section, CAT)
     assert (cat.source_character_id, cat.source_character_name) == ("mano", None)
 
 
@@ -703,7 +705,8 @@ async def test_a_new_memory_supersedes_what_it_updates_whoever_it_was_told_to(
 
     assert await listed(memories, world) == {TOKYO: None, DOG: None, OSAKA: TOKYO}
     section = await find(memories, world, await world.conversation("mano"), "你知道我住在哪吗？")
-    assert TOKYO in section and "听月岡恋鐘说" in line_of(section, TOKYO)
+    assert TOKYO in section and "对月岡恋鐘说的" in line_of(section, TOKYO)
+    assert "知道这件事" in line_of(section, TOKYO)
     assert OSAKA not in section and DOG in section
 
 
