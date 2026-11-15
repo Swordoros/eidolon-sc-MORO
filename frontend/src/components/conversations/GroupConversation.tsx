@@ -374,10 +374,8 @@ export function GroupConversation({
             <SendIcon aria-hidden className="size-5" />
           </Button>
         </div>
-        {(busy === "sending" || open) && (
-          <p className="mt-1 text-meta text-muted-foreground">
-            {busy === "sending" ? t.sending : t.raising}
-          </p>
+        {busy === "sending" && (
+          <p className="mt-1 text-meta text-muted-foreground">{t.sending}</p>
         )}
       </div>
 

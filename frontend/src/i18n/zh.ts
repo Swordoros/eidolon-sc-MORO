@@ -2258,7 +2258,6 @@ export const zh = {
       /** 成员数。 */
       status: (n: number) => `${n} 位成员`,
       raise: "抛个话题",
-      raising: "正在聊……",
       empty: "还没有聊过，等着谁先开口。",
       placeholder: "说点什么……",
       send: "发送",
