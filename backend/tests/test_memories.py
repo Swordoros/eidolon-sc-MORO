@@ -625,8 +625,10 @@ def superseding(text: str, *old: str) -> Callable[[str], str]:
     by the numbers it was shown them under."""
     def answer(prompt: str) -> str:
         numbers = [known(prompt)[o] for o in old]
-        return json.dumps({"memories": [{"text": text, "supersedes": numbers}]},
-                          ensure_ascii=False)
+        return json.dumps(
+            {"memories": [{"text": text, "supersedes": numbers, "scope": "shared"}]},
+            ensure_ascii=False,
+        )
     return answer
 
 

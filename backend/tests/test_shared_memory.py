@@ -26,7 +26,12 @@ TRIP = "制作人10月3日要去北海道出差"
 
 
 def memorized(*texts: str) -> str:
-    return json.dumps({"memories": list(texts)}, ensure_ascii=False)
+    """A background answer that writes down `texts` as explicitly shared, for the tests
+    about one character's memory reaching another."""
+    return json.dumps(
+        {"memories": [{"text": text, "scope": "shared"} for text in texts]},
+        ensure_ascii=False,
+    )
 
 
 def memories_section(system: str) -> str:

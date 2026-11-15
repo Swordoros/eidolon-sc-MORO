@@ -169,8 +169,8 @@ class Memory:
     """The memory that superseded it, None while it holds (ADR-0014)."""
     conversation_id: str | None = None
     """The conversation it was told in; None if that is not known or no longer there."""
-    scope: Scope = "shared"
-    """How widely it is shared (GLOSSARY.md「记忆」); `shared` where the source has no unit."""
+    scope: Scope = "private"
+    """How widely it is shared (GLOSSARY.md「记忆」); private is the safe default."""
     emotion: str | None = None
     """The feeling she had about it as she wrote it down (GLOSSARY.md「记忆」); None without one."""
     strength: float = 1.0
@@ -203,7 +203,7 @@ class CarriedMemory:
     superseded_by: PackageKey | None
     conversation_id: str | None
     """The conversation here it was told in, None if it is not here."""
-    scope: Scope = "shared"
+    scope: Scope = "private"
     """How widely it is shared (GLOSSARY.md「记忆」), as the package carried it."""
     subject: Subject = "producer"
     """What it is about, as the package carried it."""
@@ -1320,7 +1320,7 @@ _INSTRUCTIONS = """\
 比如制作人夸她、她和制作人偷偷的约会。
 - unit（群组）：她会主动跟同组合的伙伴分享、但不会到处说的事——比如今天和制作人一起吃饭很开心这种普通的近况。
 - shared（共享）：她愿意让所有偶像都知道的事——比如公开场合的成绩、没什么敏感度的事实。
-拿不准就写 shared。self 和 both 的 scope 必须是 private，不能写 unit 或 shared。
+拿不准就写 private。只有明确公开、愿意让所有偶像知道的事才写 shared；self 和 both 的 scope 必须是 private，不能写 unit 或 shared。
 
 每条记忆还要标 emotion、tier 和 subject：
 - emotion 是她记下这件事时的感情，用一两个词（开心、难过、生气、担心、怀念、平静…）；没有明显感情就写「平静」。
@@ -1330,7 +1330,7 @@ _INSTRUCTIONS = """\
 
 只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self|both", "evidence": "原话……", \
 "supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
-"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 shared；\
+"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 private；\
 没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
 都没有就输出 {"memories": [], "promises": [], "promise_changes": [], "moment": null}。
 
@@ -1430,7 +1430,7 @@ class NewMemory:
     supersedes: tuple[int, ...] = ()
     """The numbers it was shown the memories this one supersedes under, counting from 1;
     any it was not shown are left for `Memories._add` to ignore."""
-    scope: Scope = "shared"
+    scope: Scope = "private"
     """How widely it is shared (GLOSSARY.md「记忆」), as the background model judged it."""
     emotion: str | None = None
     """The feeling she had about it (GLOSSARY.md「记忆」); None without one."""
@@ -1467,7 +1467,7 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
         numbers = supersedes if isinstance(supersedes, list) else []
         written.setdefault(text, NewMemory(
             text, tuple(dict.fromkeys(n for n in numbers if type(n) is int)),
-            scope if scope in SCOPES else "shared",
+            scope if scope in SCOPES else "private",
             emotion if isinstance(emotion, str) and emotion.strip() else None,
             tier if tier in TIERS else "medium",
             subject if subject in SUBJECTS else "producer",

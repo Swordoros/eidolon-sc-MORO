@@ -43,7 +43,7 @@ def test_the_model_names_how_widely_each_memory_is_shared():
     )
     assert [(m.text, m.scope) for m in wrote] == [
         ("制作人养了一只猫", "private"),
-        ("制作人喜欢喝咖啡", "shared"),  # left out: shared
+        ("制作人喜欢喝咖啡", "private"),  # omitted scope falls back to private
     ]
 
 
