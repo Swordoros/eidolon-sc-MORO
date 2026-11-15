@@ -58,7 +58,6 @@ import {
   type GroupPrompt,
   type GroupTopic,
 } from "@/lib/group";
-import { formatTimestamp } from "@/lib/timestamp";
 import { forgetDraft, groupDraftKey, keepDraft, loadDraft } from "@/lib/composerDraft";
 import { cn } from "@/lib/utils";
 import {
@@ -535,12 +534,6 @@ function TopicBlock({
   const lines = entry.lines;
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-meta text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
-        <span>{t.newTopic}</span>
-        <span>{formatTimestamp(entry.topic.created_at, { format: "auto", now: new Date() })}</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
       {lines.map((line, index) => {
         const mine = line.color === null;
         const first = index === 0 || lines[index - 1].speaker !== line.speaker;
