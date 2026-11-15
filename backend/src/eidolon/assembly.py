@@ -1,4 +1,4 @@
-"""The assembly root: from settings to the running backend, and back down again.
+﻿"""The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
 characters and the world setting and gift catalog beside them, the identity providers users sign in with, the chat and background models,
@@ -138,7 +138,7 @@ class Backend:
     gift_catalog: dict[str, Gift]
     """The gift catalog, by identifier."""
     bar: Bar
-    """The bar, and every user's visit under way (GLOSSARY.md「酒吧」「光顾」)."""
+    """The bar, and every user's visit under way (GLOSSARY.md銆岄厭鍚с€嶃€屽厜椤俱€?."""
     memories: Memories
     titles: Titles
     """Names conversations after their third turn."""
@@ -150,7 +150,7 @@ class Backend:
     """The speech services calls hear and speak with."""
     own_keys: OwnKeys
     read_aloud: ReadAloud
-    """Reads her words aloud as users ask (GLOSSARY.md「朗读」)."""
+    """Reads her words aloud as users ask (GLOSSARY.md銆屾湕璇汇€?."""
     admissions: Admissions
     """Lets text turns and calls begin, and settles them."""
     accounts: Accounts
@@ -169,7 +169,7 @@ class Backend:
     affinities: Affinities
     """Every user's affinity with every character, where it is on."""
     features: Features
-    """Each user's own switches for the features (GLOSSARY.md「玩法开关」)."""
+    """Each user's own switches for the features (GLOSSARY.md銆岀帺娉曞紑鍏炽€?."""
     gifts: Gifts
     """Every user's draw chances, backpack and reset cards, where gifts are open."""
     happenings: Happenings
@@ -203,9 +203,9 @@ class Backend:
     schedules: Schedules
     """Each week's jobs and every producer's schedule, where schedules are on."""
     schedule_writer: ScheduleWriter
-    """Writes each character's schedule for each day (GLOSSARY.md「行程」), where they are on."""
+    """Writes each character's schedule for each day (GLOSSARY.md銆岃绋嬨€?, where they are on."""
     daily: DailySchedules
-    """Each character's schedule for each day (GLOSSARY.md「行程」), read and written."""
+    """Each character's schedule for each day (GLOSSARY.md銆岃绋嬨€?, read and written."""
     cycles: Cycles
     """Where each user's each character's cycle has her, where cycles are on."""
     her_now: HerNow
@@ -219,7 +219,7 @@ class Backend:
     special_days: SpecialDays | None = None
     """The idols' birthdays and the holidays, from the calendar file."""
     visits: VisitService | None = None
-    """Has characters reach out as the user visits their chat at night (夜间搭话); set by
+    """Has characters reach out as the user visits their chat at night (澶滈棿鎼瘽); set by
     `build_visits` once the backend is assembled."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -623,7 +623,7 @@ def build(
     )
     groups = Groups(
         database, clock, characters, config.lease, affinities, memories,
-        daily=daily, store=store, world=world, weathers=weathers, retrieval=retrieval,
+        daily=daily, store=store, world=world, weathers=weathers, retrieval=retrieval, photos=photos,
         affinity_judge=config.affinity_judge(),
     )
     closers.append(groups.aclose)  # closed before the database, so each conversation is written down
@@ -686,3 +686,4 @@ def build(
     )
     build_visits(backend)
     return backend
+

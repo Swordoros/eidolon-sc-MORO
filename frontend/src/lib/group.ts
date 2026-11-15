@@ -2,7 +2,7 @@
 // one (拉群), renaming it, turning its scheduler on or off, dissolving it (解散), the user's own
 // line, and raising a topic by hand (the scheduler raises them about every four hours on its own).
 
-import { api, json } from "@/lib/api";
+import { api, json, type Photo } from "@/lib/api";
 
 export type GroupMember = { id: string; name: string };
 
@@ -16,6 +16,8 @@ export type GroupLine = {
   /** Her Chinese subtitle; empty for the user's lines. */
   zh: string;
   created_at: string;
+  /** A photo sent with the line, if any. */
+  photo: Photo | null;
 };
 
 export type GroupTopic = {

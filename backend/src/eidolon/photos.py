@@ -468,6 +468,25 @@ class Photos:
             )
         return image.webp
 
+    async def single(self, character: Character, tag: str, until: float) -> bytes:
+        """One all-age photo of `character`, as kept, generated from `tag` by `until` (the
+        running loop's time); no reply, no quota, no pending row. Used by a group's opening
+        picture, which is generated before the topic is posted."""
+        read = read_tag(tag)
+        generator = self._generator()
+        if generator is None:
+            raise ImageFailed("service_error", "image generation is off")
+        settings = generator.settings
+        async with self._turn_on(
+            "image", settings.api_key, settings.concurrency, until, aside=True
+        ):
+            image = await timed(
+                self._activity, image_origin(settings),
+                generator.generate(image_prompt(character, read, settings.style), until),
+                read.stripped,
+            )
+        return image.webp
+
     @property
     def gpt_on(self) -> bool:
         """Whether moments' pictures no one is in are generated at GPT Image now."""

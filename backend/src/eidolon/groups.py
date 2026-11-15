@@ -51,6 +51,7 @@ from eidolon.engine import _dump_prompt
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
+from eidolon.photos import Photos
 from eidolon.producer import effective_timezone, local_date
 from eidolon.schedules import Schedules, rest
 from eidolon.store import Message, Store, read_profile
@@ -195,6 +196,21 @@ CREATE TABLE IF NOT EXISTS group_messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS group_messages_by_topic ON group_messages (topic_id, id);
+CREATE TABLE IF NOT EXISTS group_photos (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES group_chats(id),
+    topic_id TEXT NOT NULL REFERENCES group_topics(id),
+    message_id INTEGER NOT NULL UNIQUE REFERENCES group_messages(id),
+    kind TEXT NOT NULL CHECK (kind IN ('topic', 'request')),
+    tag TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
+    reason TEXT,
+    image BLOB,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS group_photos_by_group ON group_photos (group_id);
+CREATE INDEX IF NOT EXISTS group_photos_by_topic ON group_photos (topic_id);
 """
 
 
@@ -315,6 +331,8 @@ class Line:
     created_at: str
     zh: str = ""
     """Her Chinese subtitle; empty for the user's lines and for hers before subtitles existed."""
+    photo: dict | None = None
+    """The group photo sent with it, if any: id, status and reason."""
 
     def shown(self, characters: dict[str, Character]) -> dict:
         if self.speaker == USER_SPEAKER:
@@ -324,7 +342,7 @@ class Line:
             name = character.name if character else self.speaker
             color = character.color if character else None
         return {"speaker": self.speaker, "name": name, "color": color, "text": self.text,
-                "zh": self.zh, "created_at": self.created_at}
+                "zh": self.zh, "created_at": self.created_at, "photo": self.photo}
 
 
 @dataclass(frozen=True)
@@ -353,6 +371,7 @@ class Groups:
         world: World | None = None,
         weathers: Weathers | None = None,
         retrieval: Any | None = None,
+        photos: Photos | None = None,
         affinity_judge: AffinityJudge | None = None,
         member_count: int = DEFAULT_MEMBERS,
         gap: tuple[timedelta, timedelta] = TOPIC_GAP,
@@ -369,6 +388,7 @@ class Groups:
         self._world = world
         self._context = GroupContext(daily, store, weathers)
         self._retrieval = retrieval
+        self._photos = photos
         self._affinity_judge = affinity_judge
         self._member_count = member_count
         self._gap = gap
@@ -706,13 +726,14 @@ class Groups:
         past = [entry["topic"]["text"] for entry in reversed(state["history"])][:TOPIC_RECALL]
         raiser = members[secrets.randbelow(len(members))]
         try:
-            said = await self._raise(user_id, group_id, members, raiser, recent, past, now)
+            said, photo = await self._raise(user_id, group_id, members, raiser, recent, past, now)
         except Exception:
             log.warning("a member could not raise a topic", exc_info=True)
             return None
         topic_id = secrets.token_urlsafe(12)
         await self._db.write(
-            self._start_topic, user_id, group_id, topic_id, raiser.id, said.ja, said.zh, now
+            self._start_topic, user_id, group_id, topic_id, raiser.id, said.ja, said.zh, now,
+            photo,
         )
         self._start_conversation(user_id, group_id, topic_id, members, said.ja, raiser.id)
         return topic_id
@@ -727,17 +748,36 @@ class Groups:
     async def _raise(
         self, user_id: str, group_id: str, members: Sequence[Member], raiser: Member,
         recent: Sequence[dict], past: Sequence[str], now: datetime,
-    ) -> Said:
+    ) -> tuple[Said, tuple[str, bytes] | None]:
         system = await self._system(user_id, raiser)
         material = await self._material(user_id, raiser)
         now_told = await self._now_told(user_id, members, now)
+        character = self._characters.get(raiser.id)
+        allow_photo = (
+            self._photos is not None and character is not None
+            and character.photographed and character.photo_tag is not None
+        )
         prompt = _topic_prompt(
             system, raiser, members, recent,
-            self._names_block(members), past, material, now_told,
+            self._names_block(members), past, material, now_told, allow_photo,
         )
         answer = await self._ask(prompt, group_id, raiser)
+        photo_tag = None
+        found = _PHOTO.search(answer)
+        if found is not None:
+            photo_tag = found.group(1).strip()
+            answer = answer[:found.start()] + answer[found.end():]
         said = _parse_line(answer) or Said("今天想聊点什么呢。", "今天想聊点什么好呢。")
-        return said if said.zh else await self._subtitle(said)
+        photo: tuple[str, bytes] | None = None
+        if allow_photo and photo_tag and self._photos is not None and character is not None:
+            try:
+                image = await self._photos.single(
+                    character, photo_tag, asyncio.get_running_loop().time() + 120
+                )
+                photo = (photo_tag, image)
+            except Exception:
+                log.warning("a group's opening photo was not generated", exc_info=True)
+        return (said if said.zh else await self._subtitle(said)), photo
 
     def _names_block(self, members: Sequence[Member]) -> str:
         """How her names are written in the subtitles, for the prompt.
@@ -796,10 +836,33 @@ class Groups:
             ]
         return "\n".join(parts)
 
+    async def _photo_request(
+        self, user_id: str, target_ids: Sequence[str], text: str
+    ) -> str | None:
+        """The one member a photo request is for, if image generation can serve her."""
+        if self._photos is None or self._affinities is None or not target_ids:
+            return None
+        lower = text.lower()
+        if not any(word in lower for word in ("照片", "图片", "自拍", "拍张", "发张", "photo", "picture", "selfie")):
+            return None
+        character = self._characters.get(target_ids[0])
+        if character is None:
+            return None
+        try:
+            status = await self._affinities.status(user_id, character.id)
+            if status is None or status.tier == "cold":
+                return None
+            eligible = await self._db.read(self._photos.eligibility, character, user_id)
+        except Exception:
+            log.warning("reading photo eligibility for the group failed", exc_info=True)
+            return None
+        return character.id if eligible is not None else None
+
     def _start_conversation(
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
         topic: str, raised_by: str, *, mentioned: Sequence[str] = (),
         threshold: float = BASE_THRESHOLD, delay: tuple[float, float] | None = None,
+        photo_for: str | None = None,
     ) -> None:
         """Talk the topic through in the background, so the page can show the lines as they
         come and the user can cut in between them."""
@@ -809,7 +872,7 @@ class Groups:
         task = asyncio.create_task(
             self._converse(
                 user_id, group_id, topic_id, members, topic, raised_by,
-                mentioned=mentioned, threshold=threshold, delay=delay,
+                mentioned=mentioned, threshold=threshold, delay=delay, photo_for=photo_for,
             )
         )
         self._tasks[group_id] = task
@@ -824,6 +887,7 @@ class Groups:
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
         topic: str, raised_by: str, *, mentioned: Sequence[str] = (),
         threshold: float = BASE_THRESHOLD, delay: tuple[float, float] | None = None,
+        photo_for: str | None = None,
     ) -> None:
         """Talk the topic through: each member who wants to answer waits her own spell, and
         whoever's runs out first speaks; the bar rises and the outsider's mention falls, until
@@ -896,13 +960,19 @@ class Groups:
                 prompt = _say_prompt(
                     system, speaker, members, said, past, mention, outsiders,
                     self._names_block([*members, *outsiders]), now_told, material, history,
-                    reference,
+                    reference, photo_for == speaker.id,
                 )
                 try:
                     answer = await self._ask(prompt, group_id, speaker)
                 except Exception:
                     log.warning("a member could not answer in the group", exc_info=True)
                     break
+                photo_tag = None
+                if photo_for == speaker.id:
+                    found = _PHOTO.search(answer)
+                    if found is not None:
+                        photo_tag = found.group(1).strip()
+                        answer = answer[:found.start()] + answer[found.end():]
                 line = _parse_line(answer)
                 if line is None or not line.ja:
                     # She gave nothing readable this time: pass and let the others go on,
@@ -912,9 +982,21 @@ class Groups:
                 if not line.zh:
                     line = await self._subtitle(line)
                 now = self._clock()
-                await self._db.write(
+                message_id = await self._db.write(
                     self._add_line, topic_id, user_id, speaker.id, line.ja, line.zh, now
                 )
+                if photo_tag and self._photos is not None:
+                    character = self._characters.get(speaker.id)
+                    if character is not None:
+                        try:
+                            photo_id = self._photos.begin(character, photo_tag, user_id)
+                            await self._db.write(
+                                self._add_group_photo, group_id, topic_id, message_id,
+                                photo_id, photo_tag, now,
+                            )
+                            await self._photos.recorded(photo_id)
+                        except Exception:
+                            log.warning("a group photo could not begin", exc_info=True)
                 await self._remember(user_id, topic_id, members)
                 spoken[speaker.id] = spoken.get(speaker.id, 0) + 1
                 last_speaker = speaker.id
@@ -1134,6 +1216,7 @@ class Groups:
         fresh, mentioned, addressed = await self._shift(members, lines, text)
         targets = group_targets(addressed, mentioned)
         judged = await self._judge_group_affinity(user_id, targets, lines, text)
+        photo_for = await self._photo_request(user_id, targets, text)
         if (
             not fresh
             and not mentioned
@@ -1152,7 +1235,7 @@ class Groups:
             if members:
                 self._start_conversation(
                     user_id, group_id, topic_id, members, text, USER_SPEAKER,
-                    threshold=BASE_THRESHOLD,
+                    threshold=BASE_THRESHOLD, photo_for=photo_for,
                 )
             return
         topic_id = topic["id"]
@@ -1164,7 +1247,7 @@ class Groups:
             self._start_conversation(
                 user_id, group_id, topic_id, members, text, last_speaker,
                 mentioned=[*mentioned, *addressed], threshold=CONTINUE_THRESHOLD,
-                delay=REPLY_DELAY,
+                delay=REPLY_DELAY, photo_for=photo_for,
             )
 
     async def _judge_group_affinity(
@@ -1360,10 +1443,16 @@ class Groups:
 
     def _read_lines(self, db: sqlite3.Connection, topic_id: str) -> list[Line]:
         return [
-            Line(row[0], row[1], row[2], row[3])
+            Line(
+                row[0], row[1], row[2], row[3],
+                None if row[4] is None else {
+                    "id": row[4], "status": row[5], "reason": row[6],
+                },
+            )
             for row in db.execute(
-                "SELECT speaker, text, created_at, zh FROM group_messages"
-                " WHERE topic_id = ? ORDER BY id",
+                "SELECT m.speaker, m.text, m.created_at, m.zh, p.id, p.status, p.reason"
+                " FROM group_messages m LEFT JOIN group_photos p ON p.message_id = m.id"
+                " WHERE m.topic_id = ? ORDER BY m.id",
                 (topic_id,),
             )
         ]
@@ -1371,6 +1460,7 @@ class Groups:
     def _start_topic(
         self, db: sqlite3.Connection, user_id: str, group_id: str, topic_id: str,
         raised_by: str, text: str, zh: str, now: datetime,
+        photo: tuple[str, bytes] | None = None,
     ) -> None:
         db.execute(
             "UPDATE group_chats SET last_topic_at = ?, next_topic_at = ? WHERE id = ?",
@@ -1381,20 +1471,40 @@ class Groups:
             " VALUES (?, ?, ?, ?, ?, ?)",
             (topic_id, group_id, user_id, raised_by, text, now.isoformat()),
         )
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO group_messages (topic_id, user_id, speaker, text, zh, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             (topic_id, user_id, raised_by, text, zh, now.isoformat()),
         )
+        if photo is not None and cursor.lastrowid is not None:
+            tag, image = photo
+            db.execute(
+                "INSERT INTO group_photos (id, group_id, topic_id, message_id, kind, tag,"
+                " status, image, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, 'topic', ?, 'ready', ?, ?, ?)",
+                (secrets.token_urlsafe(12), group_id, topic_id, cursor.lastrowid, tag,
+                 image, now.isoformat(), now.isoformat()),
+            )
 
     def _add_line(
         self, db: sqlite3.Connection, topic_id: str, user_id: str, speaker: str,
         text: str, zh: str, now: datetime,
-    ) -> None:
-        db.execute(
+    ) -> int:
+        cursor = db.execute(
             "INSERT INTO group_messages (topic_id, user_id, speaker, text, zh, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             (topic_id, user_id, speaker, text, zh, now.isoformat()),
+        )
+        return int(cursor.lastrowid or 0)
+
+    def _add_group_photo(
+        self, db: sqlite3.Connection, group_id: str, topic_id: str, message_id: int,
+        photo_id: str, tag: str, now: datetime,
+    ) -> None:
+        db.execute(
+            "INSERT INTO group_photos (id, group_id, topic_id, message_id, kind, tag,"
+            " status, created_at, updated_at) VALUES (?, ?, ?, ?, 'request', ?, 'pending', ?, ?)",
+            (photo_id, group_id, topic_id, message_id, tag, now.isoformat(), now.isoformat()),
         )
 
     def _reopen(self, db: sqlite3.Connection, topic_id: str) -> None:
@@ -1433,6 +1543,7 @@ def _sheet(character: Character) -> str:
 def _topic_prompt(
     system: str, raiser: Member, members: Sequence[Member], recent: Sequence[dict],
     names: str, past: Sequence[str], material: str, now_told: str = "",
+    allow_photo: bool = False,
 ) -> list[ChatMessage]:
     """The new-topic prompt: the group's present and history, names, the rules, then the task."""
     context = _context(recent)
@@ -1443,6 +1554,12 @@ def _topic_prompt(
         + (f"# 记忆\n{material}\n\n" if material else "")
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
+        + (
+            "# 照片\n如果你此刻拍了一张照片，可以写：\n"
+            "<photo>\nshot: selfie\nplace: ...\noutfit: ...\naction: ...\n</photo>\n"
+            "照片只能是全年龄、单人、你自己；不写也可以。\n\n"
+            if allow_photo else ""
+        )
         + names
         + "\n现在请你主动开一个新话题：像在群里随口说一句，引出你想聊的事。\n"
         "- 说一件**具体**的事：今天遇到的、看到的、听到的、想到的一个细节。"
@@ -1464,6 +1581,7 @@ def _say_prompt(
     system: str, speaker: Member, members: Sequence[Member], said: Sequence[Line],
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
     now_told: str = "", material: str = "", history: str = "", reference: str = "",
+    photo_request: bool = False,
 ) -> list[ChatMessage]:
     """The next line's prompt: Chinese history, names, the rules, then the output format."""
     spoken = {member.id: member.name for member in members}
@@ -1491,6 +1609,12 @@ def _say_prompt(
         + f"群聊记录：\n{history or context}\n\n"
         + last_told
         + (f"# 记忆\n{material}\n\n" if material else "")
+        + (
+            "# 照片\n制作人在向你要照片。如果要发，写：\n"
+            "<photo>\nshot: selfie\nplace: ...\noutfit: ...\naction: ...\n</photo>\n"
+            "照片只能是全年龄、单人、你自己。\n\n"
+            if photo_request else ""
+        )
         + names
         + "\n你在群里，接着往下聊。这一句可以是：回应刚才某个人说的（直接用她名字或接话）、"
         "补一句你自己的看法、或者顺着这个话题聊出一个相关的小话题。"
@@ -1627,6 +1751,10 @@ def _clean_line(answer: str) -> str:
     text = answer.strip().strip("「」\"'")
     text = " ".join(text.split())
     return text[:MAX_LINE_CHARS]
+
+
+_PHOTO = re.compile(r"<photo>(.*?)</photo>", re.S)
+"""The group's optional picture tag in a model answer."""
 
 
 def _parse_line(answer: str) -> Said | None:

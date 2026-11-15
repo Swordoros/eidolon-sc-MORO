@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { PhotoBlock } from "./PhotoBlock";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -577,6 +578,7 @@ function TopicBlock({
                 </Bubble>
                 {last && time}
               </div>
+              {line.photo && <PhotoBlock photo={line.photo} />}
             </MessageContent>
           </Message>
         );

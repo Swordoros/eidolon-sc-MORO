@@ -1692,7 +1692,10 @@ def _finish_photo(
     db: sqlite3.Connection, photo_id: str, image: bytes | None, reason: PhotoFailure | None
 ) -> bool:
     changed = 0
-    for table in ("photos", "reach_out_photos"):
+    tables = ["photos", "reach_out_photos"]
+    if "group_photos" in _columns(db, "group_photos"):
+        tables.append("group_photos")
+    for table in tables:
         changed += db.execute(
             f"UPDATE {table} SET status = ?, reason = ?, image = ?, updated_at = ?"
             " WHERE id = ? AND status = 'pending'",
@@ -1702,36 +1705,67 @@ def _finish_photo(
 
 
 def _give_up_photos(db: sqlite3.Connection, reason: PhotoFailure) -> int:
+    tables = ["photos", "reach_out_photos"]
+    if "group_photos" in _columns(db, "group_photos"):
+        tables.append("group_photos")
     return sum(
         db.execute(
             f"UPDATE {table} SET status = 'failed', reason = ?, updated_at = ?"
             " WHERE status = 'pending'",
             (reason, _now()),
         ).rowcount
-        for table in ("photos", "reach_out_photos")
+        for table in tables
     )
 
 
 def _photo(db: sqlite3.Connection, photo_id: str, user_id: str) -> Photo | None:
-    row = by_name(db).execute(
-        "SELECT p.id, p.status, p.reason, p.tag FROM (SELECT id, status, reason, tag,"
-        " conversation_id FROM photos UNION ALL SELECT id, status, reason, tag,"
-        " conversation_id FROM reach_out_photos) p"
-        " JOIN conversations c ON c.id = p.conversation_id"
-        " WHERE p.id = ? AND c.user_id = ?",
-        (photo_id, user_id),
-    ).fetchone()
+    if "group_photos" in _columns(db, "group_photos"):
+        row = by_name(db).execute(
+            "SELECT p.id, p.status, p.reason, p.tag FROM (SELECT id, status, reason, tag,"
+            " conversation_id AS owner_id, 'conversation' AS owner FROM photos"
+            " UNION ALL SELECT id, status, reason, tag, conversation_id, 'conversation'"
+            " FROM reach_out_photos"
+            " UNION ALL SELECT g.id, g.status, g.reason, g.tag, c.id, 'group'"
+            " FROM group_photos g JOIN group_chats c ON c.id = g.group_id) p"
+            " LEFT JOIN conversations c ON p.owner = 'conversation' AND c.id = p.owner_id"
+            " LEFT JOIN group_chats g ON p.owner = 'group' AND g.id = p.owner_id"
+            " WHERE p.id = ? AND (c.user_id = ? OR g.user_id = ?)",
+            (photo_id, user_id, user_id),
+        ).fetchone()
+    else:
+        row = by_name(db).execute(
+            "SELECT p.id, p.status, p.reason, p.tag FROM (SELECT id, status, reason, tag,"
+            " conversation_id FROM photos UNION ALL SELECT id, status, reason, tag,"
+            " conversation_id FROM reach_out_photos) p"
+            " JOIN conversations c ON c.id = p.conversation_id"
+            " WHERE p.id = ? AND c.user_id = ?",
+            (photo_id, user_id),
+        ).fetchone()
     return Photo(**row) if row else None
 
 
 def _photo_image(db: sqlite3.Connection, photo_id: str, user_id: str) -> bytes | None:
-    row = db.execute(
-        "SELECT p.image FROM (SELECT id, image, status, conversation_id FROM photos"
-        " UNION ALL SELECT id, image, status, conversation_id FROM reach_out_photos) p"
-        " JOIN conversations c ON c.id = p.conversation_id"
-        " WHERE p.id = ? AND c.user_id = ? AND p.status = 'ready'",
-        (photo_id, user_id),
-    ).fetchone()
+    if "group_photos" in _columns(db, "group_photos"):
+        row = db.execute(
+            "SELECT p.image FROM (SELECT id, image, status, conversation_id AS owner_id,"
+            " 'conversation' AS owner FROM photos"
+            " UNION ALL SELECT id, image, status, conversation_id, 'conversation'"
+            " FROM reach_out_photos"
+            " UNION ALL SELECT g.id, g.image, g.status, c.id, 'group'"
+            " FROM group_photos g JOIN group_chats c ON c.id = g.group_id) p"
+            " LEFT JOIN conversations c ON p.owner = 'conversation' AND c.id = p.owner_id"
+            " LEFT JOIN group_chats g ON p.owner = 'group' AND g.id = p.owner_id"
+            " WHERE p.id = ? AND (c.user_id = ? OR g.user_id = ?) AND p.status = 'ready'",
+            (photo_id, user_id, user_id),
+        ).fetchone()
+    else:
+        row = db.execute(
+            "SELECT p.image FROM (SELECT id, image, status, conversation_id FROM photos"
+            " UNION ALL SELECT id, image, status, conversation_id FROM reach_out_photos) p"
+            " JOIN conversations c ON c.id = p.conversation_id"
+            " WHERE p.id = ? AND c.user_id = ? AND p.status = 'ready'",
+            (photo_id, user_id),
+        ).fetchone()
     return row[0] if row else None
 
 
