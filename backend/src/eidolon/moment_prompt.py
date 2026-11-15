@@ -157,7 +157,7 @@ COMPOSITIONS_CLOSING = "\n".join(
 GROUP_CLOSING = "\n".join((
     _FRAMING.format(group="；group 自拍选 portrait 或 upper body，别人帮你们拍选 upper body 或 cowboy shot"),
     _FIELDS.format(group="；group 里大家穿这一套"),
-    "- with：只在 group 里写，「圈子成员」里标了「能一起合照」的 1–2 位的 id，用逗号隔开。",
+    "- with：只在 group 里写，「圈子成员」里标了「能一起合照」的 1–4 位的 id，用逗号隔开；连同你最多五个人。",
     _LAST.format(group="；group 里是你和 with 里的人"),
 ))
 """What she is told of the picture her moment may have, after its compositions: without a
@@ -170,7 +170,7 @@ COMPOSITION_NAMES: dict[Composition, str] = {
     "selfie": "你的自拍",
     "posed": "别人帮你拍，你看着镜头",
     "candid": "别人趁你不注意抓拍，你不看镜头",
-    "group": "和圈子里的一两位合照，自拍或者别人帮你们拍",
+    "group": "和圈子里的几位合照，自拍或者别人帮你们拍",
 }
 """What each composition is, as she is told."""
 

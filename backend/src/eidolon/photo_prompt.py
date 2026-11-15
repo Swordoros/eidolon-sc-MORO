@@ -35,14 +35,14 @@ posing, looking at the camera; one someone takes of her unawares, looking elsewh
 of field. Those two may show her small (`wide shot`); a framing not of its composition is from
 the waist up. Where she is alone or no one is, no one holds hands (`people`).
 
-The seventh is a group photo (`group`), of her with one or two of those she may be pictured
+The seventh is a group photo (`group`), of her with up to four of those she may be pictured
 with (`with`, by identifier): a selfie if her `action` says so, else someone else taking it of
-the two side by side, or of the three as a group; from the waist up or the thighs up, a selfie
-no more than an arm's length takes in. Each of them is a character of her own in NovelAI's
-multiple characters, her character tag and her looks in it, she first; how many they are is
-said once, of them all, as is what they wear, and they may hold hands. One with no one written
-with her, or one she may not be pictured with, is a posed photo of her alone instead, at the
-framing she wrote (`PictureTag.alone_instead`). Scenery and group photos are landscape
+the two side by side, or of the three or more as a group; from the waist up or the thighs up, a
+selfie no more than an arm's length takes in. Each of them is a character of her own in
+NovelAI's multiple characters, her character tag and her looks in it, she first; how many they
+are is said once, of them all, as is what they wear, and they may hold hands. One with no one
+written with her, or one she may not be pictured with, is a posed photo of her alone instead,
+at the framing she wrote (`PictureTag.alone_instead`). Scenery and group photos are landscape
 (`LANDSCAPE`), the others portrait, as photos are.
 """
 
@@ -116,8 +116,8 @@ UNPEOPLED: tuple[Composition, ...] = ("scenery", "food", "object")
 GROUP_FRAMINGS: tuple[PictureFraming, ...] = ("upper body", "cowboy shot")
 """How much of them a group photo someone else takes can show: enough to tell each by her
 face."""
-GROUP_MOST = 2
-"""How many may be in a group photo with her at most."""
+GROUP_MOST = 4
+"""How many may be in a group photo with her at most: a unit is five at most."""
 
 NO_HUMANS_NEGATIVE = f"{NEGATIVE_PROMPT}, 1girl, 1boy, people"
 """The negative prompt of a picture no one is in."""

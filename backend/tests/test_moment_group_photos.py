@@ -1,4 +1,4 @@
-"""A group photo (GLOSSARY.md「配图」): her moment's picture of her with one or two of her
+"""A group photo (GLOSSARY.md「配图」): her moment's picture of her with up to four of her
 circle, only in NovelAI's own format, where she has photo tags and one of her circle has
 too. She is told who of her circle may be in it, and names them in `with`; a selfie if her
 `action` says so, else someone else takes it. Each is a character of her own in NovelAI's
@@ -29,7 +29,7 @@ from eidolon.moment_prompt import (
     PostMaterial,
     parse_post,
 )
-from eidolon.photo_prompt import NEGATIVE_PROMPT
+from eidolon.photo_prompt import NEGATIVE_PROMPT, picture_prompt, read_picture
 from eidolon.producer import ProducerProfile
 from tests.conftest import KOGANE_SHEET, MANO_PHOTO, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeImageService, context_of
@@ -247,3 +247,25 @@ def test_those_with_her_are_never_of_the_likes_over_as_many_as_are_kept():
     assert post.likes == [*(f"idol{i}" for i in range(LIKES - 1)), "hiori"]
     assert post.degraded == {LIKES_OVER: 1}
     assert post.picture is not None and post.picture.written["with"] == "hiori"
+
+
+def test_a_group_photo_holds_a_whole_unit_of_five():
+    """A unit is five at most: she and four of her circle are in it, a fifth written with
+    them left out."""
+    others = [
+        replace(SOMEONE, id=f"idol{n}", name=f"偶像{n}", photo_tag=f"idol{n}",
+                photo_appearance="black hair, blue eyes")
+        for n in range(1, 6)
+    ]
+    tag = read_picture(
+        {"composition": "group", "with": " ".join(o.id for o in others),
+         "framing": "upper body", "place": "cafe", "outfit": "coat", "action": "smile"},
+        ["group"], pictured=others,
+    )
+
+    assert tag is not None and tag.composition == "group"
+    assert [o.id for o in tag.others] == [f"idol{n}" for n in range(1, 5)]
+    prompt = picture_prompt(
+        replace(SOMEONE, photo_tag=MANO_PHOTO[0], photo_appearance=MANO_PHOTO[1]), tag
+    )
+    assert prompt.positive.startswith("5girls, idolmaster shiny colors, group picture")

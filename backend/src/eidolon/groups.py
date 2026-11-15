@@ -1601,7 +1601,7 @@ def _topic_prompt(
             "place: ...\noutfit: ...\naction: ...\n"
             f"with: {photo_members}\n</photo>\n"
             "规则：只拍你自己用 selfie / posed / candid；"
-            "拍群里其他人用 group，with 写成员 id；"
+            "拍群里其他人用 group，with 写成员 id，连同你最多五个人；"
             "拍景物、食物、物品用 scenery / food / object。"
             "照片只能是全年龄；不写也可以。\n\n"
             if allow_photo else ""
