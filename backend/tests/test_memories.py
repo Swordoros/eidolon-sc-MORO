@@ -21,6 +21,8 @@ from eidolon.data_access import Database
 from eidolon.llm import ChatLLM
 from eidolon.memory import (  # pyright: ignore[reportPrivateUsage]
     MAX_FOUND,
+    MAX_OTHER,
+    MAX_OWN,
     Memories,
     Memory,
     MemoryTurn,
@@ -366,7 +368,30 @@ async def test_only_the_most_relevant_few_are_found(world: World, make_memories:
     await tell(memories, world, await world.conversation("mano"), "我喜欢好多点心")
     section = await find(memories, world, await world.conversation("mano"), "你知道我喜欢什么点心吗？")
 
-    assert sum(t in section for t in told) == MAX_FOUND
+    assert sum(t in section for t in told) == MAX_OWN
+
+
+async def test_another_characters_memories_are_capped_at_one(
+    world: World, make_memories: MemoriesFactory
+):
+    memories = make_memories(reranker=FakeReranker("猫"))
+    own = [
+        Memory(i, world.producer, "mano", "櫻木真乃", f"制作人的猫的事{i}", "2026-09-25T00:00:00+00:00")
+        for i in range(1, 6)
+    ]
+    other = [
+        Memory(
+            10 + i, world.producer, "kogane", "月岡恋鐘", f"别人说的猫的事{i}",
+            "2026-09-25T00:00:00+00:00", scope="shared",
+        )
+        for i in range(1, 5)
+    ]
+
+    chosen = await memories._relevant("猫", [*own, *other], "mano")
+
+    assert len(chosen) == MAX_FOUND
+    assert sum(m.source_character_id == "mano" for m in chosen) == MAX_OWN
+    assert sum(m.source_character_id == "kogane" for m in chosen) == MAX_OTHER
 
 
 @pytest.mark.parametrize(

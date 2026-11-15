@@ -76,8 +76,12 @@ MAX_MOMENT = 120
 """How long what mattered to her in a turn may be, in characters; a longer one is cut."""
 CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
-MAX_FOUND = 5
+MAX_FOUND = 4
 """The most memories one turn's prompt carries, after reranking and strength sorting."""
+MAX_OWN = 3
+"""The most of those that may be the current character's own memories."""
+MAX_OTHER = 1
+"""The most of those that may be memories another character told her, by scope."""
 LATELY = timedelta(days=14)
 """How long ago what she reaches out with as his news may have been written down."""
 MAX_LATEST = 5
@@ -466,14 +470,18 @@ class Memories:
         query_text: str,
         candidates: Sequence[Memory],
     ) -> str | None:
-        found = await self._relevant(query_text, candidates)
+        found = await self._relevant(query_text, candidates, conversation.character_id)
         character = self._characters[conversation.character_id]
         return _memories_prompt(found, character, timezone, _FOUND, self._clock()) if found else None
 
-    async def _relevant(self, query_text: str, candidates: Sequence[Memory]) -> list[Memory]:
+    async def _relevant(
+        self, query_text: str, candidates: Sequence[Memory], character_id: str,
+    ) -> list[Memory]:
         """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, strongest
         first; none if memory is off or reranking failed. Relevance filters (the reranker
-        drops what is off-topic), then strength orders what is left (GLOSSARY.md「记忆」)."""
+        drops what is off-topic), then strength orders what is left (GLOSSARY.md「记忆」).
+        At most `MAX_OWN` may be the character's own, and at most `MAX_OTHER` another's;
+        the others are never used to fill her unused share."""
         if (services := self._services) is None or not candidates:
             return []
         try:
@@ -489,7 +497,11 @@ class Memories:
             if score >= min_relevance and candidates[i].strength >= FORGET_THRESHOLD
         ]
         relevant.sort(key=lambda m: m.strength, reverse=True)
-        return relevant[:MAX_FOUND]
+        own = [m for m in relevant if m.source_character_id == character_id]
+        other = [m for m in relevant if m.source_character_id != character_id]
+        chosen = [*own[:MAX_OWN], *other[:MAX_OTHER]]
+        chosen.sort(key=lambda m: m.strength, reverse=True)
+        return chosen
 
     async def for_reaching_out(
         self,
