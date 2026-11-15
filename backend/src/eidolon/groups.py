@@ -51,6 +51,7 @@ from eidolon.engine import _dump_prompt
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
+from eidolon.photo_prompt import COMPOSITIONS, UNPEOPLED, read_picture, tag_fields
 from eidolon.photos import Photos
 from eidolon.producer import effective_timezone, local_date
 from eidolon.schedules import Schedules, rest
@@ -753,13 +754,24 @@ class Groups:
         material = await self._material(user_id, raiser)
         now_told = await self._now_told(user_id, members, now)
         character = self._characters.get(raiser.id)
-        allow_photo = (
-            self._photos is not None and character is not None
-            and character.photographed and character.photo_tag is not None
+        allow_photo = self._photos is not None and character is not None
+        pictured = [
+            other for member in members
+            if member.id != raiser.id
+            and (other := self._characters.get(member.id)) is not None
+            and other.photographed
+        ]
+        idols = [
+            other.photo_tag for member in members
+            if (other := self._characters.get(member.id)) is not None and other.photo_tag
+        ]
+        photo_members = "、".join(
+            f"{member.id}（{member.name}）" for member in pictured
         )
         prompt = _topic_prompt(
             system, raiser, members, recent,
             self._names_block(members), past, material, now_told, allow_photo,
+            photo_members,
         )
         answer = await self._ask(prompt, group_id, raiser)
         photo_tag = None
@@ -771,10 +783,14 @@ class Groups:
         photo: tuple[str, bytes] | None = None
         if allow_photo and photo_tag and self._photos is not None and character is not None:
             try:
-                image = await self._photos.single(
-                    character, photo_tag, asyncio.get_running_loop().time() + 120
-                )
-                photo = (photo_tag, image)
+                fields = tag_fields(photo_tag)
+                allowed = COMPOSITIONS if character.photographed else UNPEOPLED
+                tag = read_picture(fields, allowed, idols=idols, pictured=pictured)
+                if tag is not None:
+                    image = await self._photos.picture(
+                        character, tag, asyncio.get_running_loop().time() + 120, tag.stripped
+                    )
+                    photo = (photo_tag, image)
             except Exception:
                 log.warning("a group's opening photo was not generated", exc_info=True)
         return (said if said.zh else await self._subtitle(said)), photo
@@ -1567,7 +1583,7 @@ def _sheet(character: Character) -> str:
 def _topic_prompt(
     system: str, raiser: Member, members: Sequence[Member], recent: Sequence[dict],
     names: str, past: Sequence[str], material: str, now_told: str = "",
-    allow_photo: bool = False,
+    allow_photo: bool = False, photo_members: str = "",
 ) -> list[ChatMessage]:
     """The new-topic prompt: the group's present and history, names, the rules, then the task."""
     context = _context(recent)
@@ -1579,9 +1595,15 @@ def _topic_prompt(
         + (f"# 这个群最近开过的话头\n{tired}\n" if tired else "")
         + (f"# 刚说过的几句\n{context}\n\n" if context else "")
         + (
-            "# 照片\n如果你此刻拍了一张照片，可以写：\n"
-            "<photo>\nshot: selfie\nplace: ...\noutfit: ...\naction: ...\n</photo>\n"
-            "照片只能是全年龄、单人、你自己；不写也可以。\n\n"
+            "# 照片\n如果这个话题适合配一张照片，可以写：\n"
+            "<photo>\ncomposition: selfie / posed / candid / group / scenery / food / object\n"
+            "framing: portrait / upper body / cowboy shot / full body / wide shot\n"
+            "place: ...\noutfit: ...\naction: ...\n"
+            f"with: {photo_members}\n</photo>\n"
+            "规则：只拍你自己用 selfie / posed / candid；"
+            "拍群里其他人用 group，with 写成员 id；"
+            "拍景物、食物、物品用 scenery / food / object。"
+            "照片只能是全年龄；不写也可以。\n\n"
             if allow_photo else ""
         )
         + names
