@@ -189,25 +189,10 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         <Announcements userId={account?.id ?? null} />
       </header>
 
-      <div className="flex shrink-0 items-center gap-1 pr-2 pb-2 pl-4">
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
-          <SearchIcon aria-hidden className="size-4 shrink-0" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t.search}
-            aria-label={t.search}
-            className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-        <ListFilter isOpen={isFilterOpen} onOpenChange={setFilterOpen} hiddenCount={hiddenCount} />
-      </div>
-
       <div
         role="tablist"
         aria-label={t.title}
-        className="mx-4 mb-3 grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+        className="mx-4 mb-2 grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-1"
       >
         <button
           type="button"
@@ -237,6 +222,21 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         >
           {t.groups}
         </button>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-1 pr-2 pb-3 pl-4">
+        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+          <SearchIcon aria-hidden className="size-4 shrink-0" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.search}
+            aria-label={t.search}
+            className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </label>
+        <ListFilter isOpen={isFilterOpen} onOpenChange={setFilterOpen} hiddenCount={hiddenCount} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
