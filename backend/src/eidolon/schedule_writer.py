@@ -18,12 +18,13 @@ place and one owner, so the pair sends one photo and brings one souvenir. A unit
 trip has a solo trip for one member on one day in `SOLO_TRIP_ODDS`. A live away from Tokyo is
 left to the world setting's live, not counted as a trip by itself (GLOSSARY.md「纪念品」
 「外景照片」); a day the producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of
-its own.
+its own. A group may also draw a live of its own in `LIVE_ODDS` on a day the world setting has
+none, but waits `LIVE_COOLDOWN_DAYS` after one; the world setting's live always wins that day.
 """
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -44,6 +45,7 @@ from eidolon.schedules import (
     DATE_TWIST,
     UNIT_TRIP_ODDS,
     TWISTS,
+    Slot,
     Schedules,
     draw_bath,
     parse_schedules_batched,
@@ -62,6 +64,28 @@ WRITE_FROM = time(4)
 
 MAX_TWISTS = 2
 """How many twists a day has at most."""
+
+LIVE_ODDS = 3
+"""Three days in a hundred a group is drawn a live of its own, out of the world setting's."""
+LIVE_COOLDOWN_DAYS = 3
+"""Days after a drawn live before its group may be drawn another."""
+def _live_slot(slot: Slot) -> bool:
+    """Whether a slot is a live, by its kind or what it says (the model does not always
+    use the live kind); used to keep one the group was not granted."""
+    said = f"{slot.what} {slot.where}".casefold()
+    return (
+        slot.kind == "live"
+        or "live" in said
+        or "演唱会" in slot.what
+        or "公演" in slot.what
+        or "ライブ" in slot.what
+    )
+
+
+def granted_live_slots(slots: Sequence[Slot], granted: bool) -> list[Slot]:
+    """The slots left when a group was not granted a live: a live of any kind, or one
+    written as a live under another kind, is dropped."""
+    return list(slots) if granted else [slot for slot in slots if not _live_slot(slot)]
 
 
 async def _no_date(*_: object) -> str | None:
@@ -203,18 +227,25 @@ class ScheduleWriter:
             by_day.setdefault((user_id, day), []).append(unit)
         for (user_id, day), units in by_day.items():
             plans, joint, joint_plan = _plan_day_trips(units, names, self._random)
+            lives = [await self._live_for(user_id, unit, day) for unit in units]
             if joint is not None:
                 members = [*units[joint[0]], *units[joint[1]]]
                 assert joint_plan is not None
+                live_by = {
+                    cid: lives[index]
+                    for index in joint for cid in units[index]
+                }
                 try:
-                    await self._write_unit(user_id, members, day, joint_plan, all_or_nothing=True)
+                    await self._write_unit(
+                        user_id, members, day, joint_plan, all_or_nothing=True, live=live_by,
+                    )
                 except Exception:
                     log.exception("writing the joint schedules of %s for %s failed", members, user_id)
             for index, unit in enumerate(units):
                 if joint is not None and index in joint:
                     continue
                 try:
-                    await self._write_unit(user_id, unit, day, plans[index])
+                    await self._write_unit(user_id, unit, day, plans[index], live=lives[index])
                 except Exception:
                     log.exception("writing the schedules of %s for %s failed", unit, user_id)
         await self._schedules.sweep(now.date())
@@ -225,7 +256,9 @@ class ScheduleWriter:
         if character_id not in self._characters:
             return False
         group = next(g for g in self._engine.schedule_groups() if character_id in g)
-        await self._write_unit(user_id, group, await self._today(user_id, self._clock()))
+        day = await self._today(user_id, self._clock())
+        live = await self._live_for(user_id, group, day)
+        await self._write_unit(user_id, group, day, live=live)
         return True
 
     async def _today(self, user_id: str, now: datetime) -> date:
@@ -264,15 +297,44 @@ class ScheduleWriter:
             drawn.append(left.pop(self._random(len(left))))
         return drawn
 
+    async def _live_for(self, user_id: str, unit: list[str], day: date) -> str | None:
+        """The live drawn for this group on `day`, if any; world-setting lives always win,
+        and a group waits `LIVE_COOLDOWN_DAYS` after one of its own."""
+        if len(unit) < 2:
+            return None
+        key = ",".join(sorted(unit))
+        drawn, name = await self._schedules.live_plan(user_id, key, day)
+        if drawn:
+            return name
+        if any(self._engine.world_live_on(cid, day) for cid in unit):
+            await self._schedules.keep_live(user_id, key, day, None)
+            return None
+        last = await self._schedules.last_live_day(user_id, key)
+        if last is not None and (day - last).days < LIVE_COOLDOWN_DAYS:
+            await self._schedules.keep_live(user_id, key, day, None)
+            return None
+        if self._random(100) >= LIVE_ODDS:
+            await self._schedules.keep_live(user_id, key, day, None)
+            return None
+        unit_name = self._engine.unit_name(unit[0]) or "组合"
+        name = f"{unit_name} 临时LIVE"
+        await self._schedules.keep_live(user_id, key, day, name)
+        return name
+
     async def _write_unit(
         self, user_id: str, unit: list[str], day: date,
         plan: TripPlan | None = None, all_or_nothing: bool = False,
+        live: str | Mapping[str, str | None] | None = None,
     ) -> None:
         """Write the day's schedules of the unit's members together, in one call, so that
         they do not conflict; a member whose part cannot be read is left to be retried.
         `plan` is a day's trip draw when several units were planned together; a joint pair
         passes all its members as one unit and writes none unless all their parts are read."""
         names = {c.id: c.name for c in self._characters.values()}
+        live_by = (
+            {cid: live for cid in unit} if isinstance(live, str) or live is None
+            else dict(live)
+        )
         twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
         if plan is None:
             plan = _plan_trips(unit, names, self._random)
@@ -292,7 +354,7 @@ class ScheduleWriter:
         try:
             with recording.current():
                 answer = await self._engine.write_schedules(
-                    unit, lease.keys.chat_llm, day, twists, yesterday
+                    unit, lease.keys.chat_llm, day, twists, yesterday, live_by
                 )
             parsed = parse_schedules_batched(answer, self._characters)
             if all_or_nothing and any(cid not in parsed for cid in unit):
@@ -302,6 +364,12 @@ class ScheduleWriter:
                 if cid not in parsed:
                     continue
                 slots, wake, sleep = parsed[cid]
+                if (
+                    not live_by.get(cid)
+                    and not self._engine.world_live_on(cid, day)
+                    and not self._engine.is_staff(cid)
+                ):
+                    slots = granted_live_slots(slots, False)
                 bath = None
                 if sleep is not None:
                     heart = self._characters[cid].heart

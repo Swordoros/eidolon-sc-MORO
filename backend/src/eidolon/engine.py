@@ -154,7 +154,7 @@ from eidolon.producer import (
     ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
     local_date, producer_prompt,
 )
-from eidolon.schedules import LIVE_CITIES, bath_began
+from eidolon.schedules import LIVE_CITIES, Schedules, bath_began
 from eidolon.schedules import lines as schedule_lines
 from eidolon.schedules import rest as schedule_rest
 from eidolon.schedules import summary as schedule_summary
@@ -928,6 +928,15 @@ def _student_line(character: Character) -> str:
     return f"你是{_ADULT_SCHOOL.get(character.id, '成年人')}。"
 
 
+NO_LIVE = "今天你没有 LIVE。不要安排 LIVE、演唱会、公演或类似活动。"
+"""What an idol is told when neither the world setting nor a drawn group live has one."""
+
+
+def _generated_live(name: str) -> str:
+    """What a group is told of the extra live drawn for it that day."""
+    return f"今天你们组合有一场 LIVE：「{name}」，在东京都内的 Live House。必须排进去。"
+
+
 def _staff_lives(world: World, day: date) -> str:
     """What one of the staff is told of the day's lives in her schedule: the ones really
     on, or that there are none, so that she does not write accompanying a live no one is
@@ -1169,6 +1178,25 @@ class ConversationEngine:
         said = schedule_summary(found, self._names())
         return [said] if said else []
 
+    def world_live_on(self, character_id: str, day: date) -> bool:
+        """Whether the world setting has this idol on a live that day."""
+        if self._world is None:
+            return False
+        name = self._characters[character_id].name
+        return any(d.date == day for _, days in self._world.lives_of(name) for d in days)
+
+    def is_staff(self, character_id: str) -> bool:
+        return self._world is not None and self._world.is_staff(
+            self._characters[character_id].name
+        )
+
+    def unit_name(self, character_id: str) -> str | None:
+        """The name of her unit in the world setting, if it names one."""
+        if self._world is None:
+            return None
+        unit = self._world.unit_of(self._characters[character_id].name)
+        return unit[0] if unit is not None else None
+
     async def write_schedule(
         self,
         conversation: Conversation,
@@ -1176,6 +1204,7 @@ class ConversationEngine:
         day: date,
         twists: Sequence[str],
         yesterday: str | None,
+        live: str | None = None,
     ) -> str:
         """Her schedule for `day`, as the model writes it on `llm`: from her sheet and the
         world setting, what the day is, her lives on it, her schedule the day before, her
@@ -1184,11 +1213,24 @@ class ConversationEngine:
         told: list[str] = [f"今天是 {day.isoformat()}，星期{'一二三四五六日'[day.weekday()]}。"]
         told.append(_student_line(character))
         if self._world is not None:
-            for live, days in self._world.lives_of(character.name):
-                told += [
+            if self._world.is_staff(character.name):
+                told.append(_staff_lives(self._world, day))
+            else:
+                world_lives = [
                     f"今天你有 live：「{live.name}」，在{d.venue}。必须排进去。"
-                    for d in days if d.date == day
+                    for live_name, days in self._world.lives_of(character.name)
+                    for live, d in ((live_name, d) for d in days if d.date == day)
                 ]
+                if world_lives:
+                    told += world_lives
+                elif live:
+                    told.append(_generated_live(live))
+                else:
+                    told.append(NO_LIVE)
+        elif live:
+            told.append(_generated_live(live))
+        else:
+            told.append(NO_LIVE)
         if yesterday:
             told.append(f"你昨天的安排：{yesterday}")
         habit = character.heart.sleep if character.heart is not None else None
@@ -1215,6 +1257,7 @@ class ConversationEngine:
         day: date,
         twists: Mapping[str, Sequence[str]],
         yesterday: Mapping[str, str | None],
+        lives: Mapping[str, str | None] | None = None,
     ) -> str:
         """The schedules of the `unit`'s members for `day`, written together on `llm` so
         that they do not conflict: from each member's sheet and the world setting, the day,
@@ -1227,11 +1270,21 @@ class ConversationEngine:
                 if self._world.is_staff(character.name):
                     own.append(_staff_lives(self._world, day))
                 else:
-                    for live, days in self._world.lives_of(character.name):
-                        own += [
-                            f"今天你有 live：「{live.name}」，在{d.venue}。必须排进去。"
-                            for d in days if d.date == day
-                        ]
+                    world_lives = [
+                        f"今天你有 live：「{live.name}」，在{d.venue}。必须排进去。"
+                        for live_name, days in self._world.lives_of(character.name)
+                        for live, d in ((live_name, d) for d in days if d.date == day)
+                    ]
+                    if world_lives:
+                        own += world_lives
+                    elif drawn := (lives or {}).get(character_id):
+                        own.append(_generated_live(drawn))
+                    else:
+                        own.append(NO_LIVE)
+            elif drawn := (lives or {}).get(character_id):
+                own.append(_generated_live(drawn))
+            else:
+                own.append(NO_LIVE)
             habit = character.heart.sleep if character.heart is not None else None
             if habit:
                 own.append(f"你的作息习惯：{habit}")

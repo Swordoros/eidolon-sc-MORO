@@ -104,6 +104,15 @@ CREATE TABLE IF NOT EXISTS schedules (
     trip_with TEXT,
     PRIMARY KEY (user_id, character_id, day)
 );
+-- A group's drawn live for a day (`name` NULL: the day was checked and none drawn),
+-- kept apart from the members' schedules so the whole group shares one draw and cooldown.
+CREATE TABLE IF NOT EXISTS unit_lives (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    unit TEXT NOT NULL,
+    day TEXT NOT NULL,
+    name TEXT,
+    PRIMARY KEY (user_id, unit, day)
+);
 """
 
 Rest = Literal["asleep", "bath", "bedtime"]
@@ -496,15 +505,58 @@ class Schedules:
             (user_id, character_id, day.isoformat()),
         )
 
+    async def live_plan(
+        self, user_id: str, unit: str, day: date,
+    ) -> tuple[bool, str | None]:
+        """Whether the group's live for `day` was drawn already, and what was drawn:
+        `(True, None)` for a day checked with no live, `(False, None)` before it is."""
+        return await self._db.read(self._live_plan_body, user_id, unit, day)
+
+    def _live_plan_body(
+        self, db: sqlite3.Connection, user_id: str, unit: str, day: date,
+    ) -> tuple[bool, str | None]:
+        row = db.execute(
+            "SELECT name FROM unit_lives WHERE user_id = ? AND unit = ? AND day = ?",
+            (user_id, unit, day.isoformat()),
+        ).fetchone()
+        return (row is not None, row[0] if row is not None else None)
+
+    async def keep_live(
+        self, user_id: str, unit: str, day: date, name: str | None,
+    ) -> None:
+        """Keep the group's live draw for `day`; the first draw is left as it is."""
+        return await self._db.write(self._keep_live_body, user_id, unit, day, name)
+
+    def _keep_live_body(
+        self, db: sqlite3.Connection, user_id: str, unit: str, day: date, name: str | None,
+    ) -> None:
+        db.execute(
+            "INSERT OR IGNORE INTO unit_lives (user_id, unit, day, name) VALUES (?, ?, ?, ?)",
+            (user_id, unit, day.isoformat(), name),
+        )
+
+    async def last_live_day(self, user_id: str, unit: str) -> date | None:
+        """The last day the group drew a live, if any."""
+        return await self._db.read(self._last_live_day_body, user_id, unit)
+
+    def _last_live_day_body(
+        self, db: sqlite3.Connection, user_id: str, unit: str,
+    ) -> date | None:
+        row = db.execute(
+            "SELECT MAX(day) FROM unit_lives"
+            " WHERE user_id = ? AND unit = ? AND name IS NOT NULL",
+            (user_id, unit),
+        ).fetchone()
+        return date.fromisoformat(row[0]) if row and row[0] else None
+
     async def sweep(self, today: date) -> None:
         """Forget the schedules of days more than `KEPT_DAYS` ago."""
         return await self._db.write(self._sweep_body, today)
 
     def _sweep_body(self, db: sqlite3.Connection, today: date) -> None:
-        db.execute(
-            "DELETE FROM schedules WHERE day < ?",
-            ((today - timedelta(days=KEPT_DAYS)).isoformat(),),
-        )
+        cutoff = (today - timedelta(days=KEPT_DAYS)).isoformat()
+        db.execute("DELETE FROM schedules WHERE day < ?", (cutoff,))
+        db.execute("DELETE FROM unit_lives WHERE day < ?", (cutoff,))
 
 
 

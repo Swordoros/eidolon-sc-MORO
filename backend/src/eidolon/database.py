@@ -47,6 +47,7 @@ USER_DATA = [
     ("keepsakes", "user_id = ?"),
     ("keepsake_due", "user_id = ?"),
     ("schedule_placements", "user_id = ?"),
+    ("unit_lives", "user_id = ?"),
     ("visit_records", "user_id = ?"),
     ("gift_balances", "user_id = ?"),
     ("gift_backpacks", "user_id = ?"),

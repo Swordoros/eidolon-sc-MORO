@@ -18,12 +18,13 @@ from eidolon.config import Settings
 from eidolon.engine import (
     ANSWERING,
     BATCH_SCHEDULE_RULES,
+    NO_LIVE,
     SCHEDULE_RULES,
     WANTS_TO_PLAN,
     _student_line,
 )
 from eidolon.llm import LLMError
-from eidolon.schedule_writer import _plan_day_trips, _plan_trips
+from eidolon.schedule_writer import granted_live_slots, _plan_day_trips, _plan_trips
 from eidolon.schedules import (
     SOLO_TRIP_ODDS,
     TRIP_PLACES,
@@ -348,6 +349,89 @@ async def test_her_turn_tells_where_she_is_now_and_without_one_is_as_it_was(
     told = context_of(llm.prompts[-1])
     assert "现在（15:00）你大概在：逛文具店" in told
     assert "大概的安排" not in before
+
+
+async def test_a_group_live_is_drawn_on_its_own_odds_and_waits_three_days(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    characters.add("hiori", "風野灯織", "sheet", idol_id=2)
+    write_world(characters)
+    client, _, _ = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
+    writer = backend_of(client).schedule_writer
+    me = user_id(settings.database_path, "producer")
+    day = date(2026, 11, 9)
+
+    writer._random = FakeRandom(0)
+    first = await writer._live_for(me, ["mano", "hiori"], day)
+    assert first == "illumination STARS 临时LIVE"
+
+    second = await writer._live_for(me, ["mano", "hiori"], day + timedelta(days=2))
+    assert second is None
+
+    writer._random = FakeRandom(0)
+    third = await writer._live_for(me, ["mano", "hiori"], day + timedelta(days=3))
+    assert third == "illumination STARS 临时LIVE"
+
+    # A world-setting live takes the day, and no group draw is made for it.
+    writer._random = FakeRandom(0)
+    assert await writer._live_for(me, ["mano", "hiori"], date(2026, 11, 7)) is None
+    assert await writer._live_for(me, ["mano", "hiori"], date(2026, 11, 7)) is None
+
+
+async def test_a_drawn_group_live_is_told_in_the_prompt(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    write_world(characters)
+    client, llm, _ = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
+    backend = backend_of(client)
+
+    await backend.engine.write_schedules(
+        ["mano"], llm, date(2026, 11, 9), {"mano": []}, {"mano": None},
+        lives={"mano": "illumination STARS 临时LIVE"},
+    )
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "今天你们组合有一场 LIVE：「illumination STARS 临时LIVE」" in told
+    assert NO_LIVE not in told
+
+
+async def test_a_group_that_did_not_draw_a_live_is_told_not_to_make_one(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    write_world(characters)
+    client, llm, _ = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
+    backend = backend_of(client)
+
+    await backend.engine.write_schedules(
+        ["mano"], llm, date(2026, 11, 9), {"mano": []}, {"mano": None},
+        lives={"mano": None},
+    )
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert NO_LIVE in told
+
+
+async def test_a_world_live_beats_a_drawn_group_live(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    write_world(characters)
+    client, llm, _ = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
+    backend = backend_of(client)
+
+    await backend.engine.write_schedules(
+        ["mano"], llm, date(2026, 11, 7), {"mano": []}, {"mano": None},
+        lives={"mano": "illumination STARS 临时LIVE"},
+    )
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "今天你有 live：「THE IDOLM@STER SHINY COLORS 8thLIVE」" in told
+    assert "临时LIVE" not in told
+
+
+def test_an_ungranted_live_is_dropped_even_under_another_kind():
+    live = Slot(time(19), time(21), "ALSTROEMERIA LIVE演出", "剧场", "work")
+    concert = Slot(time(21), time(22), "演唱会安可", "剧场", "work")
+    lesson = Slot(time(9), time(10), "练习", "练习室", "lesson")
+
+    assert granted_live_slots([live, concert, lesson], False) == [lesson]
+    assert granted_live_slots([live, concert, lesson], True) == [live, concert, lesson]
 
 
 async def test_a_live_of_hers_that_day_is_to_be_in_it(
