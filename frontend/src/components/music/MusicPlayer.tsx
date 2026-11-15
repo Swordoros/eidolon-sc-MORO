@@ -248,7 +248,9 @@ export function MusicPlayer() {
                   : playing.title}
               />
             </div>
-            <div className="flex shrink-0 items-center gap-0.5">
+          </div>
+          <div className="flex items-center justify-center gap-0.5">
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 aria-label={copy.music.previous}
