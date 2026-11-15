@@ -65,6 +65,19 @@ def test_its_picture_is_the_thing_alone_square_and_all_ages():
     assert "no text" in prompt.positive and ", text," in prompt.negative
 
 
+def test_a_keepsake_picture_never_keeps_a_hand_or_palm_in_its_prompt():
+    prompt, stripped = keepsake_prompt(
+        "keychain, blue, boat, metal, on palm || "
+        "A small blue sailing boat keychain sits on a palm."
+    )
+
+    assert "palm" not in prompt.positive.lower()
+    assert "hand" not in prompt.positive.lower()
+    assert "on a plain surface" in prompt.positive
+    assert "people" in stripped
+    assert "palm" in prompt.negative and "hand" in prompt.negative
+
+
 def test_what_it_is_leads_and_her_sentence_describing_it_follows_the_tags():
     draft = read_keepsake(
         "<keepsake>\nname: 和纸鸽子\nwhat: bird figurine\ntags: washi paper, light blue, round\n"
@@ -498,8 +511,10 @@ async def test_a_given_keepsake_is_also_said_first_in_the_conversation(
 
     res = await client.post("/api/keepsakes/give-now", json={"character_id": "mano"})
     entries = await record(client, conversation)
+    [given] = (await cabinet(client))["keepsakes"]
 
     assert res.status_code == 201
     [announced] = [e for e in entries if e.get("type") == "reach_out"]
     assert announced["zh"] == "这个，送给制作人"
     assert announced["ja"] == "これ、プロデューサーさんに"
+    assert given["said"] == [{"ja": announced["ja"], "zh": announced["zh"]}]

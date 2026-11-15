@@ -204,10 +204,15 @@ KEEPSAKE_SIZE = (1024, 1024)
 KEEPSAKE_TAGS = 6
 """The most tags a keepsake's picture keeps from what was written for it."""
 KEEPSAKE_NEGATIVE = ", ".join((
-    NEGATIVE_PROMPT, "1girl", "1boy", "solo focus", "person", "hands", "text", "watermark",
+    NEGATIVE_PROMPT, "1girl", "1boy", "solo focus", "person", "hand", "hands", "palm",
+    "fingers", "holding", "text", "watermark",
 ))
 """A keepsake's picture shows no one: the thing alone."""
 _KEEPSAKE_START = ("background dataset", "no humans", "still life", "object focus")
+_KEEPSAKE_HANDS = re.compile(r"\b(?:hands?|palms?|fingers?|holding|held)\b", re.IGNORECASE)
+_KEEPSAKE_HAND_SURFACE = re.compile(
+    r"\b(?:on|in)\s+(?:a|the)?\s*(?:palm|hand|hands)\b", re.IGNORECASE
+)
 SCENE_MARK = " || "
 """Between a keepsake's tags and her sentence describing it, as they are kept together."""
 _KEEPSAKE_WORDS = re.compile(r'"([^"]*)"(?:\s*@\s*([^,，、]*))?')
@@ -704,12 +709,20 @@ def keepsake_details(tags: str) -> tuple[list[str], str, str, tuple[Crossing, ..
     kept: list[str] = []
     words = ""
     tags, _, described = tags.partition(SCENE_MARK)
+    if described:
+        described = _KEEPSAKE_HAND_SURFACE.sub("on a plain surface", described)
+        if _KEEPSAKE_HANDS.search(described):
+            described = "on a plain surface"
+            stripped.append("people")
     scene = _sentence(described, stripped) if described else ""
     if found := _KEEPSAKE_WORDS.search(tags):
         words = writing(found.group(1), found.group(2) or "", stripped)
         tags = tags[: found.start()] + tags[found.end() :]
     for raw in re.split(r"[,，、]", tags):
         written = _cleaned(raw)
+        if _KEEPSAKE_HANDS.search(written):
+            stripped.append("people")
+            continue
         tag = _TABLE.rewrites.get(written, written)
         if not tag or tag in seen:
             continue
