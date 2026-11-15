@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from eidolon.characters import load_characters
 from eidolon.group_context import GroupMemberNow, GroupNow
 from eidolon.group_prompt import history_block
-from eidolon.groups import Line, Member, _say_prompt, _topic_prompt
+from eidolon.groups import TOPIC_GAP, TOPIC_INTERVAL, Groups, Line, Member, _say_prompt, _topic_prompt
 
 
 def test_group_history_has_relative_time_and_no_producer_state():
@@ -46,3 +48,18 @@ def test_topic_prompt_ends_with_the_task():
     prompt = _topic_prompt("system", member, [member], [], "names", [], "")
     told = prompt[-1].content
     assert told.rstrip().endswith("不要写「新话题：」这样的前缀。")
+
+
+def test_a_member_uses_her_group_sheet():
+    characters = load_characters(Path(__file__).resolve().parents[2] / "characters" / "characters.toml")
+    groups = object.__new__(Groups)
+    groups._characters = characters  # type: ignore[attr-defined]
+    member = groups._members_by_id("nichika")
+    assert member is not None
+    assert member.sheet.startswith("# 群聊摘要")
+    assert "姐姐七草叶月" in member.sheet
+
+
+def test_the_topic_cooldown_is_eight_hours():
+    assert TOPIC_INTERVAL == timedelta(hours=8)
+    assert TOPIC_GAP == (timedelta(hours=8), timedelta(hours=8))

@@ -57,11 +57,11 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=1)
 """How often the scheduler looks whose group is due a new topic."""
 
-TOPIC_INTERVAL = timedelta(hours=4)
-"""How long a group waits between one topic and the next, on average (kept for reference)."""
+TOPIC_INTERVAL = timedelta(hours=8)
+"""How long a group waits between one topic and the next: eight hours."""
 
-TOPIC_GAP = (timedelta(hours=2), timedelta(hours=6))
-"""Each group picks its next topic's time at random from this, so they do not all speak at once."""
+TOPIC_GAP = (timedelta(hours=8), timedelta(hours=8))
+"""The cooldown after a topic before the group raises another: eight hours."""
 
 MAX_TURNS = 30
 """The most lines one topic gets before it is closed anyway: the ceiling, not the usual end."""
@@ -213,9 +213,8 @@ def _seven_am(now: datetime, zone_name: str) -> str:
 
 
 def _soon_topic_at() -> str:
-    """Two to six hours from now, at random: when a group raises its next topic."""
-    seconds = random.uniform(2 * 3600, 6 * 3600)
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+    """Eight hours from now: the cooldown before a group raises its next topic."""
+    return (datetime.now(timezone.utc) + TOPIC_INTERVAL).isoformat()
 
 
 def _open(conn: sqlite3.Connection) -> None:
@@ -263,6 +262,24 @@ def _open(conn: sqlite3.Connection) -> None:
         conn.execute(
             "UPDATE group_chats SET next_topic_at = ? WHERE id = ?",
             (_soon_topic_at(), group_id),
+        )
+    # A group whose next topic was scheduled under the old 2–6 hour gap waits the new
+    # eight-hour cooldown from its last topic.
+    rows = conn.execute(
+        "SELECT id, last_topic_at, next_topic_at FROM group_chats"
+        " WHERE dissolved_at IS NULL AND last_topic_at IS NOT NULL"
+        " AND next_topic_at IS NOT NULL"
+    ).fetchall()
+    for group_id, last_at, next_at in rows:
+        try:
+            due = datetime.fromisoformat(last_at) + TOPIC_INTERVAL
+            if datetime.fromisoformat(next_at) >= due:
+                continue
+        except ValueError:
+            continue
+        conn.execute(
+            "UPDATE group_chats SET next_topic_at = ? WHERE id = ?",
+            (due.isoformat(), group_id),
         )
 
 
@@ -629,7 +646,7 @@ class Groups:
         return due
 
     def _next_topic_at(self, now: datetime) -> str:
-        """When this group next raises a topic on its own: 2 to 6 hours from now, at random."""
+        """When this group next raises a topic on its own: after its cooldown, eight hours."""
         seconds = random.uniform(self._gap[0].total_seconds(), self._gap[1].total_seconds())
         return (now + timedelta(seconds=seconds)).isoformat()
 
@@ -905,7 +922,9 @@ class Groups:
     async def _system(self, user_id: str, member: Member) -> str:
         """Who she is, the world she lives in, and how she feels about the producer."""
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
-        parts = [f"你叫{label}。", member.sheet]
+        parts = [member.sheet]
+        if not member.sheet.lstrip().startswith("# 群聊摘要"):
+            parts.insert(0, f"你叫{label}。")
         if self._world is not None and self._store is not None:
             try:
                 profile = await self._store.get_profile(user_id)
@@ -1172,7 +1191,8 @@ class Groups:
         if character is None:
             return None
         name_zh = getattr(character, "name_zh", None) or ""
-        return Member(character.id, character.name, character.intro, _sheet(character), name_zh)
+        sheet = character.group_sheet or _sheet(character)
+        return Member(character.id, character.name, character.intro, sheet, name_zh)
 
     async def _lines(self, topic_id: str) -> list[Line]:
         return await self._db.read(self._read_lines, topic_id)

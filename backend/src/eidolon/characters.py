@@ -223,6 +223,10 @@ class Character:
     """Who else, by id, her `unit` memories reach beyond her unit: the clerk shares them
     with her sister (GLOSSARY.md「记忆」)."""
 
+    group_sheet: str = ""
+    """Her group-chat summary (`characters/group_sheets/<id>.md`), when one exists; empty
+    falls back to the first 900 characters of her sheet."""
+
     @property
     def photographed(self) -> bool:
         """Whether she can send photos: she has both her character tag and her looks."""
@@ -329,6 +333,14 @@ def _parse_character(
                 "（可参考 sheets/example.md，或用 eidolon character draft-sheet 生成初稿）"
             ) from None
         sheet = ""
+    group_sheet_rel = entry.get("group_sheet", f"group_sheets/{entry['id']}.md")
+    if not isinstance(group_sheet_rel, str):
+        raise CharacterConfigError(f"角色 {label} 的 group_sheet 应为文件路径")
+    group_sheet_path = base / group_sheet_rel
+    try:
+        group_sheet = group_sheet_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        group_sheet = ""
     if is_draft(sheet):
         log.warning("sheet %s of character %s is an unreviewed draft", sheet_path, label)
         sheet = sheet.replace(DRAFT_MARKER, "", 1).strip()
@@ -406,6 +418,7 @@ def _parse_character(
         name_zh=_other_name(entry, "name_zh", label),
         name_kana=_other_name(entry, "name_kana", label),
         name_romaji=_other_name(entry, "name_romaji", label),
+        group_sheet=group_sheet,
         liked_gifts=tuple(liked_gifts),
         place_likes=tuple(place_likes) if place_likes is not None else None,
         bar_flavors=_bar_names(entry, "bar_flavors", label),
