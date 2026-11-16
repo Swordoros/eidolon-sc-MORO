@@ -843,7 +843,7 @@ class Moments:
                     plan, character, post.picture, post.place, now, weather, degraded
                 )
         recording.degraded = degraded or None
-        posted_at = self._clock()
+        posted_at = now
         likes_at, comments_at = draw_shown(
             posted_at, len(post.likes), len(post.comments), self._random
         )
@@ -924,6 +924,21 @@ class Moments:
         timezone = effective_timezone(profile, None)
         day = local_date(now, timezone)
         start = datetime.combine(day, time(), ZoneInfo(timezone))
+        schedule = await self._daily.of(due.user_id, due.character_id, day)
+        yesterday = await self._daily.of(
+            due.user_id, due.character_id, day - timedelta(days=1)
+        )
+        resting = schedule_rest(schedule, yesterday, now.astimezone(ZoneInfo(timezone)))
+        if resting is not None:
+            until = (
+                _next_wake(schedule, yesterday, now, ZoneInfo(timezone))
+                if resting == "asleep"
+                else now + timedelta(minutes=30)
+            )
+            await self._db.write(
+                _put_off_reply, due.comment_id, until.astimezone(UTC).isoformat()
+            )
+            return
         before = await self._db.read(
             self._before_reply, due, self._affinities.on, start, start + timedelta(days=1)
         )
@@ -958,7 +973,7 @@ class Moments:
             await recording.finish("failed")
             return
         shown = await self._db.write(
-            _add_reply, due.comment_id, *said, self._clock().astimezone(UTC).isoformat()
+            _add_reply, due.comment_id, *said, now.astimezone(UTC).isoformat()
         )
         await recording.finish("success" if shown else "rejected")
 
@@ -1445,6 +1460,29 @@ def _no_reply(db: sqlite3.Connection, comment_id: int) -> None:
         "UPDATE moment_comments SET reply_at = NULL WHERE id = ? AND reply_ja IS NULL",
         (comment_id,),
     )
+
+
+def _put_off_reply(db: sqlite3.Connection, comment_id: int, until: str) -> None:
+    """Put her reply off until `until` (ISO), for the comment still waiting for it."""
+    db.execute(
+        "UPDATE moment_comments SET reply_at = ? WHERE id = ? AND reply_ja IS NULL",
+        (until, comment_id),
+    )
+
+
+def _next_wake(
+    schedule: Schedule | None, yesterday: Schedule | None, now: datetime, zone: ZoneInfo
+) -> datetime:
+    """When she next gets up, by today's wake or the night before's, seven in the morning
+    where neither says."""
+    wake = (
+        schedule.wake if schedule is not None and schedule.wake is not None
+        else yesterday.wake if yesterday is not None and yesterday.wake is not None
+        else time(7)
+    )
+    local = now.astimezone(zone)
+    at = datetime.combine(local.date(), wake, zone)
+    return at if at > local else at + timedelta(days=1)
 
 
 def _add_reply(db: sqlite3.Connection, comment_id: int, ja: str, zh: str, at: str) -> bool:

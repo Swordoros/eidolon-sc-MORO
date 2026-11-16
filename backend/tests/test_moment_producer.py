@@ -14,7 +14,7 @@ lets her), each test's moment of Mano's posted at `SEVEN`."""
 import asyncio
 import sqlite3
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
 import httpx
@@ -40,9 +40,11 @@ from tests.fakes import (
 from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep
 from tests.test_moments import POST, SEVEN, START, talked, tick, timeline
+from tests.test_moment_work import schedule
 from tests.test_own_llm import LLM as OWN_LLM
 from tests.test_reach_outs import backend_of, last_contact, records, remember
 from tests.test_text_turn import send_turn, start_conversation
+from tests.test_delete_account import user_id
 
 NOWHERE = [*POST, "<place>none</place>"]
 
@@ -281,6 +283,31 @@ async def test_cold_distant_or_in_a_cooldown_as_her_time_comes_she_does_not_repl
 
     assert (await shown(client))["reply"] is None
     assert (len(llm.prompts), reply_records(database)) == (2, [])
+
+
+async def test_she_does_not_reply_while_asleep_and_waits_until_she_wakes(
+    make_client: ClientFactory, settings: Settings
+):
+    client, llm, clock, moment = await posted(make_client, REPLIED)
+    await schedule(client, "work", time(9), time(12), sleep=time(22))
+    clock.now = SEVEN + timedelta(hours=15, minutes=30)  # 22:30 where she is
+    assert (await comment(client, moment)).status_code == 201
+    prompts_before = len(llm.prompts)
+
+    await tick(client, clock, SEVEN + timedelta(hours=16))  # 23:00, asleep
+
+    assert (await shown(client))["reply"] is None
+    assert len(llm.prompts) == prompts_before
+
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "UPDATE moment_users SET planned_day = ? WHERE user_id = ?",
+            ("2026-10-20", user_id(settings.database_path, "producer")),
+        )
+    await tick(client, clock, SEVEN + timedelta(days=1))  # 07:00 the next morning
+
+    assert (await shown(client))["reply"] == SHOWN
+    assert reply_records(settings.database_path) == [("moment_reply", "mano", "success", 0)]
 
 
 async def test_she_replies_to_as_many_of_his_comments_a_day_as_the_deployer_lets_her_by_the_day_they_show(
