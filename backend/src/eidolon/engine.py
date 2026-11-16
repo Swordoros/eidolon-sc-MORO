@@ -801,7 +801,7 @@ emoji: 一个最能代表它的 emoji
 what: 它是什么，一到三个英文单词的普通名词，画得出来的那种，例如 bird figurine、bookmark、strawberry daifuku
 tags: 3–5 个英文 tag，补充它的样子、材质、颜色，可以加一个放置的地方（例如 on wooden table）；不写人，不用比喻，颜色用纯颜色词
 scene: 一句英文，把这件东西完整地描述一遍：是什么、什么做的、什么颜色和形状、放在哪里，例如 A small round pigeon figurine made of light blue washi paper sits on a wooden desk。主语就是这件东西，不写否定，不用比喻
-words: （可以不写这一行）东西上写着的字，一个完整的词或短语，日语或英语都可以，越短越稳，最好四个字以内，例如 ありがとう、Thanks；卡片、包装、点心上真的会写字时才写
+words: （可以不写这一行）东西上写着的字，一个完整的词或短语，日语或英语都可以，越短越稳，最好四个字以内，例如 ありがとう、Thanks；卡片、包装、点心上真的会写字时才写。不要写数字、页码、编号、「1 2 3 4」这类没有意义的字；拿不准就不写 words 和 words_on
 words_on: 有 words 时写这段字在哪里，英文短语，例如 the card、the ribbon、the chocolate plate
 </keepsake>
 - 照你的性格、喜好和你们最近聊过的事来挑，要是你真的会送、也送得起的东西：手作的小东西、日常小物、吃的、你喜欢的东西的周边……不送贵重的东西、钱和礼券。

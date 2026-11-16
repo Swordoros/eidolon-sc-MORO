@@ -111,6 +111,28 @@ def test_words_written_on_it_are_drawn_in_quotes_where_it_says_and_text_is_let_i
     assert plain.positive.endswith("cake, high complexity, rating:general, very aesthetic, masterpiece, no text")
 
 
+def test_numbers_alone_are_not_written_on_it():
+    draft = read_keepsake(
+        "<keepsake>\nname: 四叶草书签\ntags: paper bookmark, light green\n"
+        "words: 1 2 3 4\nwords_on: one leaf of the clover\n</keepsake><ja>はい</ja><zh>给</zh>"
+    )
+    prompt, _ = keepsake_prompt(draft.tags)
+
+    assert "1 2 3 4" not in draft.tags
+    assert "the text" not in prompt.positive
+    assert "no text" in prompt.positive
+
+
+def test_numbers_stored_before_are_left_out_when_it_is_drawn_again():
+    prompt, _ = keepsake_prompt(
+        'paper bookmark, light green, "1 2 3 4" @ one leaf of the clover || '
+        "A paper bookmark sits on a desk."
+    )
+
+    assert "the text" not in prompt.positive
+    assert "no text" in prompt.positive
+
+
 async def talked(
     make_client: ClientFactory, settings: Settings, *replies, clock: FakeClock | None = None,
     image: FakeImageService | None = None, gpt_service: FakeImageService | None = None,

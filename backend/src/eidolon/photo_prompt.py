@@ -716,7 +716,10 @@ def keepsake_details(tags: str) -> tuple[list[str], str, str, tuple[Crossing, ..
             stripped.append("people")
     scene = _sentence(described, stripped) if described else ""
     if found := _KEEPSAKE_WORDS.search(tags):
-        words = writing(found.group(1), found.group(2) or "", stripped)
+        written = found.group(1)
+        # 只有数字或标点的字不值得画上去：书签上的「1 2 3 4」是模型编的页码，不是写字。
+        if any(char.isalpha() for char in written):
+            words = writing(written, found.group(2) or "", stripped)
         tags = tags[: found.start()] + tags[found.end() :]
     for raw in re.split(r"[,，、]", tags):
         written = _cleaned(raw)
@@ -753,9 +756,9 @@ def keepsake_words(words: str, on: str) -> str:
     """The words written on a keepsake and where, as they are kept with its tags (`"…" @ …`),
     for `keepsake_prompt` to read back; empty if there are no words."""
     words = " ".join(_NOT_IN_WORDS.sub(" ", words).split())[:WORDS_CHARS].strip()
+    if not any(char.isalpha() for char in words):
+        return ""  # 数字、页码、编号这类不算要写上去的字
     where = " ".join(re.sub(r'[,，、"@]', " ", on).split())[:60]
-    if not words:
-        return ""
     return f'"{words}" @ {where}' if where else f'"{words}"'
 
 
