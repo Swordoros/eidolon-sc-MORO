@@ -32,12 +32,14 @@ from eidolon.schedules import (
     TRIP_WITH_TWIST,
     TWISTS,
     UNIT_TRIP_ODDS,
+    Bath,
     Schedule,
     Schedules,
     Slot,
     lines,
     parse_rest,
     parse_schedule,
+    reconciled,
     rest,
 )
 from tests.conftest import CharacterConfig, ClientFactory, database_in
@@ -687,3 +689,70 @@ async def test_awake_she_waits_for_the_user_to_speak(mano_call: CallUnderTest, s
 
 def answered() -> RTVIClientMessageFrame:
     return RTVIClientMessageFrame(msg_id="a1", type="answered", data={})
+
+
+def test_a_sleep_before_the_last_slot_is_moved_after_it():
+    slots = [Slot(time(21, 30), time(23, 30), "乘坐新干线返回东京", "新干线上", "private")]
+
+    kept, wake, sleep, bath = reconciled(slots, time(8), time(22), Bath(time(20, 50), 40))
+
+    assert kept == slots
+    assert sleep == time(0)  # 23:30 + 30 minutes
+    assert bath == Bath(time(20, 50), 40)  # it ends just as the trip begins
+
+
+def test_a_bath_running_into_a_slot_is_moved_earlier():
+    slots = [Slot(time(21, 30), time(23, 30), "乘坐新干线返回东京", "新干线上", "private")]
+
+    _, _, _, bath = reconciled(slots, None, time(0), Bath(time(21), 40))
+
+    assert bath == Bath(time(20, 45), 40)
+
+
+def test_a_bath_with_no_gap_before_bed_is_not_taken():
+    slots = [Slot(time(9), time(23), "外景", "横滨", "work")]
+
+    _, _, sleep, bath = reconciled(slots, None, time(22), Bath(time(20), 40))
+
+    assert sleep == time(23, 30)
+    assert bath is None
+
+
+def test_a_day_already_agreeing_with_itself_is_left_alone():
+    slots = [Slot(time(9), time(12), "练习", "练习室", "lesson")]
+    bath = Bath(time(21, 45), 40)
+
+    assert reconciled(slots, time(7), time(23), bath) == (slots, time(7), time(23), bath)
+
+
+def test_a_wake_after_the_first_slot_is_moved_before_it():
+    slots = [Slot(time(8), time(10), "上学", "学校", "school")]
+
+    _, wake, _, _ = reconciled(slots, time(9), time(23), None)
+
+    assert wake == time(7, 30)
+
+
+def test_sleep_is_never_past_three():
+    assert reconciled([], None, time(4), None)[2] == time(3)
+
+
+CONFLICTING_PLAN = (
+    '{"mano": {"slots": [{"start": "21:30", "end": "23:30", "what": "乘坐新干线返回东京",'
+    ' "where": "新干线上", "kind": "private", "with": []}],'
+    ' "wake": "08:00", "sleep": "22:00"}}'
+)
+
+
+async def test_a_written_day_is_stored_agreeing_with_itself(
+    make_client: ClientFactory, settings: Settings
+):
+    client, _, clock = await talked(make_client, settings, [CONFLICTING_PLAN], [KOGANE_NONE])
+    clock.now = today_at(6)
+    await backend_of(client).schedule_writer.run_due()
+
+    found = await schedule(client)
+
+    assert found is not None
+    assert found["sleep"] == "00:00"
+    assert found["slots"][0]["end"] == "23:30"

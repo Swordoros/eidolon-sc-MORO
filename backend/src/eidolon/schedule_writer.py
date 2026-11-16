@@ -49,6 +49,7 @@ from eidolon.schedules import (
     Schedules,
     draw_bath,
     parse_schedules_batched,
+    reconciled,
 )
 from eidolon.schedules import said as schedule_said
 from eidolon.store import Store
@@ -370,10 +371,12 @@ class ScheduleWriter:
                     and not self._engine.is_staff(cid)
                 ):
                     slots = granted_live_slots(slots, False)
+                slots, wake, sleep, _ = reconciled(slots, wake, sleep, None)
                 bath = None
                 if sleep is not None:
                     heart = self._characters[cid].heart
                     bath = draw_bath(sleep, heart.bath if heart else "tub", self._random)
+                slots, wake, sleep, bath = reconciled(slots, wake, sleep, bath)
                 trip, trip_with = trips[cid]
                 await self._schedules.forget(user_id, cid, day)
                 await self._schedules.keep(

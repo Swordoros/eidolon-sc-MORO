@@ -72,10 +72,10 @@ SOLO_TRIP_ODDS = 20
 JOINT_TRIP_ODDS = 5
 """One pair in so many of the units with a unit trip on a day go together instead."""
 
-TRIP_TWIST = "今天你要去{place}出外景（离开东京），当天来回，必须排进当天的行程"
+TRIP_TWIST = "今天你要去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
 """The twist a trip is to the model writing the day."""
 
-TRIP_WITH_TWIST = "今天你要和{names}一起去{place}出外景（离开东京），当天来回，必须排进当天的行程"
+TRIP_WITH_TWIST = "今天你要和{names}一起去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
 """The twist a trip with others of her unit is (GLOSSARY.md「外景照片」)."""
 
 DATE_TWIST = "下午两点到五点和制作人约好了一起{what}"
@@ -132,9 +132,18 @@ WAKE_HOURS = (time(5), time(11))
 beyond; too narrow a range dropped the early risers' `wake`, and they were never seen
 asleep."""
 
-SLEEP_HOURS = (time(21), time(4))
+SLEEP_HOURS = (time(21), time(3))
 """When she may go to bed: from the first, through midnight, to the second. From 21:30 to
 3 or so, as the idols' habits say; too narrow a range dropped the early sleepers' `sleep`."""
+
+SLEEP_LATEST = time(3)
+"""The latest she may go to bed, after a late trip or live."""
+
+SLEEP_GAP = 30
+"""How many minutes after her last slot she may go to bed at the earliest."""
+
+BATH_GAP = 15
+"""How many minutes after her bath she may go to bed at the earliest."""
 
 
 @dataclass(frozen=True)
@@ -181,6 +190,47 @@ def draw_bath(sleep: time, kind: BathKind, random: Random) -> Bath:
     minutes = shortest + random((longest - shortest) // 5 + 1) * 5
     at = (_minutes(sleep) - before) % (24 * 60)
     return Bath(time(at // 60, at % 60), minutes)
+
+
+def reconciled(
+    slots: Sequence[Slot], wake: time | None, sleep: time | None, bath: Bath | None
+) -> tuple[list[Slot], time | None, time | None, Bath | None]:
+    """The day made to agree with itself: she wakes before its first slot, goes to bed at
+    least `SLEEP_GAP` after its last (never later than `SLEEP_LATEST`), and bathes in a free
+    gap before bed with `BATH_GAP` to spare, or not at all where there is none. A day already
+    agreeing with itself is left as it is."""
+    kept = list(slots)
+    if kept and wake is not None:
+        earliest = max(_minutes(WAKE_HOURS[0]), _minutes(kept[0].start) - SLEEP_GAP)
+        if _minutes(wake) > earliest:
+            wake = _at(earliest)
+    if sleep is not None:
+        if _night(sleep) > _night(SLEEP_LATEST):
+            sleep = SLEEP_LATEST
+        if kept:
+            latest = max(_minutes(slot.end) for slot in kept) + SLEEP_GAP
+            if _night(sleep) < latest:
+                sleep = _at(min(latest, _night(SLEEP_LATEST)))
+    return kept, wake, sleep, _bath_before(bath, sleep, kept)
+
+
+def _bath_before(
+    bath: Bath | None, sleep: time | None, slots: Sequence[Slot]
+) -> Bath | None:
+    """`bath` where it fits before `sleep` and between `slots`, moved earlier by quarters of
+    an hour if it must be; None where it cannot fit."""
+    if bath is None or sleep is None:
+        return None
+    bed = _night(sleep)
+    busy = [(_minutes(slot.start), _minutes(slot.end)) for slot in slots]
+    for earlier in range(13):  # 15 minutes a step, three hours back
+        begins = _night(bath.at) - earlier * 15
+        ends = begins + bath.minutes
+        if ends + BATH_GAP <= bed and all(
+            ends <= start or begins >= end for start, end in busy
+        ):
+            return Bath(_at(begins), bath.minutes)
+    return None
 
 
 @dataclass(frozen=True)
@@ -388,6 +438,17 @@ def _within(now: time, sleep: time) -> bool:
 
 def _minutes(at: time) -> int:
     return at.hour * 60 + at.minute
+
+
+def _night(at: time) -> int:
+    """`at` on the night's clock: past noon as it is, before it as the next day's."""
+    return _minutes(at) + 24 * 60 if at < time(12) else _minutes(at)
+
+
+def _at(minutes: int) -> time:
+    """The clock time `minutes` after midnight, past midnight wrapping around."""
+    wrapped = minutes % (24 * 60)
+    return time(wrapped // 60, wrapped % 60)
 
 
 def _clock(at: time | None) -> str | None:
