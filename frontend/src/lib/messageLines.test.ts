@@ -27,7 +27,7 @@ describe("linesOf", () => {
     expect(lines.some((line) => line.kind === "cue")).toBe(false);
   });
 
-  it("变化的胶囊挂在改变了好感度的那条回复后面；换了一天先放日期条；同一个人连着发、中间没有日期条或胶囊的算一组", () => {
+  it("变化的胶囊挂在改变了好感度的那条回复后面；换了一个小时段先放时间条；同一个人连着发、中间没有时间条或胶囊的算一组", () => {
     const lines = linesOf(
       [
         user("m1", "2026-09-27T01:00:00Z"),
@@ -43,7 +43,7 @@ describe("linesOf", () => {
     const groups = lines.flatMap((line) =>
       line.kind === "entry" ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`] : [line.kind],
     );
-    expect(groups).toEqual(["day", "m1<>", "day", "m2<", "m3>", "m4<>", "cue", "m5<>"]);
+    expect(groups).toEqual(["stamp", "m1<>", "stamp", "m2<", "m3>", "m4<>", "cue", "m5<>"]);
     expect(lines.find((line) => line.kind === "cue")).toEqual({ kind: "cue", key: "cue-m4", change: UP });
   });
 
@@ -74,7 +74,7 @@ describe("linesOf", () => {
     const lines = linesOf([user("m1"), gift, her("m2", null, "2026-09-28T01:00:03Z")], NOW, true);
 
     expect(lines.map((line) => (line.kind === "entry" ? line.entry.key : line.kind))).toEqual([
-      "day",
+      "stamp",
       "m1",
       "e1",
       "cue",
@@ -92,7 +92,7 @@ describe("linesOf", () => {
     const groups = lines.flatMap((line) =>
       line.kind === "entry" ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`] : [line.kind],
     );
-    expect(groups).toEqual(["day", "m1<>", "m2<>", "photos-used-up", "m3<", "m4>", "cue", "photos-used-up", "m5<>"]);
+    expect(groups).toEqual(["stamp", "m1<>", "m2<>", "photos-used-up", "m3<", "m4>", "cue", "photos-used-up", "m5<>"]);
     expect(lines.find((line) => line.kind === "photos-used-up")).toEqual({
       kind: "photos-used-up",
       key: "photos-used-up-m2",
@@ -100,7 +100,7 @@ describe("linesOf", () => {
     });
   });
 
-  it("对话事件把前后分成两组，按它的时间参加跨天判断", () => {
+  it("对话事件把前后分成两组，按它的时间参加跨小时判断", () => {
     const lines = linesOf(
       [
         her("m1", null, "2026-09-27T01:00:00Z"),
@@ -116,6 +116,64 @@ describe("linesOf", () => {
     const shown = lines.flatMap((line) =>
       line.kind === "entry" ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`] : [line.kind],
     );
-    expect(shown).toEqual(["day", "m1<>", "e1<>", "m2<>", "day", "e2<>", "m3<>"]);
+    expect(shown).toEqual(["stamp", "m1<>", "e1<>", "m2<>", "stamp", "e2<>", "m3<>"]);
+  });
+
+  it("时间条今天只写时刻，昨天、今年、往年带上日期", () => {
+    const lines = linesOf(
+      [
+        user("a", local(2025, 12, 31, 22, 10)),
+        user("b", local(2026, 9, 2, 8, 5)),
+        user("c", local(2026, 9, 27, 23, 40)),
+        user("d", local(2026, 9, 28, 9, 12)),
+        user("e", local(2026, 9, 28, 10, 5)),
+      ],
+      new Date(2026, 8, 28, 12, 0),
+      false,
+    );
+
+    expect(stampsOf(lines)).toEqual([
+      "2025年12月31日 22:10",
+      "9月2日 08:05",
+      "昨天 23:40",
+      "09:12",
+      "10:05",
+    ]);
+  });
+
+  it("昨天跨年也写昨天：不用年份换一句更长的日期", () => {
+    const lines = linesOf([user("a", local(2025, 12, 31, 23, 50))], new Date(2026, 0, 1, 0, 30), false);
+
+    expect(stampsOf(lines)).toEqual(["昨天 23:50"]);
+  });
+
+  it("按整点每小时一条：同一小时不插，跨整点插，气泡也跟着断开", () => {
+    const lines = linesOf(
+      [
+        her("a", null, local(2026, 9, 28, 8, 59)),
+        her("b", null, local(2026, 9, 28, 9, 1)),
+        her("c", null, local(2026, 9, 28, 9, 30)),
+      ],
+      new Date(2026, 8, 28, 12, 0),
+      false,
+    );
+
+    const shown = lines.flatMap((line) =>
+      line.kind === "stamp"
+        ? [line.label]
+        : line.kind === "entry"
+          ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`]
+          : [],
+    );
+    expect(shown).toEqual(["08:59", "a<>", "09:01", "b<", "c>"]);
   });
 });
+
+/** 本地墙钟上的一个时刻，写成接口给的 ISO。 */
+function local(year: number, month: number, day: number, hour: number, minute: number): string {
+  return new Date(year, month - 1, day, hour, minute).toISOString();
+}
+
+function stampsOf(lines: ReturnType<typeof linesOf>): string[] {
+  return lines.flatMap((line) => (line.kind === "stamp" ? [line.label] : []));
+}

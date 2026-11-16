@@ -377,8 +377,11 @@ export const zh = {
     devPromptNone: "none",
     placeholder: "用中文或日语说点什么",
     send: "发送",
-    /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
-    today: "今天",
+    /** 消息区跨小时的时间条：今天只写时刻 `09:12`，昨天、今年、往年按下面拼；月日不补零，时分补零。 */
+    stampYesterday: (time: string) => `昨天 ${time}`,
+    stampMonthDay: (month: string, day: string, time: string) => `${month}月${day}日 ${time}`,
+    stampFullDate: (year: string, month: string, day: string, time: string) =>
+      `${year}年${month}月${day}日 ${time}`,
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,

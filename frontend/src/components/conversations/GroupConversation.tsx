@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { PhotoBlock } from "./PhotoBlock";
+import { TimeStamp } from "./TimeStamp";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
+import { groupStamps } from "@/lib/groupLines";
 import {
   dissolveGroup,
   getGroup,
@@ -113,6 +115,7 @@ export function GroupConversation({
     () => new Map((characters ?? []).map((c) => [c.id, c])),
     [characters],
   );
+  const stamps = groupStamps(group?.history ?? [], new Date());
   const open = group?.topic?.open ?? false;
   const userId = account?.id ?? "";
   const draftKey = userId ? groupDraftKey(userId, groupId) : null;
@@ -331,7 +334,7 @@ export function GroupConversation({
                   {group.history.map((entry) => (
                     <MessageScrollerItem key={entry.topic.id}>
                       <div className="w-full">
-                        <TopicBlock entry={entry} byId={byId} />
+                        <TopicBlock entry={entry} byId={byId} stamps={stamps} />
                       </div>
                     </MessageScrollerItem>
                   ))}
@@ -524,63 +527,76 @@ export function GroupConversation({
   );
 }
 
-/** 一个话题：一条「新话题」分隔，然后是它的台词（和私聊同一套气泡：同一个人连着说并成一个气泡，带时刻）。 */
+/** 一个话题：每条线前面按小时段放时间条，然后是它的台词（和私聊同一套气泡：同一个人连着说并成一个气泡，带时刻）。 */
 function TopicBlock({
   entry,
   byId,
+  stamps,
 }: {
   entry: { topic: GroupTopic; lines: GroupLine[] };
   byId: Map<string, Character>;
+  stamps: Map<GroupLine, string>;
 }) {
   const lines = entry.lines;
   return (
     <section className="flex flex-col gap-3">
       {lines.map((line, index) => {
         const mine = line.color === null;
-        const first = index === 0 || lines[index - 1].speaker !== line.speaker;
-        const last = index === lines.length - 1 || lines[index + 1].speaker !== line.speaker;
+        const stamp = stamps.get(line);
+        const nextStamp = index < lines.length - 1 && stamps.has(lines[index + 1]);
+        const first = stamp !== undefined || index === 0 || lines[index - 1].speaker !== line.speaker;
+        const last =
+          index === lines.length - 1 ||
+          nextStamp ||
+          lines[index + 1].speaker !== line.speaker;
         const time = (
           <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(line.created_at)}</time>
         );
-        if (mine) {
-          return (
-            <Message key={`${entry.topic.id}-${index}`} align="end">
-              <div className="flex min-w-0 flex-1 items-end justify-end gap-1.5">
-                {last && time}
-                <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
-                  <BubbleContent>
-                    <p className="text-body whitespace-pre-wrap">{line.text}</p>
-                  </BubbleContent>
-                </Bubble>
-              </div>
-            </Message>
-          );
-        }
         return (
-          <Message key={`${entry.topic.id}-${index}`} align="start">
-            {first ? (
-              <MarkedAvatar name={line.name} src={byId.get(line.speaker)?.avatar_url ?? null} size="bubble" />
-            ) : (
-              <span aria-hidden className="w-bubble-avatar shrink-0" />
-            )}
-            <MessageContent className="gap-1">
-              {first && <MessageHeader className="px-1">{line.name}</MessageHeader>}
-              <div className="flex min-w-0 items-end gap-1.5">
-                <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
-                  <BubbleContent>
-                    <div className="flex flex-col gap-0.5">
-                      <p className="text-japanese-line whitespace-pre-wrap">{line.text}</p>
-                      {line.zh && (
-                        <p className="text-subtitle whitespace-pre-wrap text-muted-foreground">{line.zh}</p>
-                      )}
-                    </div>
-                  </BubbleContent>
-                </Bubble>
-                {last && time}
+          <Fragment key={`${entry.topic.id}-${index}`}>
+            {stamp && (
+              <div className="flex justify-center">
+                <TimeStamp at={line.created_at} label={stamp} />
               </div>
-              {line.photo && <PhotoBlock photo={line.photo} />}
-            </MessageContent>
-          </Message>
+            )}
+            {mine ? (
+              <Message align="end">
+                <div className="flex min-w-0 flex-1 items-end justify-end gap-1.5">
+                  {last && time}
+                  <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
+                    <BubbleContent>
+                      <p className="text-body whitespace-pre-wrap">{line.text}</p>
+                    </BubbleContent>
+                  </Bubble>
+                </div>
+              </Message>
+            ) : (
+              <Message align="start">
+                {first ? (
+                  <MarkedAvatar name={line.name} src={byId.get(line.speaker)?.avatar_url ?? null} size="bubble" />
+                ) : (
+                  <span aria-hidden className="w-bubble-avatar shrink-0" />
+                )}
+                <MessageContent className="gap-1">
+                  {first && <MessageHeader className="px-1">{line.name}</MessageHeader>}
+                  <div className="flex min-w-0 items-end gap-1.5">
+                    <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
+                      <BubbleContent>
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-japanese-line whitespace-pre-wrap">{line.text}</p>
+                          {line.zh && (
+                            <p className="text-subtitle whitespace-pre-wrap text-muted-foreground">{line.zh}</p>
+                          )}
+                        </div>
+                      </BubbleContent>
+                    </Bubble>
+                    {last && time}
+                  </div>
+                  {line.photo && <PhotoBlock photo={line.photo} />}
+                </MessageContent>
+              </Message>
+            )}
+          </Fragment>
         );
       })}
     </section>

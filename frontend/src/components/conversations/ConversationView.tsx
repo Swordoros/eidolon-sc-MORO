@@ -16,6 +16,7 @@ import {
 import { UnseenDot } from "@/components/app/AchievementLine";
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { TimeStamp } from "@/components/conversations/TimeStamp";
 import { HerLetterButton } from "@/components/letter/LetterButton";
 import { Bubble, BubbleContent, BubbleGroup } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
@@ -731,11 +732,9 @@ function Messages({
         <MessageScrollerViewport>
           <MessageScrollerContent className="gap-1 px-3 pt-2 pb-4">
             {lines.map((line) =>
-              line.kind === "day" ? (
+              line.kind === "stamp" ? (
                 <MessageScrollerItem key={line.key} className="my-3 flex justify-center">
-                  <span className="rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
-                    {line.label}
-                  </span>
+                  <TimeStamp at={line.at} label={line.label} />
                 </MessageScrollerItem>
               ) : line.kind === "cue" ? (
                 <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
@@ -955,7 +954,7 @@ function failureText(failure: Failure): string {
     .join(" ");
 }
 
-/** 对话记录里居中的一颗胶囊（好感度的变化、照片用完）：样子和日期条一样，一个小图标加一句话，不用她的颜色。 */
+/** 对话记录里居中的一颗胶囊（好感度的变化、照片用完）：样子和时间条一样，一个小图标加一句话，不用她的颜色。 */
 function Capsule({ children }: { children: ReactNode }) {
   return (
     <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
