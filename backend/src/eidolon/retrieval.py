@@ -51,10 +51,12 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 from eidolon.affinity import Days, Judged
 from eidolon.affinity_judge import affinity_questions, read_judged
+from eidolon.character_cards import CharacterCards
 from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.data_access import Database
@@ -296,6 +298,10 @@ class Retrieved:
     """The prompt section carrying the references or recalled episodes, if any."""
     memories_prompt: str | None = None
     """The prompt section carrying the user's memories relevant to the turn, if any."""
+    cards_prompt: str | None = None
+    """The prompt section carrying the characters the producer named, if any."""
+    related_prompt: str | None = None
+    """The prompt section carrying what those characters lately told her, if any."""
     recalled: bool = False
     """Whether the recall-story tool already ran, so the chat model need not call it."""
     judged: Judged | None = None
@@ -326,14 +332,17 @@ class Retrieval:
         sources: ReferenceSources,
         reranker: Reranker,
         min_relevance: Callable[[], float],
+        cards: CharacterCards | None = None,
     ) -> None:
         """`min_relevance` says, whenever asked, the reranker's score below which a
         reference or recalled episode is left out (see `rerank.KNOWN_THRESHOLDS`); the
-        admin console may change it while the backend runs."""
+        admin console may change it while the backend runs. `cards` writes what she is
+        told of the characters the producer names."""
         self._judge = judge
         self._sources = sources
         self._reranker = reranker
         self._min_relevance = min_relevance
+        self._cards = cards
 
     async def retrieve(
         self,
@@ -351,6 +360,9 @@ class Retrieval:
         asks her for a photo, if asked to. `listening` is what the producer is playing, if
         anything, and searches the works with the turn's context."""
         query = memory_query(history, text)
+        mentioned = (
+            self._cards.mentioned(character, history, text) if self._cards is not None else []
+        )
         if listening:
             query = f"{query}\n制作人正在听：{listening}"
         embedding = asyncio.ensure_future(self._embed(query))
@@ -371,10 +383,19 @@ class Retrieval:
             ):
                 need = "references"
             if need == "nothing":
-                retrieved = Retrieved(None)
+                cards, _ = await self._cards_for(character, mentioned, None)
+                retrieved = Retrieved(None, cards_prompt=cards)
+                found = None
             else:
                 looked_up = True
-                retrieved = await self._look_up(character, text, query, await finding, memory, need)
+                found = await finding
+                retrieved = await self._look_up(
+                    character, text, query, found, memory, need, mentioned
+                )
+            related = await self._related_for(
+                mentioned, memory, found.memories if found is not None else ()
+            )
+            retrieved = replace(retrieved, related_prompt=related)
         finally:
             for task in (finding, embedding):  # needing nothing, or no longer anything at all
                 task.cancel()
@@ -425,20 +446,81 @@ class Retrieval:
         found: _Found | None,
         memory: MemoryTurn | None,
         need: Need,
+        mentioned: Sequence[Character],
     ) -> Retrieved:
         """What the turn `need`s (something) of what it found for `query`, `text` and her
         reply before it."""
         if need == "recall":
-            return Retrieved(await self._recall_turn(character, text, query, found), recalled=True)
+            cards, _ = await self._cards_for(
+                character, mentioned, found.query_vector if found is not None else None
+            )
+            return Retrieved(
+                await self._recall_turn(character, text, query, found),
+                cards_prompt=cards,
+                recalled=True,
+            )
         if found is None:
-            return Retrieved(None)
+            cards, _ = await self._cards_for(character, mentioned, None)
+            return Retrieved(None, cards_prompt=cards)
+        cards, covered = await self._cards_for(character, mentioned, found.query_vector)
         if need == "memories":
-            return Retrieved(None, await _find_memories(memory, query, found.memories))
+            return Retrieved(
+                None,
+                await _find_memories(memory, query, found.memories),
+                cards_prompt=cards,
+            )
         references, memories = await asyncio.gather(
             self._references(query, found.references or []),
             _find_memories(memory, query, found.memories),
         )
-        return Retrieved(self._sources.prompt(references) if references else None, memories)
+        references = [
+            reference for reference in references
+            if not (reference.kind == "fact" and reference.origin in covered)
+        ]
+        return Retrieved(
+            self._sources.prompt(references) if references else None,
+            memories,
+            cards_prompt=cards,
+        )
+
+    async def _cards_for(
+        self,
+        character: Character,
+        mentioned: Sequence[Character],
+        query_vector: Sequence[float] | None,
+    ) -> tuple[str | None, frozenset[str]]:
+        """The card section for `mentioned`, and the speaker's facts it already quotes; no
+        cards without a namer, and never one that keeps the turn from being answered."""
+        if self._cards is None or not mentioned:
+            return None, frozenset()
+        try:
+            card = await self._cards.build(
+                character, mentioned, self._sources.facts, query_vector
+            )
+        except Exception:
+            log.warning("building the character cards failed", exc_info=True)
+            return None, frozenset()
+        return (card.prompt, card.covered) if card is not None else (None, frozenset())
+
+    async def _related_for(
+        self,
+        mentioned: Sequence[Character],
+        memory: MemoryTurn | None,
+        exclude: Sequence[Memory],
+    ) -> str | None:
+        """What the named characters lately told her, from the memories she may recall and
+        that the turn's own memories do not already carry; no section without both."""
+        if self._cards is None or not mentioned or memory is None:
+            return None
+        try:
+            visible = await memory.visible()
+            return self._cards.related(
+                mentioned, visible, datetime.now(UTC), memory.timezone,
+                tuple(each.id for each in exclude),
+            )
+        except Exception:
+            log.warning("reading what the named characters told her failed", exc_info=True)
+            return None
 
     async def _references(self, query: str, candidates: Sequence[Reference]) -> list[Reference]:
         """Those of the `candidates` relevant to `query`, most relevant first."""

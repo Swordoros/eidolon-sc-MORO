@@ -1133,6 +1133,18 @@ class MemoryTurn:
             self._conversation.user_id, query_vector, self._conversation.character_id
         )
 
+    async def visible(self) -> list[Memory]:
+        """The user's memories this conversation's character may recall, by the same scope
+        rules as a turn: her own, the shared ones, and the unit ones she is in the group of."""
+        return await self._memories.visible(
+            self._conversation.user_id, self._conversation.character_id
+        )
+
+    @property
+    def timezone(self) -> str:
+        """The producer's time zone this turn is read in."""
+        return self._timezone
+
     async def find(self, query: str, candidates: Sequence[Memory]) -> str | None:
         """The prompt section carrying those of the `candidates` relevant to `query`, the
         turn's query, most relevant first, each labelled with who it was told to and to be

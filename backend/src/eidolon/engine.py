@@ -1835,7 +1835,7 @@ class ConversationEngine:
                 *([about_photo] if about_photo else []),
                 *([asmr_rules(voiced_by)] if in_call is not None and in_call.asmr else []),
             ],
-            [p for p in (retrieved.memories_prompt, relationship, retrieved.prompt) if p],
+            [p for p in (retrieved.cards_prompt, retrieved.related_prompt, retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history,

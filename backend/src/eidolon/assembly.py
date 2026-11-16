@@ -1,4 +1,4 @@
-﻿"""The assembly root: from settings to the running backend, and back down again.
+"""The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
 characters and the world setting and gift catalog beside them, the identity providers users sign in with, the chat and background models,
@@ -45,6 +45,7 @@ from eidolon.bar_facts import BarFacts
 from eidolon.bar_lines import bar_lines_path, check_bar_lines, load_bar_lines
 from eidolon.bar_visits import bar_visits_path, check_bar_visits, load_bar_visits
 from eidolon.call import Calls, Speech, SpeechServices
+from eidolon.character_cards import CharacterCards
 from eidolon.characters import Character, load_characters
 from eidolon.drink_catalog import check_bar_tastes, drinks_path, load_drink_catalog
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
@@ -474,6 +475,7 @@ def build(
             references,
             reranker,
             lambda: config.rerank_thresholds.references,
+            cards=CharacterCards(characters.values()),
         )
         memories = Memories(
             database, characters, clock, embedder=embedder, reranker=reranker,
