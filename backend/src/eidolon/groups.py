@@ -727,7 +727,10 @@ class Groups:
         past = [entry["topic"]["text"] for entry in reversed(state["history"])][:TOPIC_RECALL]
         raiser = members[secrets.randbelow(len(members))]
         try:
-            said, photo = await self._raise(user_id, group_id, members, raiser, recent, past, now)
+            said, photo = await self._raise(
+                user_id, group_id, members, raiser, recent, past, now,
+                group_name=state["name"], roster=all_members,
+            )
         except Exception:
             log.warning("a member could not raise a topic", exc_info=True)
             return None
@@ -736,7 +739,10 @@ class Groups:
             self._start_topic, user_id, group_id, topic_id, raiser.id, said.ja, said.zh, now,
             photo,
         )
-        self._start_conversation(user_id, group_id, topic_id, members, said.ja, raiser.id)
+        self._start_conversation(
+            user_id, group_id, topic_id, members, said.ja, raiser.id,
+            group_name=state["name"], roster=all_members,
+        )
         return topic_id
 
     def _put_off(self, db: sqlite3.Connection, group_id: str, until: str) -> None:
@@ -748,9 +754,10 @@ class Groups:
 
     async def _raise(
         self, user_id: str, group_id: str, members: Sequence[Member], raiser: Member,
-        recent: Sequence[dict], past: Sequence[str], now: datetime,
+        recent: Sequence[dict], past: Sequence[str], now: datetime, *,
+        group_name: str, roster: Sequence[Member],
     ) -> tuple[Said, tuple[str, bytes] | None]:
-        system = await self._system(user_id, raiser)
+        system = await self._system(user_id, raiser, group_name, roster)
         material = await self._material(user_id, raiser)
         now_told = await self._now_told(user_id, members, now)
         character = self._characters.get(raiser.id)
@@ -769,8 +776,7 @@ class Groups:
             f"{member.id}（{member.name}）" for member in pictured
         )
         prompt = _topic_prompt(
-            system, raiser, members, recent,
-            self._names_block(members), past, material, now_told, allow_photo,
+            system, recent, self._names_block(members), past, material, now_told, allow_photo,
             photo_members,
         )
         answer = await self._ask(prompt, group_id, raiser)
@@ -902,7 +908,7 @@ class Groups:
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
         topic: str, raised_by: str, *, mentioned: Sequence[str] = (),
         threshold: float = BASE_THRESHOLD, delay: tuple[float, float] | None = None,
-        photo_for: str | None = None,
+        photo_for: str | None = None, group_name: str, roster: Sequence[Member],
     ) -> None:
         """Talk the topic through in the background, so the page can show the lines as they
         come and the user can cut in between them."""
@@ -913,6 +919,7 @@ class Groups:
             self._converse(
                 user_id, group_id, topic_id, members, topic, raised_by,
                 mentioned=mentioned, threshold=threshold, delay=delay, photo_for=photo_for,
+                group_name=group_name, roster=roster,
             )
         )
         self._tasks[group_id] = task
@@ -927,7 +934,7 @@ class Groups:
         self, user_id: str, group_id: str, topic_id: str, members: Sequence[Member],
         topic: str, raised_by: str, *, mentioned: Sequence[str] = (),
         threshold: float = BASE_THRESHOLD, delay: tuple[float, float] | None = None,
-        photo_for: str | None = None,
+        photo_for: str | None = None, group_name: str, roster: Sequence[Member],
     ) -> None:
         """Talk the topic through: each member who wants to answer waits her own spell, and
         whoever's runs out first speaks; the bar rises and the outsider's mention falls, until
@@ -978,7 +985,7 @@ class Groups:
                 mention = max(0.0, BASE_MENTION - turn * MENTION_STEP)
                 outsiders = [m for m in members if m.id not in {speaker.id, last_speaker}]
                 now = self._clock()
-                system = await self._system(user_id, speaker)
+                system = await self._system(user_id, speaker, group_name, roster)
                 group_now = await self._context.read(user_id, group_id, members, now)
                 now_told = "\n".join(group_now.lines())
                 history = history_block(
@@ -1070,8 +1077,11 @@ class Groups:
             return line
         return Said(line.ja, subtitle) if subtitle else line
 
-    async def _system(self, user_id: str, member: Member) -> str:
-        """Who she is, the world she lives in, and only her own affinity with the producer."""
+    async def _system(
+        self, user_id: str, member: Member, group_name: str, roster: Sequence[Member]
+    ) -> str:
+        """Who she is, the world she lives in, the group she is in (its name and everyone in
+        it), and only her own affinity with the producer."""
         label = f"{member.name}（中文名 {member.name_zh}）" if member.name_zh else member.name
         parts = [member.sheet]
         if not member.sheet.lstrip().startswith("# 群聊摘要"):
@@ -1105,7 +1115,12 @@ class Groups:
                     )
             except Exception:
                 log.warning("reading her affinity for the group failed", exc_info=True)
-        parts.append("你们在群聊里。制作人也在群里。")
+        others = "、".join(each.name for each in roster if each.id != member.id)
+        company = f"群里有{others}，制作人也在" if others else "只有你和制作人"
+        parts.append(
+            f"你现在在「{group_name}」这个群里，{company}。"
+            "群名只是让你知道自己在哪里，不用主动说出来。"
+        )
         # 只放她自己的好感度；其他人的好感度不进入她的提示词。
         return "\n".join(parts)
 
@@ -1276,6 +1291,7 @@ class Groups:
                 self._start_conversation(
                     user_id, group_id, topic_id, members, text, USER_SPEAKER,
                     threshold=BASE_THRESHOLD, photo_for=photo_for,
+                    group_name=state["name"], roster=members,
                 )
             return
         topic_id = topic["id"]
@@ -1288,6 +1304,7 @@ class Groups:
                 user_id, group_id, topic_id, members, text, last_speaker,
                 mentioned=[*mentioned, *addressed], threshold=CONTINUE_THRESHOLD,
                 delay=REPLY_DELAY, photo_for=photo_for,
+                group_name=state["name"], roster=members,
             )
 
     async def _judge_group_affinity(
@@ -1581,13 +1598,11 @@ def _sheet(character: Character) -> str:
 
 
 def _topic_prompt(
-    system: str, raiser: Member, members: Sequence[Member], recent: Sequence[dict],
-    names: str, past: Sequence[str], material: str, now_told: str = "",
-    allow_photo: bool = False, photo_members: str = "",
+    system: str, recent: Sequence[dict], names: str, past: Sequence[str], material: str,
+    now_told: str = "", allow_photo: bool = False, photo_members: str = "",
 ) -> list[ChatMessage]:
     """The new-topic prompt: the group's present and history, names, the rules, then the task."""
     context = _context(recent)
-    others = "、".join(m.name for m in members if m.id != raiser.id)
     tired = "".join(f"- {text}\n" for text in past)
     user = (
         (f"# 现在\n{now_told}\n\n" if now_told else "")
@@ -1620,7 +1635,7 @@ def _topic_prompt(
         "<zh> 是这句日语的中文翻译；只输出这一组标签。"
         + "\n现在直接写出你的新话题，不要解释，也不要写「新话题：」这样的前缀。"
     )
-    return [ChatMessage("system", f"{system}\n群里的其他人：{others}"), ChatMessage("user", user)]
+    return [ChatMessage("system", system), ChatMessage("user", user)]
 
 
 def _say_prompt(

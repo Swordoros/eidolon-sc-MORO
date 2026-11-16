@@ -46,8 +46,7 @@ def test_group_now_lines_only_the_group_world():
 
 
 def test_topic_prompt_ends_with_the_task():
-    member = Member("mano", "真乃", "i", "s", "真乃")
-    prompt = _topic_prompt("system", member, [member], [], "names", [], "")
+    prompt = _topic_prompt("system", [], "names", [], "")
     told = prompt[-1].content
     assert told.rstrip().endswith("不要写「新话题：」这样的前缀。")
 
@@ -82,9 +81,40 @@ async def test_group_system_injects_only_her_own_affinity():
     groups._affinities = Affinities()  # type: ignore[attr-defined]
     member = groups._members_by_id("nichika")
     assert member is not None
-    told = await groups._system("user", member)
+    told = await groups._system("user", member, "周末茶会", [member])
     assert "对制作人态度很冷" in told
     assert "不要提好感度" in told
+
+
+def bare_groups() -> Groups:
+    """A group chat with only the character data: no store, world or affinity to read."""
+    groups = object.__new__(Groups)
+    groups._store = None  # type: ignore[attr-defined]
+    groups._world = None  # type: ignore[attr-defined]
+    groups._affinities = None  # type: ignore[attr-defined]
+    return groups
+
+
+async def test_the_group_system_names_itself_and_everyone_in_it():
+    member = Member("mano", "真乃", "i", "s", "真乃")
+    hiori = Member("hiori", "灯織", "i", "s", "灯织")
+
+    told = await bare_groups()._system("user", member, "周末茶会", [member, hiori])
+
+    assert "「周末茶会」" in told
+    assert "群里有灯織" in told
+    assert "制作人也在" in told
+    assert "不用主动说出来" in told
+
+
+async def test_a_group_of_one_says_only_she_and_the_producer_are_in_it():
+    member = Member("mano", "真乃", "i", "s", "真乃")
+
+    told = await bare_groups()._system("user", member, "一个人的群", [member])
+
+    assert "「一个人的群」" in told
+    assert "只有你和制作人" in told
+    assert "群里有" not in told
 
 
 async def test_group_memories_are_three_own_and_one_public():
