@@ -9,6 +9,7 @@ from eidolon.relationships import (
     STATES,
     _active_day,
     _allowed,
+    _checked,
     _from_text,
     _parse_text,
     _render,
@@ -19,14 +20,51 @@ def test_the_editable_relationship_text_round_trips_through_its_labels():
     text = _render(
         "repairing",
         "有点别扭，想找机会道歉",
+        "可靠，但总把自己排在最后",
         "比平时客气，有点小心翼翼",
         ["昨天因为安排争执过，还没有真正和好"],
         ["制作人记得她说过喜欢的东西"],
-        ["不要突然撒娇，也不要反复道歉"],
+        ["容易突然撒娇，或者反复道歉"],
     )
 
     assert _parse_text(text)["关系状态"] == "repairing"
     assert "最近气氛：有点别扭" in text
+    assert "对制作人的评价：可靠，但总把自己排在最后" in text
+    assert "还挂着：昨天因为安排争执过" in text
+
+
+def test_text_edited_before_the_labels_changed_still_parses():
+    text = (
+        "关系状态：warm\n最近气氛：最近相处得不错\n"
+        "她现在的倾向：想多照顾他\n还没解决的事：他还没好好休息\n"
+        "最近的温暖：他记得带热咖啡\n不要：客气到生分"
+    )
+
+    parsed = _from_text(text, "trust", False)
+
+    assert parsed["tone"] == "想多照顾他"
+    assert parsed["open_threads"] == ["他还没好好休息"]
+    assert parsed["recent_warmth"] == ["他记得带热咖啡"]
+    assert parsed["avoid"] == ["客气到生分"]
+
+
+def test_each_line_is_cut_to_its_length_and_count():
+    checked = _checked({
+        "state": "warm",
+        "recent": "长" * 80,
+        "opinion": "评" * 30,
+        "tone": "倾" * 50,
+        "open_threads": ["还" * 60] * 3,
+        "recent_warmth": ["暖" * 60] * 2,
+        "avoid": ["变" * 60] * 2,
+    })
+
+    assert len(checked["recent"]) == 60
+    assert len(checked["opinion"]) == 20
+    assert len(checked["tone"]) == 40
+    assert [len(item) for item in checked["open_threads"]] == [50, 50]
+    assert [len(item) for item in checked["recent_warmth"]] == [40]
+    assert [len(item) for item in checked["avoid"]] == [40]
 
 
 def test_an_edited_relationship_must_follow_the_labels_and_be_compatible_with_affinity():

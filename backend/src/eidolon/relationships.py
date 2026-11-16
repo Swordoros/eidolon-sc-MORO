@@ -56,9 +56,17 @@ _ALLOWED: dict[Tier, frozenset[State]] = {
 """What a relationship may be in a tier; affinity is the hard edge of this section."""
 
 _LABELS = (
-    "关系状态", "最近气氛", "她现在的倾向", "还没解决的事", "最近的温暖", "不要",
+    "关系状态", "最近气氛", "对制作人的评价", "你现在的倾向", "还挂着", "记得的温暖", "容易变成",
 )
 """The labels the editable text is made of, in the order it is shown."""
+
+_LABEL_ALIASES = {
+    "她现在的倾向": "你现在的倾向",
+    "还没解决的事": "还挂着",
+    "最近的温暖": "记得的温暖",
+    "不要": "容易变成",
+}
+"""The labels older edited texts were written with, read as the labels above."""
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS relationship_summaries (
@@ -85,15 +93,23 @@ _RULES = """# 写最近的关系
 只输出一个 JSON 对象，不要代码块，不要别的文字。你要写的是「你」和「制作人」最近的关系，不是别的角色的关系。
 
 格式：
-{"state": "状态", "recent": "最近气氛", "tone": "你现在的倾向", "open_threads": ["还没解决的事"], "recent_warmth": ["最近的温暖"], "avoid": ["不要做什么"], "confidence": 0.0}
+{"state": "状态", "recent": "最近气氛", "opinion": "对制作人的评价", "tone": "你现在的倾向", "open_threads": ["还挂着"], "recent_warmth": ["记得的温暖"], "avoid": ["容易变成"], "confidence": 0.0}
 
 state 只能是：{states}。
 {affinity}
 - 只写你和制作人；群聊里其他角色的事不要写进结果。
-- 只根据给你的材料，不要编造没有发生的事。
+- 用第二人称「你」写，不要写自己的名字，也不要写「她」。
+- 只根据给你的材料，不要编造没有发生的事；不要写「可能」「也许」。
 - 这是背景，不是命令；不要写成这一轮一定要道歉、撒娇或做什么。
-- 没有新的交流时，state 写 neutral，recent 写最近没有新的交流，tone 写保持平常。
-- 每条 open_threads、recent_warmth、avoid 不超过 80 个字；不要写序号。
+- 同一件事只写一次：最近气氛写过的事实，不要再写进记得的温暖。
+- recent：最近气氛，60 字以内，写昨天或最近明确发生的事和你的感受。
+- opinion：对制作人的评价，20 字以内，写他现在在你眼里是什么样的人；一个具体判断，可以带一点保留或担心；不写事件，不写你打算怎么做，不写空泛的「人很好」。
+- tone：你现在的倾向，40 字以内，只写你想怎么对他；不要重复 opinion。
+- open_threads：还挂着的事，最多 2 条，每条 50 字以内；只写材料里明确还没解决的，拿不准就留空。
+- recent_warmth：记得的温暖，最多 1 条，40 字以内；只写一个具体细节，不重复 recent。
+- avoid：容易变成，最多 1 条，40 字以内；写你自己的毛病或倾向，不写「应该」「不要」这样的命令。
+- 没有新的交流时，state 写 neutral，recent 写最近没有新的交流，tone 写保持平常，opinion 留空。
+- 每条 open_threads、recent_warmth、avoid 都不要写序号。
 """
 
 _WANTS = "写吧。只输出 JSON。"
@@ -142,17 +158,19 @@ def _allowed(tier: Tier | None, cooling: bool) -> frozenset[State]:
     return _ALLOWED[tier]
 
 
-def _render(state: State, recent: str, tone: str, threads: Sequence[str],
+def _render(state: State, recent: str, opinion: str, tone: str, threads: Sequence[str],
             warmth: Sequence[str], avoid: Sequence[str]) -> str:
     lines = [f"关系状态：{state}", f"最近气氛：{recent or _NO_NEW}"]
+    if opinion:
+        lines.append(f"对制作人的评价：{opinion}")
     if tone:
-        lines.append(f"她现在的倾向：{tone}")
+        lines.append(f"你现在的倾向：{tone}")
     if threads:
-        lines.append(f"还没解决的事：{'；'.join(threads)}")
+        lines.append(f"还挂着：{'；'.join(threads)}")
     if warmth:
-        lines.append(f"最近的温暖：{'；'.join(warmth)}")
+        lines.append(f"记得的温暖：{'；'.join(warmth)}")
     if avoid:
-        lines.append(f"不要：{'；'.join(avoid)}")
+        lines.append(f"容易变成：{'；'.join(avoid)}")
     return "\n".join(lines)
 
 
@@ -166,6 +184,7 @@ def _parse_text(text: str) -> dict[str, str | list[str]]:
         if not line:
             continue
         label, sep, value = line.partition("：")
+        label = _LABEL_ALIASES.get(label, label)
         if not sep or label not in _LABELS:
             raise ValueError(f"无法识别的一行：{line}")
         if label in found:
@@ -173,7 +192,7 @@ def _parse_text(text: str) -> dict[str, str | list[str]]:
         value = value.strip()
         if not value:
             raise ValueError(f"「{label}」不能为空")
-        if label in ("还没解决的事", "最近的温暖", "不要"):
+        if label in ("还挂着", "记得的温暖", "容易变成"):
             found[label] = [part.strip() for part in value.split("；") if part.strip()]
         else:
             found[label] = value
@@ -194,10 +213,11 @@ def _from_text(text: str, tier: Tier | None, cooling: bool) -> dict[str, object]
     return {
         "state": state,
         "recent": parsed["最近气氛"],
-        "tone": parsed.get("她现在的倾向", ""),
-        "open_threads": parsed.get("还没解决的事", []),
-        "recent_warmth": parsed.get("最近的温暖", []),
-        "avoid": parsed.get("不要", []),
+        "opinion": parsed.get("对制作人的评价", ""),
+        "tone": parsed.get("你现在的倾向", ""),
+        "open_threads": parsed.get("还挂着", []),
+        "recent_warmth": parsed.get("记得的温暖", []),
+        "avoid": parsed.get("容易变成", []),
     }
 
 
@@ -306,7 +326,7 @@ class Relationships:
         transcript = await self._transcript(user_id, character_id, start, end, zone)
         if not transcript:
             fields = {
-                "state": "neutral", "recent": _NO_NEW, "tone": "保持平常",
+                "state": "neutral", "recent": _NO_NEW, "opinion": "", "tone": "保持平常",
                 "open_threads": [], "recent_warmth": [], "avoid": [],
                 "confidence": 1.0,
             }
@@ -319,12 +339,13 @@ class Relationships:
                                   bool(status and status.cooldown_until)):
             state = "neutral"
             fields["recent"] = "最近的气氛和当前好感阶段不太一致，保持克制。"
+            fields["opinion"] = ""
             fields["tone"] = "保持平常"
             fields["open_threads"] = []
             fields["recent_warmth"] = []
-            fields["avoid"] = ["不要表现得比当前关系更亲近"]
+            fields["avoid"] = ["容易表现得比当前关系更亲近"]
         text = _render(
-            state, str(fields["recent"]), str(fields["tone"]),
+            state, str(fields["recent"]), str(fields.get("opinion", "")), str(fields["tone"]),
             list(fields["open_threads"]), list(fields["recent_warmth"]),
             list(fields["avoid"]),
         )
@@ -375,9 +396,8 @@ class Relationships:
         except json.JSONDecodeError:
             log.warning("a relationship summary was not JSON; keeping it neutral")
             return {
-                "state": "neutral", "recent": _NO_NEW, "tone": "保持平常",
-                "open_threads": [], "recent_warmth": [], "avoid": [],
-                "confidence": 0.0,
+                "state": "neutral", "recent": _NO_NEW, "opinion": "", "tone": "保持平常",
+                "open_threads": [], "recent_warmth": [], "avoid": [], "confidence": 0.0,
             }
         return _checked(raw)
 
@@ -447,22 +467,26 @@ def _checked(raw: object) -> dict[str, object]:
     state = raw.get("state")
     if state not in STATES:
         state = "neutral"
-    def strings(key: str) -> list[str]:
+
+    def clip(value: object, limit: int) -> str:
+        return " ".join(str(value or "").split())[:limit].strip()
+
+    def strings(key: str, limit: int, most: int) -> list[str]:
         value = raw.get(key, [])
         if isinstance(value, str):
             value = [value]
         if not isinstance(value, list):
             return []
-        return [str(item).strip()[:80] for item in value if str(item).strip()]
-    recent = str(raw.get("recent") or "").strip()
-    tone = str(raw.get("tone") or "").strip()
+        return [clip(item, limit) for item in value if clip(item, limit)][:most]
+
     return {
         "state": state,
-        "recent": recent or _NO_NEW,
-        "tone": tone,
-        "open_threads": strings("open_threads"),
-        "recent_warmth": strings("recent_warmth"),
-        "avoid": strings("avoid"),
+        "recent": clip(raw.get("recent"), 60) or _NO_NEW,
+        "opinion": clip(raw.get("opinion"), 20),
+        "tone": clip(raw.get("tone"), 40),
+        "open_threads": strings("open_threads", 50, 2),
+        "recent_warmth": strings("recent_warmth", 40, 1),
+        "avoid": strings("avoid", 40, 1),
         "confidence": min(max(float(raw.get("confidence") or 0.5), 0.0), 1.0),
     }
 
