@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { copy } from "@/i18n";
@@ -34,11 +35,14 @@ import {
   type MemoryScope,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { sourceCharacter, supersededMark } from "@/lib/memories";
+import { sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
 import { cn } from "@/lib/utils";
-import { TrashIcon } from "@/theme/icons";
+import { ShowLessIcon, ShowMoreIcon, TrashIcon } from "@/theme/icons";
 
 const t = copy.memories;
+
+/** 选栏里「全部角色」那一项；其余项是角色 id。 */
+const ALL_VIEWERS = "all";
 
 const SCOPE_ORDER: MemoryScope[] = ["private", "unit", "shared"];
 const SCOPE_VARIANT = {
@@ -56,6 +60,7 @@ function nextScope(scope: MemoryScope): MemoryScope {
  * 设置「记忆」：所有角色共用的、关于用户的记忆，只能删，不能改。每条都标出来源角色；被取代的原地列出，淡一些并标出来。
  * 记忆是一行一行的列表（细分隔线，不套卡片）；删除一条、清空全部都要先确认，执行键是挂断红（DESIGN.md「Buttons」）。
  * 「清空」在二级页首的末端。条数一变就告诉设置的 layout，一级「记忆」的摘要跟着变。
+ * 顶上「按角色查看」展开后选一位角色，只看她现在能想起来的记忆（和后台 `_visible` 同一套规矩），方便排查。
  */
 export function MemoriesSettings() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
@@ -71,6 +76,15 @@ export function MemoriesSettings() {
   const { memoryCountChanged } = useSettingsValues();
   // 只用来给来源角色配头像；还没载入时照样列出记忆。
   const characters = useDirectory().characters ?? [];
+  // 按角色查看（排查用）：展开后选一位，只看她现在能想起来的记忆；「全部」是默认。
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerId, setViewerId] = useState(ALL_VIEWERS);
+  const viewer = characters.find((c) => c.id === viewerId) ?? null;
+  const shown = viewer && memories ? memories.filter((m) => visibleTo(m, viewer, characters)) : memories;
+  const viewers = [
+    { value: ALL_VIEWERS, label: t.viewer.all },
+    ...characters.map((c) => ({ value: c.id, label: c.name })),
+  ];
 
   useEffect(() => {
     listMemories().then(setMemories, (e) => setFailure(toFailure(e)));
@@ -153,19 +167,50 @@ export function MemoriesSettings() {
       <div className="flex flex-1 flex-col gap-4">
         <p className={cn(PROSE_WIDTH, "text-body text-muted-foreground")}>{t.intro}</p>
 
+        {hasMemories && (
+          <div className="flex flex-col items-start gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={viewerOpen}
+              onClick={() => setViewerOpen(!viewerOpen)}
+              className="max-md:min-h-11"
+            >
+              {viewerOpen ? <ShowLessIcon data-icon="inline-start" /> : <ShowMoreIcon data-icon="inline-start" />}
+              {t.viewer.open}
+              {viewer && <span className="font-normal text-muted-foreground">· {viewer.name}</span>}
+            </Button>
+            {viewerOpen && (
+              <div className="flex w-full flex-col gap-2">
+                <p className={cn(PROSE_WIDTH, "text-subtitle text-muted-foreground")}>{t.viewer.hint}</p>
+                <Select
+                  items={viewers}
+                  value={viewerId}
+                  onValueChange={(next) => setViewerId(String(next ?? ALL_VIEWERS))}
+                >
+                  <SelectTrigger aria-label={t.viewer.label} className="w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {viewers.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+
         {failure && <FailureNotice failure={failure} />}
 
         {memories === null ? (
           !failure && <p className="text-body text-muted-foreground">{t.loading}</p>
-        ) : memories.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>{t.empty}</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        ) : (
+        ) : shown && shown.length > 0 ? (
           <ul className="flex flex-col divide-y">
-            {memories.map((memory) => {
+            {shown.map((memory) => {
               const source = sourceCharacter(memory, characters);
               const family = (source?.memory_share.length ?? 0) > 0;
               const name = memory.source_character_name ?? t.goneCharacter;
@@ -223,6 +268,14 @@ export function MemoriesSettings() {
               );
             })}
           </ul>
+        ) : viewer ? (
+          <p className="text-body text-muted-foreground">{t.viewer.empty(viewer.name)}</p>
+        ) : (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>{t.empty}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
 

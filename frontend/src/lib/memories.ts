@@ -14,3 +14,19 @@ export function supersededMark(memory: Memory): string | null {
   if (memory.resolution === "replaced") return copy.memories.replaced;
   return memory.superseded ? copy.memories.replaced : null;
 }
+
+/**
+ * 这条记忆 `viewer` 现在能不能想起来：她自己的一律算，别人的只在共享时算，群组的还要
+ * 来源角色的组合和她相同、或在来源角色的 `memory_share` 里；已被取代的谁都想不起。
+ * 和后台 `Memories._visible` 同一套规矩，记忆页按角色查看时用。
+ */
+export function visibleTo(memory: Memory, viewer: Character, characters: readonly Character[]): boolean {
+  if (memory.superseded) return false;
+  if (memory.source_character_id === viewer.id) return true;
+  if (memory.scope === "shared") return true;
+  if (memory.scope !== "unit") return false;
+  const source = sourceCharacter(memory, characters);
+  if (source === null) return false;
+  if (source.memory_share.includes(viewer.id)) return true;
+  return viewer.unit !== null && viewer.unit === source.unit;
+}
