@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from eidolon.moments import _MomentCandidate, _plan_local
+from eidolon.moments import _MomentCandidate, _awake, _plan_local
 from eidolon.schedules import Schedule, Slot
 from tests.fakes import FakeRandom
 
@@ -48,3 +48,25 @@ def test_at_most_three_characters_and_no_one_asleep():
         [_MomentCandidate("juri", "close", False, asleep, None)],
         DAY, NOW, 3, ZONE, FakeRandom(499, 999, 0),
     ) == []
+
+
+def test_todays_unwritten_schedule_still_uses_last_nights_bedtime():
+    yesterday = Schedule(DAY, (), (), time(7), time(23))
+    after_midnight = datetime(2026, 11, 17, 1, 0, tzinfo=Z)
+    morning = datetime(2026, 11, 17, 8, 0, tzinfo=Z)
+
+    assert not _awake(None, yesterday, after_midnight)
+    assert _awake(None, yesterday, morning)
+
+
+def test_no_daily_moment_is_planned_at_one_without_todays_schedule():
+    yesterday = Schedule(DAY, (), (), time(7), time(23))
+    candidates = [_MomentCandidate("amana", "close", False, None, yesterday)]
+    just_after_midnight = datetime(2026, 11, 17, 0, 30, tzinfo=Z)
+
+    planned = _plan_local(
+        candidates, date(2026, 11, 17), just_after_midnight, 3, ZONE,
+        FakeRandom(0, 8, 0),
+    )
+
+    assert planned == []

@@ -1253,7 +1253,9 @@ def _pick_time(spans: Sequence[tuple[datetime, datetime]], random: Random) -> da
 
 
 def _awake(schedule: Schedule | None, yesterday: Schedule | None, at: datetime) -> bool:
-    return schedule is None or schedule_rest(schedule, yesterday, at) is None
+    """Whether she is awake at `at`, by today's schedule if it is written and the night
+    before's if not: a day yet unwritten does not make her awake at one in the morning."""
+    return schedule_rest(schedule, yesterday, at) is None
 
 
 def _plan_local(
