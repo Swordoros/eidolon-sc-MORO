@@ -2600,7 +2600,7 @@ class ConversationEngine:
             prompt.append(ChatMessage("assistant", anchored(anchor)))
         current = (
             f"{current_message_stamp(now, timezone)} "
-            if stamp_user and now is not None and history_block is None else ""
+            if stamp_user and now is not None else ""
         )
         said = f"{narration.get(None, '')}{current}{text}"
         if history_block is not None:

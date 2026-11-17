@@ -14,10 +14,10 @@ REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
-def test_current_message_stamp_has_date_time_and_part_of_day():
+def test_current_message_stamp_says_today_time_and_part_of_day():
     now = datetime(2026, 11, 14, 15, 35, tzinfo=SHANGHAI)
 
-    assert current_message_stamp(now, "Asia/Shanghai") == "[2026-11-14 15:35 下午]"
+    assert current_message_stamp(now, "Asia/Shanghai") == "[今天 下午 15:35]"
 
 
 def test_earlier_message_stamp_says_how_long_ago_and_that_messages_part_of_day():
@@ -66,4 +66,5 @@ async def test_history_is_one_chinese_block_with_relative_days_and_the_latest_tu
     assert "制作人：第一句" in history and "角色：好的" in history
     assert "制作人：第二句" in history
     assert "<ja>" not in history and "<zh>" not in history
-    assert contents[-1] == "------------当前对话--------------\n制作人：第三句"
+    assert contents[-1].startswith("------------当前对话--------------\n制作人：[今天 ")
+    assert contents[-1].endswith("] 第三句")

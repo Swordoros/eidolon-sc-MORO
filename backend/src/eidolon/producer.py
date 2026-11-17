@@ -170,9 +170,10 @@ def _local_moment(at: datetime, zone: ZoneInfo) -> datetime:
 
 
 def current_message_stamp(now: datetime, timezone: str) -> str:
-    """The stamp before the user's latest message: date, time and part of the day."""
+    """The stamp before the user's latest message: today, the part of the day and the
+    time, as the producer's local clock says."""
     local = _local_moment(now, ZoneInfo(timezone))
-    return f"[{local:%Y-%m-%d %H:%M} {_part_of_day(local.hour)}]"
+    return f"[今天 {_part_of_day(local.hour)} {local:%H:%M}]"
 
 
 def history_stamp(created_at: str, now: datetime, timezone: str) -> str:
