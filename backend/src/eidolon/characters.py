@@ -222,6 +222,8 @@ class Character:
     memory_share: tuple[str, ...] = ()
     """Who else, by id, her `unit` memories reach beyond her unit: the clerk shares them
     with her sister (GLOSSARY.md「记忆」)."""
+    memory_family: bool = False
+    """Whether the frontend calls her `unit` memories family rather than a unit."""
 
     group_sheet: str = ""
     """Her group-chat summary (`characters/group_sheets/<id>.md`), when one exists; empty
@@ -362,6 +364,9 @@ def _parse_character(
         isinstance(s, str) and _VALID_ID.fullmatch(s) for s in memory_share
     ):
         raise CharacterConfigError(f"角色 {label} 的 memory_share 应为角色标识的列表")
+    memory_family = entry.get("memory_family", False)
+    if not isinstance(memory_family, bool):
+        raise CharacterConfigError(f"角色 {label} 的 memory_family 应为 true 或 false")
 
     liked_gifts = entry.get("liked_gifts", [])
     if not isinstance(liked_gifts, list) or not all(isinstance(g, str) for g in liked_gifts):
@@ -429,6 +434,7 @@ def _parse_character(
         photo_tag=_other_name(entry, "photo_tag", label),
         photo_appearance=_other_name(entry, "photo_appearance", label),
         memory_share=tuple(memory_share),
+        memory_family=memory_family,
     )
 
 

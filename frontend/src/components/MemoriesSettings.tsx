@@ -265,7 +265,7 @@ export function MemoriesSettings() {
           <ul className="flex flex-col divide-y">
             {ordered.map((memory) => {
               const source = sourceCharacter(memory, characters);
-              const family = (source?.memory_share.length ?? 0) > 0;
+              const family = source?.memory_family === true;
               const name = memory.source_character_name ?? t.goneCharacter;
               const created = new Date(memory.created_at);
               const mark = supersededMark(memory);

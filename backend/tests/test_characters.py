@@ -49,6 +49,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "name_kana": None,
             "name_romaji": None,
             "memory_share": [],
+            "memory_family": False,
             "unit": None,
             "unit_reading": None,  # no world setting
             "unit_order": None,
@@ -74,6 +75,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "name_kana": None,
             "name_romaji": None,
             "memory_share": [],
+            "memory_family": False,
             "unit": None,
             "unit_reading": None,
             "unit_order": None,

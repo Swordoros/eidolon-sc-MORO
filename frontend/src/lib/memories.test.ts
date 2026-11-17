@@ -101,9 +101,23 @@ describe("supersededMark", () => {
 const hiori: Character = { ...mano, id: "hiori", name: "風野灯織", unit: "illumination STARS" };
 const meguru: Character = { ...mano, id: "meguru", name: "八宮めぐる", unit: "illumination STARS" };
 const kogane: Character = { ...mano, id: "kogane", name: "月岡恋鐘", unit: "L'Antica" };
-const hazuki: Character = { ...mano, id: "hazuki", name: "七草はづき", unit: null, memory_share: ["nichika"] };
-const nichika: Character = { ...mano, id: "nichika", name: "七草にちか", unit: "SHHis" };
-const characters = [mano, hiori, meguru, kogane, hazuki, nichika];
+const hazuki: Character = {
+  ...mano,
+  id: "hazuki",
+  name: "七草はづき",
+  unit: null,
+  memory_share: ["nichika", "mikoto"],
+  memory_family: true,
+};
+const nichika: Character = {
+  ...mano,
+  id: "nichika",
+  name: "七草にちか",
+  unit: "SHHis",
+  memory_share: ["hazuki"],
+};
+const mikoto: Character = { ...mano, id: "mikoto", name: "緋田美琴", unit: "SHHis" };
+const characters = [mano, hiori, meguru, kogane, hazuki, nichika, mikoto];
 
 describe("visibleTo", () => {
   it("她自己记下的一律能想起来，不管范围", () => {
@@ -124,11 +138,14 @@ describe("visibleTo", () => {
     expect(visibleTo(unit, kogane, characters)).toBe(false);
   });
 
-  it("群组记忆也到来源角色 memory_share 里写的人（叶月和日花）", () => {
-    const unit = memory("hazuki", false, null, "unit");
+  it("群组记忆也到 memory_share 里写的角色（叶月、日花、美琴互相可见）", () => {
+    const hazukiUnit = memory("hazuki", false, null, "unit");
+    const nichikaUnit = memory("nichika", false, null, "unit");
 
-    expect(visibleTo(unit, nichika, characters)).toBe(true);
-    expect(visibleTo(unit, hiori, characters)).toBe(false);
+    expect(visibleTo(hazukiUnit, nichika, characters)).toBe(true);
+    expect(visibleTo(hazukiUnit, mikoto, characters)).toBe(true);
+    expect(visibleTo(nichikaUnit, hazuki, characters)).toBe(true);
+    expect(visibleTo(hazukiUnit, hiori, characters)).toBe(false);
   });
 
   it("已经被取代的记忆谁都想不起来", () => {

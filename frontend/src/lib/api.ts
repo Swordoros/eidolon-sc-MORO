@@ -63,6 +63,8 @@ export type Character = {
   /** Who else, by id, her `unit` memories reach beyond her unit (the clerk's sister).
    * The memory page shows her `unit` scope as 「家庭」 while this is not empty. */
   memory_share: string[];
+  /** 她记下的群组记忆在前端是否显示成「家庭」。 */
+  memory_family?: boolean;
   /** What she says to a visitor on the landing page; null when she has no greeting. */
   greeting: Greeting | null;
   /** What she says first once a visitor answers her call in the landing page's demo; null when
