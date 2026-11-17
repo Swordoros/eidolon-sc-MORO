@@ -25,7 +25,10 @@ def status(tier: str):
 async def told(tier: str) -> str | None:
     relationship = object.__new__(Relationships)
     relationship._db = FakeDB((  # type: ignore[attr-defined]
-        [{"ja": "今日は", "zh": "今天很开心。"}],
+        [
+            {"ja": "今日は", "zh": "今天很开心。"},
+            {"ja": "また明日", "zh": "明天也想见你。"},
+        ],
         [{"ja": "ないしょ", "zh": "其实有点不安。"}],
     ))
     return await relationship.prompt(
@@ -33,15 +36,24 @@ async def told(tier: str) -> str | None:
     )
 
 
-@pytest.mark.parametrize("tier", ["cold", "distant", "trust"])
-async def test_diary_is_hidden_below_close(tier: str):
+@pytest.mark.parametrize("tier", ["cold", "distant"])
+async def test_diary_is_hidden_below_trust(tier: str):
     assert await told(tier) is None
 
 
-async def test_close_sees_the_normal_pages_only():
+async def test_trust_sees_only_the_opening_page():
+    text = await told("trust")
+    assert text is not None
+    assert "今天很开心。" in text
+    assert "明天也想见你。" not in text
+    assert "其实有点不安。" not in text
+
+
+async def test_close_sees_all_normal_pages_but_not_the_private_one():
     text = await told("close")
     assert text is not None
     assert "今天很开心。" in text
+    assert "明天也想见你。" in text
     assert "其实有点不安。" not in text
 
 
