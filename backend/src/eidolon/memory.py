@@ -78,12 +78,16 @@ MAX_MOMENT = 120
 """How long what mattered to her in a turn may be, in characters; a longer one is cut."""
 CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
-MAX_FOUND = 4
-"""The most memories one turn's prompt carries, after reranking and strength sorting."""
-MAX_OWN = 3
+MAX_FOUND = 5
+"""The most memories one turn's prompt carries, after reranking and kind quotas."""
+MAX_OWN = 4
 """The most of those that may be the current character's own memories."""
 MAX_OTHER = 1
 """The most of those that may be memories another character told her, by scope."""
+MAX_OWN_SHORT = 2
+"""The short memories of her own a turn aims to carry."""
+MAX_OWN_MID = 2
+"""The mid memories of her own a turn aims to carry."""
 LATELY = timedelta(days=14)
 """How long ago what she reaches out with as his news may have been written down."""
 MAX_LATEST = 5
@@ -733,11 +737,12 @@ class Memories:
     async def _relevant(
         self, query_text: str, candidates: Sequence[Memory], character_id: str,
     ) -> list[Memory]:
-        """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, strongest
-        first; none if memory is off or reranking failed. Relevance filters (the reranker
-        drops what is off-topic), then strength orders what is left (GLOSSARY.md「记忆」).
-        At most `MAX_OWN` may be the character's own, and at most `MAX_OTHER` another's;
-        the others are never used to fill her unused share."""
+        """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, in the
+        reranker's relevance order; none if memory is off or reranking failed. Relevance
+        filters (the reranker drops what is off-topic), then short and mid quotas keep a
+        recent short from being pushed out by older mids. At most `MAX_OWN` may be the
+        character's own, and at most `MAX_OTHER` another's; the others are never used to
+        fill her unused share."""
         if (services := self._services) is None or not candidates:
             return []
         try:
@@ -753,12 +758,20 @@ class Memories:
             if score >= min_relevance and candidates[i].strength >= FORGET_THRESHOLD
             and candidates[i].kind != "long" and _alive(candidates[i], self._clock())
         ]
-        relevant.sort(key=lambda m: m.strength, reverse=True)
         own = [m for m in relevant if m.source_character_id == character_id]
         other = [m for m in relevant if m.source_character_id != character_id]
-        chosen = [*own[:MAX_OWN], *other[:MAX_OTHER]]
-        chosen.sort(key=lambda m: m.strength, reverse=True)
-        return chosen
+        short = [m for m in own if m.kind == "short"]
+        mid = [m for m in own if m.kind == "mid"]
+        chosen_own = [*short[:MAX_OWN_SHORT], *mid[:MAX_OWN_MID]]
+        for memory in own:
+            if len(chosen_own) >= MAX_OWN:
+                break
+            if memory not in chosen_own:
+                chosen_own.append(memory)
+        chosen = [*chosen_own[:MAX_OWN], *other[:MAX_OTHER]]
+        position = {id(memory): n for n, memory in enumerate(relevant)}
+        chosen.sort(key=lambda memory: position.get(id(memory), len(relevant)))
+        return chosen[:MAX_FOUND]
 
     async def for_reaching_out(
         self,

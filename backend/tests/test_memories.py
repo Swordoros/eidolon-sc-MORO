@@ -375,6 +375,36 @@ async def test_only_the_most_relevant_few_are_found(world: World, make_memories:
     assert sum(t in section for t in told) == MAX_OWN
 
 
+async def test_short_and_mid_quotas_keep_recent_shorts_from_being_pushed_out(
+    world: World, make_memories: MemoriesFactory
+):
+    memories = make_memories(reranker=FakeReranker("猫"))
+    own = [
+        Memory(
+            i, world.producer, "mano", "櫻木真乃", f"制作人的猫的旧事{i}",
+            "2026-09-25T00:00:00+00:00", kind="mid",
+        )
+        for i in range(1, 4)
+    ] + [
+        Memory(
+            10 + i, world.producer, "mano", "櫻木真乃", f"制作人的猫的新事{i}",
+            "2026-09-26T00:00:00+00:00", kind="short",
+        )
+        for i in range(1, 4)
+    ]
+    other = Memory(
+        20, world.producer, "kogane", "月岡恋鐘", "别人说的猫的事",
+        "2026-09-25T00:00:00+00:00", scope="shared",
+    )
+
+    chosen = await memories._relevant("猫", [*own, other], "mano")
+
+    assert len(chosen) == MAX_FOUND
+    assert sum(m.kind == "short" and m.source_character_id == "mano" for m in chosen) == 2
+    assert sum(m.kind == "mid" and m.source_character_id == "mano" for m in chosen) == 2
+    assert sum(m.source_character_id == "kogane" for m in chosen) == 1
+
+
 async def test_another_characters_memories_are_capped_at_one(
     world: World, make_memories: MemoriesFactory
 ):
