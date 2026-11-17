@@ -274,9 +274,11 @@ def in_idol_order(characters: Iterable[Character]) -> list[Character]:
 EXTRA_NAME_TRANSLATIONS: dict[str, str] = {
     "ピーちゃん": "P酱",
     "カトレア": "卡特兰",
+    "なーちゃん": "奈酱",
 }
-"""Names in the stories that are not characters — a pet, a café — each Japanese writing
-to its Chinese writing, replaced in Chinese subtitles along with the characters' names."""
+"""Names and nicknames in the stories that are not characters — a pet, a café, 甜花's
+name for 甘奈 — each Japanese writing to its Chinese writing, replaced in Chinese
+subtitles along with the characters' names."""
 
 
 def chinese_name_map(characters: Iterable[Character]) -> dict[str, str]:

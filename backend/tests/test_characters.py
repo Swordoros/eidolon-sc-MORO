@@ -9,9 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.characters import CharacterConfigError, Fact, load_characters, parse_facts
+from eidolon.characters import (
+    EXTRA_NAME_TRANSLATIONS, CharacterConfigError, Fact, chinese_name_map, load_characters,
+    parse_facts,
+)
 from eidolon.config import Settings, stand_assets_url_from_env
 from eidolon.producer import Birthday
+from eidolon.reply_format import NameReplacer
 from tests.conftest import (
     AVATAR, BACKGROUND, KOGANE_SHEET, MANO_SHEET, SCSP_AVATAR, SIGNATURE, CharacterConfig,
     ClientFactory,
@@ -951,3 +955,11 @@ async def test_landing_memory_still_is_where_the_bucket_keeps_it(make_client: Cl
 
     assert (await served.get("/api/landing")).json() == {"memory_still_url": f"{STAND_ASSETS}/landing-memory/still.webp"}
     assert (await unserved.get("/api/landing")).json() == {"memory_still_url": None}
+
+
+def test_tenka_calls_amana_naachan_naijiang():
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
+
+    assert EXTRA_NAME_TRANSLATIONS["なーちゃん"] == "奈酱"
+    assert chinese_name_map(loaded.values())["なーちゃん"] == "奈酱"
+    assert NameReplacer(chinese_name_map(loaded.values())).replace_all("なーちゃん") == "奈酱"

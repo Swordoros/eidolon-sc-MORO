@@ -49,6 +49,7 @@ from eidolon.group_prompt import history_block
 from eidolon.clock import Clock
 from eidolon.data_access import Database
 from eidolon.engine import _dump_prompt
+from eidolon.reply_format import NameReplacer
 from eidolon.llm import ChatMessage
 from eidolon.memory import Memory, Memories, NewMemory, TIERS, _INSTRUCTIONS, parse_memories
 from eidolon.own_keys import DeployerLease
@@ -1067,17 +1068,20 @@ class Groups:
 
     async def _subtitle(self, line: Said) -> Said:
         """Her line with a Chinese subtitle, asking for one when the model left `<zh>` out."""
+        names = chinese_name_map(self._characters.values())
+        known = "、".join(f"「{ja}」→「{zh}」" for ja, zh in names.items() if ja in line.ja)
         try:
             answer = await self._ask(
                 [
                     ChatMessage(
                         "system",
-                        "你是翻译。把用户给的日语翻成自然的中文口语，只输出译文，不要解释。",
+                        "你是翻译。把用户给的日语翻成自然的中文口语，只输出译文，不要解释。"
+                        + (f"人名照这些中文译名写：{known}。" if known else ""),
                     ),
                     ChatMessage("user", line.ja),
                 ]
             )
-            subtitle = _clean_line(answer)
+            subtitle = NameReplacer(names).replace_all(_clean_line(answer))
         except Exception:
             log.warning("translating a group line failed", exc_info=True)
             return line
