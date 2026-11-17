@@ -501,10 +501,17 @@ def anchor_note(anchor: Message | None, now: datetime | None) -> str | None:
     return f"（下面这句是你 {hours} 小时前说的上一句，不是刚刚说的。）"
 
 
-def anchored(anchor: Message) -> str:
+def anchored(
+    anchor: Message, now: datetime | None = None, timezone: str = "Asia/Shanghai"
+) -> str:
     """Her repeated last line, marked as the character's: it comes after the system
-    context, where a bare reply could be read as something the producer just said."""
-    return "角色：" + format_reply(
+    context, where a bare reply could be read as something the producer just said. With
+    `now`, its stamp says how long ago she said it."""
+    stamp = (
+        f"{earlier_message_stamp(anchor.created_at, now, timezone)} "
+        if now is not None else ""
+    )
+    return "角色：" + stamp + format_reply(
         anchor.segments,
         anchor.photo.tag if anchor.photo else None,
         anchor.photo_failed,
@@ -606,7 +613,8 @@ def history_block(
                 message.photo.tag if message.photo else None,
                 message.photo_failed,
             ) if japanese else _chinese_reply(message)
-            lines.append(f"角色：{said}")
+            stamp = earlier_message_stamp(message.created_at, now, timezone)
+            lines.append(f"角色：{stamp} {said}")
     for note in notes.get(None, ()):
         add_note(note)
     return "\n".join(lines)
@@ -2581,11 +2589,16 @@ class ConversationEngine:
                     )
                     prompt.append(ChatMessage("user", f"{told}{stamp}{message.text or ANSWERED}"))
                 else:
-                    prompt.append(ChatMessage("assistant", format_reply(
+                    said = format_reply(
                         message.segments,
                         message.photo.tag if message.photo else None,
                         message.photo_failed,
-                    )))
+                    )
+                    stamp = (
+                        f"{earlier_message_stamp(message.created_at, now, timezone)} "
+                        if now is not None else ""
+                    )
+                    prompt.append(ChatMessage("assistant", f"{stamp}{said}"))
             if history:  # what the next turn opens with too, for a service to cache
                 prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [*habit_lines(character), *about_turn]
@@ -2597,7 +2610,7 @@ class ConversationEngine:
             note = anchor_note(anchor, now)
             if note is not None:
                 prompt.append(ChatMessage("system", note))
-            prompt.append(ChatMessage("assistant", anchored(anchor)))
+            prompt.append(ChatMessage("assistant", anchored(anchor, now, timezone)))
         current = (
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None else ""

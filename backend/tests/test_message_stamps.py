@@ -63,7 +63,7 @@ async def test_history_is_one_chinese_block_with_relative_days_and_the_latest_tu
     history = next(m.content for m in prompt if m.role == "system" and "历史对话" in m.content)
     assert "[今天 中午 12:00]" in history
     assert "[今天 下午 14:50]" in history
-    assert "制作人：第一句" in history and "角色：好的" in history
+    assert "制作人：第一句" in history and "角色：[" in history and "好的" in history
     assert "制作人：第二句" in history
     assert "<ja>" not in history and "<zh>" not in history
     assert contents[-1].startswith("------------当前对话--------------\n制作人：[今天 ")
