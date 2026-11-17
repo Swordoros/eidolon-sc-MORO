@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from eidolon.engine import anchor_note, recent_reply
+from eidolon.engine import anchor_note, anchored, recent_reply
 from eidolon.reply_format import Segment
 from eidolon.store import Message
 
@@ -37,3 +37,7 @@ def test_the_note_says_how_long_ago_from_one_hour_on():
     assert anchor_note(her(60), NOW) == "（下面这句是你 1 小时前说的上一句，不是刚刚说的。）"
     assert anchor_note(her(185), NOW) == "（下面这句是你 3 小时前说的上一句，不是刚刚说的。）"
     assert anchor_note(None, NOW) is None
+
+
+def test_the_repeated_line_is_marked_as_the_characters():
+    assert anchored(her(30)).startswith("角色：<ja>はい</ja>")

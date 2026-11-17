@@ -501,6 +501,16 @@ def anchor_note(anchor: Message | None, now: datetime | None) -> str | None:
     return f"（下面这句是你 {hours} 小时前说的上一句，不是刚刚说的。）"
 
 
+def anchored(anchor: Message) -> str:
+    """Her repeated last line, marked as the character's: it comes after the system
+    context, where a bare reply could be read as something the producer just said."""
+    return "角色：" + format_reply(
+        anchor.segments,
+        anchor.photo.tag if anchor.photo else None,
+        anchor.photo_failed,
+    )
+
+
 HISTORY_HEADING = "------------历史对话--------------"
 CURRENT_HEADING = "------------当前对话--------------"
 HISTORY_NOTE = (
@@ -2523,11 +2533,7 @@ class ConversationEngine:
             note = anchor_note(anchor, now)
             if note is not None:
                 prompt.append(ChatMessage("system", note))
-            prompt.append(ChatMessage("assistant", format_reply(
-                anchor.segments,
-                anchor.photo.tag if anchor.photo else None,
-                anchor.photo_failed,
-            )))
+            prompt.append(ChatMessage("assistant", anchored(anchor)))
         current = (
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None and history_block is None else ""
