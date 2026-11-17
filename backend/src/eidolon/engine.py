@@ -469,6 +469,38 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     return messages[kept[0]:] if kept else []
 
 
+RECENT_REPLY = timedelta(hours=6)
+"""How long after her last line it is still repeated as the prompt's last exchange."""
+
+
+def recent_reply(messages: Sequence[Message], now: datetime | None) -> Message | None:
+    """Her last line where it was said less than `RECENT_REPLY` ago, to be repeated right
+    before the user's; None for an older one, or a last message that is not hers."""
+    if now is None or not messages or messages[-1].role != "character":
+        return None
+    last = messages[-1]
+    try:
+        gap = now - datetime.fromisoformat(last.created_at)
+    except ValueError:
+        return last
+    return last if timedelta() <= gap < RECENT_REPLY else None
+
+
+def anchor_note(anchor: Message | None, now: datetime | None) -> str | None:
+    """How the repeated last line is introduced: how long ago it was said, when it was an
+    hour or more ago; None for a line just said, or no line."""
+    if anchor is None or now is None:
+        return None
+    try:
+        gap = now - datetime.fromisoformat(anchor.created_at)
+    except ValueError:
+        return None
+    if gap < timedelta(hours=1):
+        return None
+    hours = int(gap.total_seconds() // 3600)
+    return f"（下面这句是你 {hours} 小时前说的上一句，不是刚刚说的。）"
+
+
 HISTORY_HEADING = "------------历史对话--------------"
 CURRENT_HEADING = "------------当前对话--------------"
 HISTORY_NOTE = (
@@ -1813,13 +1845,15 @@ class ConversationEngine:
             if self._relationships is not None else None
         )
         notes = history_notes(record, self._gift_catalog, her_days, timezone)
+        prompt_history = latest_turns(prompt_messages, turns)
+        anchor = recent_reply(prompt_history, now)
         compact_history = history_block(
-            latest_turns(prompt_messages, turns), notes, now, timezone,
+            prompt_history, notes, now, timezone,
             japanese=conversation.id in self._japanese_history,
         )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            latest_turns(prompt_messages, turns),
+            prompt_history,
             {},
             [
                 self._now_section(
@@ -1838,7 +1872,7 @@ class ConversationEngine:
             [p for p in (retrieved.cards_prompt, retrieved.related_prompt, retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
-            history_block=compact_history,
+            history_block=compact_history, anchor=anchor,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2448,6 +2482,7 @@ class ConversationEngine:
         now: datetime | None = None,
         timezone: str = "Asia/Shanghai",
         history_block: str | None = None,
+        anchor: Message | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2484,6 +2519,15 @@ class ConversationEngine:
             context.append(NOT_RECEIVED)
         context += closing
         prompt.append(ChatMessage("system", "\n\n".join(context)))
+        if anchor is not None and history_block is not None:
+            note = anchor_note(anchor, now)
+            if note is not None:
+                prompt.append(ChatMessage("system", note))
+            prompt.append(ChatMessage("assistant", format_reply(
+                anchor.segments,
+                anchor.photo.tag if anchor.photo else None,
+                anchor.photo_failed,
+            )))
         current = (
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None and history_block is None else ""

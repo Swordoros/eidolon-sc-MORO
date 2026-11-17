@@ -143,10 +143,10 @@ def system_of(prompt: Sequence[ChatMessage]) -> str:
 
 def context_of(prompt: Sequence[ChatMessage]) -> str:
     """What changes from turn to turn that `prompt` tells the model: the system message
-    just before what the user is saying now, its last user message."""
+    just before what the user is saying now, its last user message, under her repeated last
+    line where the prompt carries one."""
     last = max(i for i, m in enumerate(prompt) if m.role == "user")
-    context = prompt[last - 1]
-    assert context.role == "system", "no system message before what the user is saying"
+    context = next(m for m in reversed(prompt[:last]) if m.role == "system")
     return context.content
 
 
