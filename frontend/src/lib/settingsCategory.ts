@@ -20,9 +20,9 @@ import { PROVIDER_LABELS, type Provider } from "@/lib/signIn";
 /** The first level's groups, top to bottom, with a separator between each two. */
 const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
-  ["call", "reach-outs", "moments", "cycles", "appearance", "chat", "own-keys"],
+  ["call", "reach-outs", "moments", "cycles", "appearance", "chat", "nsfw", "own-keys"],
   ["sign-in", "data-package"],
-  ["dev", "nsfw"],
+  ["dev"],
   ["about"],
 ] as const;
 

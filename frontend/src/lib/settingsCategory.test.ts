@@ -36,6 +36,7 @@ describe("一级列表有哪几类", () => {
       "cycles",
       "appearance",
       "chat",
+      "nsfw",
       "own-keys",
     ]);
   });
@@ -43,9 +44,9 @@ describe("一级列表有哪几类", () => {
   it("账号里没有搭话、朋友圈、周期（部署者没开）时没有这几类，别的照旧", () => {
     expect(settingsGroups({ reachOuts: null, moments: null, cycles: null, dev: false })).toEqual([
       ["profile", "memories", "stats"],
-      ["call", "appearance", "chat", "own-keys"],
+      ["call", "appearance", "chat", "nsfw", "own-keys"],
       ["sign-in", "data-package"],
-      ["dev", "nsfw"],
+      ["dev"],
       ["about"],
     ]);
   });
@@ -56,6 +57,7 @@ describe("一级列表有哪几类", () => {
       "cycles",
       "appearance",
       "chat",
+      "nsfw",
       "own-keys",
     ]);
   });
@@ -66,6 +68,7 @@ describe("一级列表有哪几类", () => {
       "moments",
       "appearance",
       "chat",
+      "nsfw",
       "own-keys",
     ]);
   });
