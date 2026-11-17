@@ -2786,6 +2786,28 @@ export const zh = {
     empty: "角色们还没有记下关于制作人或她自己的事。",
     /** 这条记忆讲的是制作人，还是来源角色自己。 */
     subjectName: { producer: "制作人", self: "她自己", both: "双方" } as const,
+    /** 记忆的巩固程度，文本前的标签。 */
+    kindName: { short: "短期", mid: "中期", long: "长期" } as const,
+    /** 记忆状态：生效、已淡忘、已作废。 */
+    statusName: { active: "生效", dormant: "遗忘", retired: "已作废" } as const,
+    /** 三个筛选栏。 */
+    filters: {
+      character: "角色",
+      kind: "类型",
+      status: "状态",
+      allCharacters: "全部角色",
+      allKinds: "全部类型",
+    },
+    /** 距自然遗忘的剩余时间。 */
+    remaining: {
+      none: "—",
+      lessThanHour: "不足 1 小时",
+      hours: (hours: number) => `${hours} 小时`,
+      days: (days: number) => `${days} 天`,
+    },
+    rememberedTimes: (count: number) => `想起过 ${count} 次`,
+    emptyForFilters: "没有符合这些条件的记忆。",
+    emptyForgotten: "还没有被遗忘的长期记忆。",
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
     superseded: "已被取代",

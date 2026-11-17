@@ -42,9 +42,9 @@ import re
 import sqlite3
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
-from typing import Literal
+from typing import Any, Literal, Protocol
 
 from eidolon.activity import detached
 from eidolon.characters import Character, chinese_name_map
@@ -53,10 +53,11 @@ from eidolon.corpus import REEMBED_BATCH
 from eidolon.data_access import Database
 from eidolon.embedding import Document, Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
+from eidolon.producer import effective_timezone
 from eidolon.promises import Promise, Promises, parse_promise_changes, parse_promises
 from eidolon.reply_format import names_instructions
 from eidolon.rerank import DEFAULT_THRESHOLDS, Reranker, RerankError
-from eidolon.store import Conversation, Message
+from eidolon.store import Conversation, Message, Store
 
 log = logging.getLogger(__name__)
 
@@ -90,18 +91,83 @@ ANOTHER_IDOL = "事务所的另一位偶像"
 """Who a memory was told to, when that character has been removed from the configuration."""
 
 TIERS: dict[str, tuple[float, timedelta]] = {
-    "strong": (1.0, timedelta(hours=48)),
+    "strong": (1.0, timedelta(hours=36)),
     "medium": (0.7, timedelta(hours=24)),
     "weak": (0.5, timedelta(hours=12)),
 }
 """Each strength tier a memory may be written in (GLOSSARY.md「记忆」): its initial strength,
 and how long that strength holds before it starts decaying."""
+
+SHORT_CAP = timedelta(hours=36)
+MID_LIFE = timedelta(hours=72)
+LONG_LIFE = timedelta(days=7)
+DORMANT_KEEP = timedelta(days=90)
+SHORT_REINFORCE = 0.30
+MID_REINFORCE = 0.50
+LONG_REINFORCE = 0.50
+"""How much of a memory's natural life a fresh mention adds, capped by kind."""
+_REMEMBER = re.compile(r"记住|以后|每次|不要忘|别忘了|说好了")
+
+
+def _life_of(kind: str, maintain_until: str | None = None,
+             created_at: str | None = None) -> timedelta:
+    """The natural life of a memory of `kind`; a short one by how long its tier held."""
+    if kind == "short" and maintain_until is not None and created_at is not None:
+        try:
+            return datetime.fromisoformat(maintain_until) - datetime.fromisoformat(created_at)
+        except ValueError:
+            pass
+    return {"mid": MID_LIFE, "long": LONG_LIFE}.get(kind, TIERS["medium"][1])
+
+
+def _cap_of(kind: str) -> timedelta:
+    return {"short": SHORT_CAP, "mid": MID_LIFE, "long": LONG_LIFE}.get(
+        kind, TIERS["medium"][1]
+    )
+
+
+def _reinforced(kind: str, expires_at: str | None, now: datetime,
+                natural: timedelta, explicit: bool) -> datetime:
+    """When a memory of `kind` is next forgotten after a mention at `now`, at most a full
+    cap from `now`."""
+    cap = _cap_of(kind)
+    if explicit:
+        return now + cap
+    current = now
+    if expires_at is not None:
+        try:
+            current = max(current, datetime.fromisoformat(expires_at))
+        except ValueError:
+            pass
+    ratio = SHORT_REINFORCE if kind == "short" else (
+        MID_REINFORCE if kind == "mid" else LONG_REINFORCE
+    )
+    return min(now + cap, current + natural * ratio)
 DECAY_FACTOR = 0.9
 """How much of its strength a memory keeps each hour, once its maintenance is over."""
 FORGET_THRESHOLD = 0.1
 """A strength at or below which a memory is no longer recalled."""
 DECAY_TICK = timedelta(hours=1)
 """How often the memories' strength is decayed."""
+
+CONSOLIDATE_AT = time(3)
+"""The local hour of the producer's day at which memories are consolidated."""
+CONSOLIDATE_TICK = timedelta(minutes=10)
+"""How often the consolidation job looks for a user whose 03:00 has come."""
+CONSOLIDATE_WINDOW = timedelta(days=30)
+"""How far back the consolidation model reads short and mid memories."""
+CONSOLIDATE_MOST = 40
+"""How many short and mid memories one consolidation reads."""
+LONG_TERM_SHOWN = 5
+"""How many long memories the prompt carries, newest first."""
+MAX_CONSOLIDATED = 6
+"""How many mid or long memories one consolidation may write."""
+
+
+class _MemoryConfig(Protocol):
+    """The live configuration's lease, as consolidation needs the background model."""
+
+    def lease(self) -> Any: ...
 
 Scope = Literal["private", "unit", "shared"]
 """How widely a memory is shared (GLOSSARY.md「记忆」): the source character alone (`private`),
@@ -137,6 +203,13 @@ CREATE TABLE IF NOT EXISTS memories (
     kind TEXT NOT NULL DEFAULT 'short',
     subject TEXT NOT NULL DEFAULT 'producer',
     resolution TEXT,
+    mention_count INTEGER NOT NULL DEFAULT 1,
+    expires_at TEXT,
+    last_reinforced_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    forgotten_at TEXT,
+    recalled_at TEXT,
+    recall_count INTEGER NOT NULL DEFAULT 0,
     UNIQUE (user_id, text)
 );
 -- Deleting a conversation clears this from the memories written down in it.
@@ -149,6 +222,12 @@ CREATE TABLE IF NOT EXISTS memory_vectors (
     PRIMARY KEY (memory_id, model)
 );
 CREATE INDEX IF NOT EXISTS memory_vectors_by_user ON memory_vectors(user_id, model);
+CREATE TABLE IF NOT EXISTS memory_consolidations (
+    user_id TEXT NOT NULL,
+    character_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    PRIMARY KEY (user_id, character_id, day)
+);
 """
 
 
@@ -180,11 +259,25 @@ class Memory:
     """When its strength holds until, an ISO timestamp in UTC; None if it is past, or was
     written before maintenance existed."""
     kind: str = "short"
-    """short, mid or long: what a night's consolidation has made of it (GLOSSARY.md「记忆」)."""
+    """short, mid or long: what consolidation has made of it (GLOSSARY.md「记忆」)."""
     subject: Subject = "producer"
     """What it is about: the producer, the source character, or both."""
     resolution: Resolution | None = None
     """Replaced, merged, or still holding."""
+    mention_count: int = 1
+    """How many times the user has told her this, as consolidation counts it."""
+    expires_at: str | None = None
+    """When it is forgotten naturally; None for a memory kept from before expiry."""
+    last_reinforced_at: str | None = None
+    """When the user last confirmed it."""
+    status: str = "active"
+    """active, dormant (a forgotten long memory), or retired."""
+    forgotten_at: str | None = None
+    """When it became dormant."""
+    recalled_at: str | None = None
+    """When it was last recalled from dormant."""
+    recall_count: int = 0
+    """How many times it has been recalled."""
 
 
 PackageKey = int | str
@@ -289,6 +382,8 @@ class Memories:
         min_relevance: Callable[[], float] = lambda: DEFAULT_THRESHOLDS.memories,
         promises: Promises | None = None,
         share_group: Callable[[str], frozenset[str]] = lambda _: frozenset(),
+        store: Store | None = None,
+        config: _MemoryConfig | None = None,
     ) -> None:
         """Memories kept in `db`, next to the users and conversations they belong to; off
         unless `embedder` and `reranker` are both given, though `embedder` alone is enough to
@@ -304,6 +399,8 @@ class Memories:
         self._clock = clock
         self._promises = promises
         self._share_group = share_group
+        self._store = store
+        self._config = config
         self._moments: list[Callable[[str, str, str, datetime], Awaitable[None]]] = []
         self._embedder = embedder
         self._services = (
@@ -377,6 +474,101 @@ class Memories:
                 await self.decay()
             except Exception:
                 log.exception("decaying memories failed")
+
+    async def keep_consolidating(self) -> None:
+        """Consolidate each user's memories at 03:00 in their own time zone, until cancelled."""
+        while True:
+            await asyncio.sleep(CONSOLIDATE_TICK.total_seconds())
+            try:
+                await self.consolidate()
+            except Exception:
+                log.exception("consolidating memories failed")
+
+    async def consolidate(self, now: datetime | None = None) -> None:
+        """At 03:00 in each user's own day, have the background model summarize the short
+        and mid memories of each character into mid and long ones, once a day."""
+        if self._store is None or self._config is None:
+            return
+        now = now or self._clock()
+        await self._db.write(
+            _expire, now.astimezone(UTC).isoformat(),
+            (now - DORMANT_KEEP).astimezone(UTC).isoformat(),
+        )
+        for user in await self._store.list_users():
+            profile = await self._store.get_profile(user.id)
+            zone = ZoneInfo(effective_timezone(profile, None))
+            local = now.astimezone(zone)
+            if local.time() < CONSOLIDATE_AT:
+                continue
+            day = local.date()
+            await self._settle(user.id)
+            memories = await self.kept(user.id)
+            since = now - CONSOLIDATE_WINDOW
+            characters = {
+                m.source_character_id for m in memories
+                if m.superseded_by is None and m.kind in ("short", "mid")
+                and datetime.fromisoformat(m.created_at) >= since
+            }
+            for character_id in sorted(characters):
+                if await self._db.read(_consolidated, user.id, character_id, day.isoformat()):
+                    continue
+                try:
+                    done = await self._consolidate(user.id, character_id, memories, now, zone)
+                except Exception:
+                    log.warning("consolidating memories for %s failed", user.id,
+                                exc_info=True)
+                    continue
+                if done:
+                    await self._db.write(
+                        _mark_consolidated, user.id, character_id, day.isoformat()
+                    )
+
+    async def _consolidate(
+        self,
+        user_id: str,
+        character_id: str,
+        memories: Sequence[Memory],
+        now: datetime,
+        zone: ZoneInfo,
+    ) -> bool:
+        """Ask the background model to summarize one character's memories; True once it has
+        answered, whether or not it found anything to keep."""
+        since = now - CONSOLIDATE_WINDOW
+        short = [
+            m for m in memories
+            if m.source_character_id == character_id and m.superseded_by is None
+            and m.kind in ("short", "mid")
+            and datetime.fromisoformat(m.created_at) >= since
+        ][-CONSOLIDATE_MOST:]
+        long = [
+            m for m in memories
+            if m.source_character_id == character_id and m.superseded_by is None
+            and m.kind == "long" and m.status == "active"
+        ]
+        dormant = [
+            m for m in memories
+            if m.source_character_id == character_id and m.kind == "long"
+            and m.status == "dormant"
+        ][-10:]
+        if not short:
+            return True
+        shown = [*long, *short, *dormant]
+        messages = _consolidation_prompt(shown, now, zone)
+        lease = self._config.lease()
+        try:
+            answer = "".join([
+                item async for item in lease.keys.memory_llm.stream(messages)
+                if isinstance(item, str)
+            ])
+        finally:
+            lease.release()
+        items = _parse_consolidations(answer, shown)
+        recall = _parse_recall(answer, shown)
+        if items or recall:
+            await self._db.write(
+                _apply_consolidations, user_id, character_id, shown, items, recall, now
+            )
+        return True
 
     async def embed_missing(
         self,
@@ -495,6 +687,7 @@ class Memories:
         relevant = [
             candidates[i] for i, score in best
             if score >= min_relevance and candidates[i].strength >= FORGET_THRESHOLD
+            and candidates[i].kind != "long" and _alive(candidates[i], self._clock())
         ]
         relevant.sort(key=lambda m: m.strength, reverse=True)
         own = [m for m in relevant if m.source_character_id == character_id]
@@ -536,7 +729,8 @@ class Memories:
         since = (now - LATELY).astimezone(UTC)
         latest = [
             m for m in _holding(await self.kept(user_id), character_id)
-            if datetime.fromisoformat(m.created_at) >= since
+            if datetime.fromisoformat(m.created_at) >= since and m.kind != "long"
+            and _alive(m, self._clock())
         ][-MAX_LATEST:]
         ids = {m.id for m in found}
         recalled = [*found, *(m for m in reversed(latest) if m.id not in ids)]
@@ -554,7 +748,7 @@ class Memories:
         shares it with."""
         visible = []
         for memory in memories:
-            if memory.superseded_by is not None:
+            if memory.superseded_by is not None or not _alive(memory, self._clock()):
                 continue
             if memory.source_character_id == character_id or memory.scope == "shared":
                 visible.append(memory)
@@ -799,12 +993,36 @@ class Memories:
         """The user's memories `character_id` may recall, by the same scope rules as a turn."""
         return self._visible(await self.kept(user_id), character_id)
 
+    async def long_term(
+        self, user_id: str, character_id: str, timezone: str, now: datetime
+    ) -> str | None:
+        """The prompt section carrying the newest long memories she keeps, at most
+        `LONG_TERM_SHOWN`, or None if there are none."""
+        await self._settle(user_id)
+        now = now or self._clock()
+        long = [
+            memory for memory in self._visible(await self.kept(user_id), character_id)
+            if memory.kind == "long" and _alive(memory, now)
+        ]
+        long.sort(
+            key=lambda memory: (
+                memory.last_reinforced_at or memory.created_at, memory.id
+            ),
+            reverse=True,
+        )
+        long = long[:LONG_TERM_SHOWN]
+        if not long:
+            return None
+        return _long_term_prompt(long, timezone, now)
+
     def read_kept(self, db: sqlite3.Connection, user_id: str) -> list[Memory]:
         """What `kept` reads, read through `db`: for a data package too."""
         rows = db.execute(
             "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
             " conversation_id, scope, emotion, strength, maintain_until, kind, subject,"
-            " resolution FROM memories WHERE user_id = ? ORDER BY id",
+            " resolution, mention_count, expires_at, last_reinforced_at, status,"
+            " forgotten_at, recalled_at, recall_count"
+            " FROM memories WHERE user_id = ? ORDER BY id",
             (user_id,),
         ).fetchall()
         return [self._memory(*row) for row in rows]
@@ -822,12 +1040,17 @@ class Memories:
         scope: Scope = "shared", emotion: str | None = None, strength: float = 1.0,
         maintain_until: str | None = None, kind: str = "short",
         subject: Subject = "producer", resolution: Resolution | None = None,
+        mention_count: int = 1, expires_at: str | None = None,
+        last_reinforced_at: str | None = None, status: str = "active",
+        forgotten_at: str | None = None, recalled_at: str | None = None,
+        recall_count: int = 0,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, (source.name_zh or source.name) if source else None, text,
             created_at, superseded_by, conversation_id, scope, emotion, strength,
-            maintain_until, kind, subject, resolution,
+            maintain_until, kind, subject, resolution, mention_count, expires_at,
+            last_reinforced_at, status, forgotten_at, recalled_at, recall_count,
         )
 
     def _add(
@@ -848,10 +1071,12 @@ class Memories:
         for memory in written:
             strength, hold = TIERS.get(memory.tier, TIERS["medium"])
             maintain_until = (now + hold).astimezone(UTC).isoformat()
+            explicit = bool(_REMEMBER.search(memory.evidence or memory.text))
+            expires = now + (SHORT_CAP if explicit else hold)
             scope = "private" if memory.subject in ("self", "both") else memory.scope
             kept = db.execute(
-                "SELECT id, superseded_by IS NOT NULL FROM memories"
-                " WHERE user_id = ? AND text = ?",
+                "SELECT id, superseded_by IS NOT NULL, kind, maintain_until, created_at,"
+                " expires_at, status FROM memories WHERE user_id = ? AND text = ?",
                 (user_id, memory.text),
             ).fetchone()
             if kept is None:
@@ -860,11 +1085,14 @@ class Memories:
                 cursor = db.execute(
                     "INSERT INTO memories"
                     " (user_id, source_character_id, conversation_id, text, created_at, scope,"
-                    " emotion, strength, maintain_until, kind, subject)"
-                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?, 'short', ?)",
+                    " emotion, strength, maintain_until, kind, subject, mention_count,"
+                    " expires_at, last_reinforced_at, status)"
+                    " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?,"
+                    " 'short', ?, 1, ?, ?, 'active')",
                     (user_id, conversation.character_id, conversation.id, memory.text,
                      created_at, scope, memory.emotion, strength, maintain_until,
-                     memory.subject),
+                     memory.subject, expires.astimezone(UTC).isoformat(),
+                     created_at),
                 )
                 assert cursor.lastrowid is not None
                 id = cursor.lastrowid
@@ -872,17 +1100,34 @@ class Memories:
                     id, user_id, conversation.character_id, memory.text, created_at,
                     scope=scope, emotion=memory.emotion, strength=strength,
                     maintain_until=maintain_until, kind="short", subject=memory.subject,
+                    expires_at=expires.astimezone(UTC).isoformat(),
+                    last_reinforced_at=created_at,
                 ))
             else:
-                id, superseded = kept
+                id, superseded, kind, kept_until, kept_at, kept_expires, status = kept
+                if not superseded and status != "active":
+                    continue  # dormant: only the 03:00 consolidation may recall it
+                life = _life_of(kind or "short", kept_until, kept_at)
+                renewed = _reinforced(
+                    kind or "short", kept_expires, now, life, explicit
+                ).astimezone(UTC).isoformat()
                 if not superseded:
-                    continue  # already remembered
+                    db.execute(
+                        "UPDATE memories SET mention_count = mention_count + 1,"
+                        " expires_at = ?, last_reinforced_at = ? WHERE id = ?",
+                        (renewed, created_at, id),
+                    )
+                    continue  # already remembered, but said again
                 # Revived: it holds again, refreshed as its tier says and with the emotion
                 # it was written with this turn.
                 db.execute(
                     "UPDATE memories SET superseded_by = NULL, resolution = NULL, emotion = ?,"
-                    " strength = ?, maintain_until = ?, scope = ? WHERE id = ?",
-                    (memory.emotion, strength, maintain_until, scope, id),
+                    " strength = ?, maintain_until = ?, scope = ?,"
+                    " mention_count = mention_count + 1, expires_at = ?,"
+                    " last_reinforced_at = ?, status = 'active', forgotten_at = NULL"
+                    " WHERE id = ?",
+                    (memory.emotion, strength, maintain_until, scope, renewed,
+                     created_at, id),
                 )
             # Only what still holds: a memory deleted or superseded since it was shown
             # is left as it is.
@@ -948,6 +1193,252 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE memories ADD COLUMN maintain_until TEXT")
     if "kind" not in columns:  # kept from before kinds: all short
         db.execute("ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT 'short'")
+    if "mention_count" not in columns:  # kept from before counting: each said once
+        db.execute(
+            "ALTER TABLE memories ADD COLUMN mention_count INTEGER NOT NULL DEFAULT 1"
+        )
+    if "expires_at" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
+    if "last_reinforced_at" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN last_reinforced_at TEXT")
+    if "status" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+    if "forgotten_at" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN forgotten_at TEXT")
+    if "recalled_at" not in columns:
+        db.execute("ALTER TABLE memories ADD COLUMN recalled_at TEXT")
+    if "recall_count" not in columns:
+        db.execute(
+            "ALTER TABLE memories ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+
+def _consolidated(db: sqlite3.Connection, user_id: str, character_id: str, day: str) -> bool:
+    return db.execute(
+        "SELECT 1 FROM memory_consolidations WHERE user_id = ? AND character_id = ?"
+        " AND day = ?",
+        (user_id, character_id, day),
+    ).fetchone() is not None
+
+
+def _mark_consolidated(
+    db: sqlite3.Connection, user_id: str, character_id: str, day: str
+) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO memory_consolidations (user_id, character_id, day)"
+        " VALUES (?, ?, ?)",
+        (user_id, character_id, day),
+    )
+
+
+_CONSOLIDATION_RULES = """\
+你在整理一位角色关于制作人的长期记忆。只使用下面列出的记忆，只能改写、合并和概括，\
+不能添加原文里没有的事实。
+- short 是一次性的近况；mid 是重复出现、已经有轮廓的事；long 是已经稳定、以后也会记得的事。
+- 把同一主题的几条 short/mid 合并成一条 mid；把已经稳定、值得长期记住的合并成一条 long。
+- 至少要有证据才升级：mid 至少两条相关记忆或一条被提及两次；long 至少三次提及，或明显跨了几天。
+- 不要升级一次性的状态、天气、临时情绪、当天就会过去的事。
+- 同一条记忆不能被拆成两条；不同 subject 不能合并。
+- scope 只能和来源一样或更严格（private 比 unit 严格，unit 比 shared 严格）。
+- 已有 long 不要重复写；要合并它时，把它写进 sources。
+- 已淡忘的 long 只能通过 recall 恢复：待整理记忆明确是同一件事时，写 {"id": 编号,\
+ "sources": [待整理记忆编号]}；只是话题相近不要恢复。
+- 没有值得合并、升级或回忆的，就输出空列表。
+只输出 JSON：
+{"recall": [{"id": 编号, "sources": [编号]}],
+ "consolidate": [{"kind": "mid|long", "text": "……", "sources": [编号],\
+ "subject": "producer|self|both", "scope": "private|unit|shared"}]}
+"""
+
+
+def _consolidation_prompt(
+    shown: Sequence[Memory], now: datetime, zone: ZoneInfo
+) -> list[ChatMessage]:
+    """What the consolidation model reads: the long memories already kept, then the short
+    and mid ones, and the dormant long ones it may recall."""
+    active_long = [m for m in shown if m.kind == "long" and m.status == "active"]
+    short = [m for m in shown if m.kind != "long"]
+    dormant = [m for m in shown if m.kind == "long" and m.status == "dormant"]
+    lines = ["# 已有的长期记忆"]
+    lines += [f"{n}. {m.text}" for n, m in enumerate(active_long, 1)] or ["（还没有）"]
+    lines += ["", "# 待整理记忆"]
+    offset = len(active_long)
+    lines += [
+        f"{offset + n}. [{m.kind}，提及 {m.mention_count} 次，"
+        f"{datetime.fromisoformat(m.created_at).astimezone(zone).date().isoformat()}，"
+        f"{m.subject}] {m.text}"
+        for n, m in enumerate(short, 1)
+    ] or ["（没有）"]
+    if dormant:
+        lines += ["", "# 已淡忘的长期记忆"]
+        lines += [
+            f"{offset + len(short) + n}. [想起过 {m.recall_count} 次] {m.text}"
+            for n, m in enumerate(dormant, 1)
+        ]
+    return [
+        ChatMessage("system", _CONSOLIDATION_RULES),
+        ChatMessage("user", "\n".join(lines)),
+    ]
+
+
+def _parse_consolidations(
+    answer: str, shown: Sequence[Memory]
+) -> list[dict[str, object]]:
+    """The mid and long memories the model wrote, checked against what it was shown."""
+    start, end = answer.find("{"), answer.rfind("}")
+    try:
+        entries = json.loads(answer[start:end + 1])["consolidate"] if start >= 0 else None
+    except (ValueError, KeyError, TypeError):
+        log.warning("consolidation was not the JSON asked for")
+        return []
+    if not isinstance(entries, list):
+        return []
+    rank = {"private": 0, "unit": 1, "shared": 2}
+    made: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or len(made) >= MAX_CONSOLIDATED:
+            continue
+        kind, text, numbers = entry.get("kind"), entry.get("text"), entry.get("sources")
+        if kind not in ("mid", "long") or not isinstance(text, str):
+            continue
+        text = text.strip()[:MAX_MEMORY_LENGTH]
+        if not text or text in seen or not isinstance(numbers, list):
+            continue
+        sources = [
+            shown[n - 1] for n in numbers
+            if type(n) is int and 1 <= n <= len(shown)
+        ]
+        if not sources or len({m.id for m in sources}) != len(sources):
+            continue
+        if any(m.status != "active" for m in sources):
+            continue
+        subjects = {m.subject for m in sources}
+        if len(subjects) != 1:
+            continue
+        subject = subjects.pop()
+        count = sum(m.mention_count for m in sources)
+        if (kind == "mid" and count < 2) or (kind == "long" and count < 3):
+            continue
+        base = min(rank[m.scope] for m in sources)
+        proposed = rank.get(str(entry.get("scope")), base)
+        scope = next(name for name, value in rank.items() if value == min(base, proposed))
+        if subject in ("self", "both"):
+            scope = "private"
+        seen.add(text)
+        made.append({
+            "kind": kind, "text": text, "sources": [m.id for m in sources],
+            "subject": subject, "scope": scope, "mention_count": count,
+        })
+    return made
+
+
+def _parse_recall(answer: str, shown: Sequence[Memory]) -> list[dict[str, object]]:
+    """The dormant long memories the model says the turn brought back."""
+    start, end = answer.find("{"), answer.rfind("}")
+    try:
+        entries = json.loads(answer[start:end + 1])["recall"] if start >= 0 else None
+    except (ValueError, KeyError, TypeError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    made: list[dict[str, object]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        number, numbers = entry.get("id"), entry.get("sources")
+        if type(number) is not int or not (1 <= number <= len(shown)):
+            continue
+        target = shown[number - 1]
+        if target.kind != "long" or target.status != "dormant":
+            continue
+        if not isinstance(numbers, list):
+            continue
+        sources = [
+            shown[n - 1] for n in numbers
+            if type(n) is int and 1 <= n <= len(shown)
+        ]
+        if not sources or len({m.id for m in sources}) != len(sources):
+            continue
+        if any(m.status != "active" or m.kind == "long" for m in sources):
+            continue
+        made.append({"id": target.id, "sources": [m.id for m in sources]})
+    return made
+
+
+def _apply_consolidations(
+    db: sqlite3.Connection,
+    user_id: str,
+    character_id: str,
+    shown: Sequence[Memory],
+    items: Sequence[dict[str, object]],
+    recall: Sequence[dict[str, object]],
+    now: datetime,
+) -> None:
+    """Write the consolidated memories, recall dormant long ones, and mark what they
+    absorbed as merged."""
+    for item in recall:
+        ids = [int(id) for id in item["sources"]]
+        target = db.execute(
+            "SELECT id FROM memories WHERE id = ? AND user_id = ? AND kind = 'long'"
+            " AND status = 'dormant'",
+            (int(item["id"]), user_id),
+        ).fetchone()
+        if target is None:
+            continue
+        held = db.execute(
+            "SELECT COUNT(*) FROM memories WHERE user_id = ? AND superseded_by IS NULL"
+            " AND status = 'active' AND kind != 'long'"
+            f" AND id IN ({','.join('?' * len(ids))})",
+            (user_id, *ids),
+        ).fetchone()[0]
+        if held != len(ids):
+            continue
+        db.execute(
+            "UPDATE memories SET status = 'active', expires_at = ?,"
+            " last_reinforced_at = ?, recalled_at = ?, recall_count = recall_count + 1,"
+            " forgotten_at = NULL WHERE id = ?",
+            ((now + LONG_LIFE).astimezone(UTC).isoformat(),
+             now.astimezone(UTC).isoformat(), now.astimezone(UTC).isoformat(),
+             int(item["id"])),
+        )
+        db.executemany(
+            "UPDATE memories SET superseded_by = ?, resolution = 'merged'"
+            " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
+            [(int(item["id"]), id_, user_id) for id_ in ids],
+        )
+    for item in items:
+        text = str(item["text"])
+        if db.execute(
+            "SELECT 1 FROM memories WHERE user_id = ? AND text = ?", (user_id, text)
+        ).fetchone() is not None:
+            continue
+        ids = [int(id) for id in item["sources"]]
+        held = db.execute(
+            "SELECT COUNT(*) FROM memories WHERE user_id = ? AND superseded_by IS NULL"
+            f" AND id IN ({','.join('?' * len(ids))})",
+            (user_id, *ids),
+        ).fetchone()[0]
+        if held != len(ids):
+            continue
+        cursor = db.execute(
+            "INSERT INTO memories"
+            " (user_id, source_character_id, conversation_id, text, created_at, scope,"
+            " strength, maintain_until, kind, subject, mention_count, expires_at,"
+            " last_reinforced_at, status)"
+            " VALUES (?, ?, NULL, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, 'active')",
+            (user_id, character_id, text, now.astimezone(UTC).isoformat(),
+             item["scope"], item["kind"], item["subject"], item["mention_count"],
+             (now + _cap_of(str(item["kind"]))).astimezone(UTC).isoformat(),
+             now.astimezone(UTC).isoformat()),
+        )
+        assert cursor.lastrowid is not None
+        new_id = cursor.lastrowid
+        db.executemany(
+            "UPDATE memories SET superseded_by = ?, resolution = 'merged'"
+            " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
+            [(new_id, id_, user_id) for id_ in ids],
+        )
 
 
 def _delete(db: sqlite3.Connection, user_id: str, memory_id: int) -> bool:
@@ -992,8 +1483,33 @@ def _decay(db: sqlite3.Connection, now: str) -> None:
     """Weaken the memories whose maintenance is over at `now`, once (`DECAY_FACTOR`)."""
     db.execute(
         "UPDATE memories SET strength = strength * ?"
-        " WHERE (maintain_until IS NULL OR maintain_until < ?) AND strength > ?",
+        " WHERE (maintain_until IS NULL OR maintain_until < ?) AND strength > ?"
+        " AND COALESCE(kind, 'short') = 'short'",
         (DECAY_FACTOR, now, FORGET_THRESHOLD),
+    )
+
+
+def _expire(db: sqlite3.Connection, now: str, forgotten_before: str) -> None:
+    """Delete short and mid memories past their expiry; make expired long ones dormant; and
+    delete long memories dormant for longer than their keep."""
+    db.execute(
+        "DELETE FROM memories WHERE COALESCE(kind, 'short') IN ('short', 'mid')"
+        " AND expires_at IS NOT NULL AND expires_at <= ?",
+        (now,),
+    )
+    db.execute(
+        "UPDATE memories SET status = 'dormant', forgotten_at = ?"
+        " WHERE kind = 'long' AND status = 'active' AND superseded_by IS NULL"
+        " AND expires_at IS NOT NULL AND expires_at <= ?",
+        (now, now),
+    )
+    db.execute(
+        "DELETE FROM memories WHERE kind = 'long' AND status = 'dormant'"
+        " AND forgotten_at IS NOT NULL AND forgotten_at <= ?",
+        (forgotten_before,),
+    )
+    db.execute(
+        "DELETE FROM memory_vectors WHERE memory_id NOT IN (SELECT id FROM memories)"
     )
 
 
@@ -1066,7 +1582,7 @@ def _merge_groups(
     user_id = conversation.user_id
     current = {
         m[0]: m for m in db.execute(
-            "SELECT id, text, subject, scope, source_character_id, superseded_by"
+            "SELECT id, text, subject, scope, source_character_id, superseded_by, mention_count"
             " FROM memories WHERE user_id = ?", (user_id,),
         ).fetchall()
     }
@@ -1084,15 +1600,19 @@ def _merge_groups(
                       (user_id, group.text)).fetchone() is not None:
             continue
         strength, hold = TIERS.get(group.tier, TIERS["medium"])
+        mentions = sum(int(row[6]) for row in held)
         cursor = db.execute(
             "INSERT INTO memories"
             " (user_id, source_character_id, conversation_id, text, created_at, scope,"
-            " emotion, strength, maintain_until, kind, subject, resolution)"
+            " emotion, strength, maintain_until, kind, subject, resolution, mention_count,"
+            " expires_at, last_reinforced_at, status)"
             " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?, ?, ?, ?, ?,"
-            " 'short', ?, NULL)",
+            " 'short', ?, NULL, ?, ?, ?, 'active')",
             (user_id, conversation.character_id, conversation.id, group.text,
              now.astimezone(UTC).isoformat(), group.scope, group.emotion, strength,
-             (now + hold).astimezone(UTC).isoformat(), group.subject),
+             (now + hold).astimezone(UTC).isoformat(), group.subject, mentions,
+             (now + hold).astimezone(UTC).isoformat(),
+             now.astimezone(UTC).isoformat()),
         )
         assert cursor.lastrowid is not None
         canonical = cursor.lastrowid
@@ -1103,7 +1623,7 @@ def _merge_groups(
         )
         made.append(canonical)
         current[canonical] = (canonical, group.text, group.subject, group.scope,
-                              conversation.character_id, None)
+                              conversation.character_id, None, mentions)
     return made
 
 class MemoryTurn:
@@ -1138,6 +1658,13 @@ class MemoryTurn:
         rules as a turn: her own, the shared ones, and the unit ones she is in the group of."""
         return await self._memories.visible(
             self._conversation.user_id, self._conversation.character_id
+        )
+
+    async def long_term(self) -> str | None:
+        """The prompt section carrying the stable memories she keeps, if any."""
+        return await self._memories.long_term(
+            self._conversation.user_id, self._conversation.character_id,
+            self._timezone, self._memories._clock(),
         )
 
     @property
@@ -1561,6 +2088,30 @@ def _holding(memories: Sequence[Memory], character_id: str | None = None) -> lis
     ]
 
 
+def _alive(memory: Memory, now: datetime) -> bool:
+    """Whether `memory` is still active at `now`."""
+    if memory.status != "active":
+        return False
+    if memory.expires_at is None:
+        return True
+    try:
+        return datetime.fromisoformat(memory.expires_at) > now
+    except ValueError:
+        return True
+
+
+def _remaining_hours(memory: Memory, now: datetime) -> float | None:
+    """How long until `memory` is forgotten, or None while it has no expiry."""
+    if memory.status == "dormant":
+        return 0.0
+    if memory.expires_at is None:
+        return None
+    try:
+        return max(0.0, (datetime.fromisoformat(memory.expires_at) - now).total_seconds() / 3600)
+    except ValueError:
+        return None
+
+
 _RELATIVE_DAYS: dict[int, str] = {
     -6: "六天前",
     -5: "五天前",
@@ -1613,6 +2164,19 @@ _BOTH_OPENING = (
     "下面是制作人和她共同经历过、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
     "像平时记得这些事一样自然地提起，不要逐条复述。"
 )
+
+
+_LONG_TERM = (
+    "下面是你已经稳定记住的事。像平时就知道一样自然，不要逐条复述，也不要强调自己记得。"
+)
+
+
+def _long_term_prompt(memories: Sequence[Memory], timezone: str, now: datetime) -> str:
+    """The prompt section carrying the stable memories she keeps, newest first."""
+    today = now.astimezone(ZoneInfo(timezone)).date()
+    lines = ["# 长期记得的事", _LONG_TERM]
+    lines += [f"- {_relative_dates(memory.text, today)}" for memory in memories]
+    return "\n".join(lines)
 
 
 def _memories_prompt(

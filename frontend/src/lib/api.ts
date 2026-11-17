@@ -273,6 +273,8 @@ export type Birthday = { month: number; day: number };
 export type MemoryScope = "private" | "unit" | "shared";
 export type MemorySubject = "producer" | "self" | "both";
 export type MemoryResolution = "replaced" | "merged";
+export type MemoryKind = "short" | "mid" | "long";
+export type MemoryStatus = "active" | "dormant" | "retired";
 
 /** Something a character remembers about the producer or herself, with the character it was
  * told to; the name is null for a character no longer configured. */
@@ -289,6 +291,14 @@ export type Memory = {
   scope: MemoryScope;
   /** 这条记忆讲的是制作人、来源角色自己，还是两个人。 */
   subject: MemorySubject;
+  /** 短期、中期，还是已经巩固的长期记忆。 */
+  kind: MemoryKind;
+  /** 生效、已淡忘，或已作废。 */
+  status: MemoryStatus;
+  /** 距自然遗忘还剩多少小时；没有到期时间时为 null。 */
+  remaining_hours: number | null;
+  /** 已淡忘的长期记忆被回忆起来的次数。 */
+  recall_count: number;
   /** The feeling she had about it as she wrote it down (GLOSSARY.md「记忆」); null without one. */
   emotion: string | null;
   /** How strong the memory is now, 1 at its fullest, decaying over time. */

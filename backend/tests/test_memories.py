@@ -8,8 +8,9 @@ import json
 import sqlite3
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from weakref import WeakKeyDictionary
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,7 @@ from eidolon.memory import (  # pyright: ignore[reportPrivateUsage]
     Memory,
     MemoryTurn,
     _memories_prompt,
+    _parse_recall,
     memory_query,
     parse_memories,
 )
@@ -563,6 +565,148 @@ def test_memories_have_a_subject_and_self_memories_carry_evidence():
     assert [m.subject for m in written] == ["producer", "self"]
     assert written[1].evidence == "この花、見たことある"
     assert parse_memories('{"memories": [{"text": "制作人喜欢咖啡"}]}')[0].subject == "producer"
+
+
+async def test_consolidation_turns_repeated_short_memories_into_one_long(
+    world: World,
+):
+    class Lease:
+        def __init__(self, llm: ChatLLM) -> None:
+            self.keys = SimpleNamespace(memory_llm=llm)
+
+        def release(self) -> None:
+            pass
+
+    class Config:
+        def __init__(self, llm: ChatLLM) -> None:
+            self._llm = llm
+
+        def lease(self) -> Lease:
+            return Lease(self._llm)
+
+    answer = json.dumps({"consolidate": [{
+        "kind": "long", "text": "制作人喜欢咖啡", "sources": [1, 2, 3],
+        "subject": "producer", "scope": "unit",
+    }]}, ensure_ascii=False)
+    memories = Memories(
+        world.db, world.characters, lambda: NOW,
+        store=world.store, config=Config(FakeBackgroundLLM(answer)),
+    )
+    at = datetime(2026, 9, 24, 19, 0, tzinfo=UTC)  # 03:00 the next day in Shanghai
+
+    def fill(db: sqlite3.Connection) -> None:
+        for n in range(1, 4):
+            db.execute(
+                "INSERT INTO memories"
+                " (user_id, source_character_id, text, created_at, scope, kind, subject,"
+                " mention_count) VALUES (?, 'mano', ?, ?, 'private', 'short', 'producer', 1)",
+                (world.producer, f"制作人喜欢咖啡{n}",
+                 (at - timedelta(days=4 - n)).isoformat()),
+            )
+
+    await world.db.write(fill)
+    await memories.consolidate(at)
+
+    kept = await memories.kept(world.producer)
+    long = [m for m in kept if m.kind == "long"]
+    assert len(long) == 1
+    assert (long[0].text, long[0].mention_count, long[0].scope) == (
+        "制作人喜欢咖啡", 3, "private"
+    )
+    assert sum(m.superseded_by is not None for m in kept) == 3
+
+
+async def test_consolidation_recalls_a_dormant_long_from_a_fresh_short(world: World):
+    class Lease:
+        def __init__(self, llm: ChatLLM) -> None:
+            self.keys = SimpleNamespace(memory_llm=llm)
+
+        def release(self) -> None:
+            pass
+
+    class Config:
+        def __init__(self, llm: ChatLLM) -> None:
+            self._llm = llm
+
+        def lease(self) -> Lease:
+            return Lease(self._llm)
+
+    at = datetime(2026, 9, 24, 19, 0, tzinfo=UTC)
+    answer = json.dumps(
+        {"recall": [{"id": 2, "sources": [1]}]}, ensure_ascii=False
+    )
+    memories = Memories(
+        world.db, world.characters, lambda: NOW,
+        store=world.store, config=Config(FakeBackgroundLLM(answer)),
+    )
+
+    def fill(db: sqlite3.Connection) -> None:
+        db.execute(
+            "INSERT INTO memories"
+            " (user_id, source_character_id, text, created_at, kind, subject, status,"
+            " expires_at, forgotten_at, recall_count)"
+            " VALUES (?, 'mano', '制作人喜欢咖啡', ?, 'short', 'producer', 'active', ?, NULL, 0)",
+            (world.producer, at.isoformat(), (at + timedelta(hours=12)).isoformat()),
+        )
+        db.execute(
+            "INSERT INTO memories"
+            " (user_id, source_character_id, text, created_at, kind, subject, status,"
+            " expires_at, forgotten_at, recall_count)"
+            " VALUES (?, 'mano', '制作人以前喜欢咖啡', ?, 'long', 'producer', 'dormant', ?, ?, 0)",
+            (world.producer, at.isoformat(), at.isoformat(), at.isoformat()),
+        )
+
+    await world.db.write(fill)
+    await memories.consolidate(at)
+
+    kept = {m.text: m for m in await memories.kept(world.producer)}
+    recalled = kept["制作人以前喜欢咖啡"]
+    assert (recalled.status, recalled.recall_count) == ("active", 1)
+    assert datetime.fromisoformat(recalled.expires_at) == at + timedelta(days=7)
+    assert kept["制作人喜欢咖啡"].superseded_by == recalled.id
+
+
+async def test_a_dormant_long_is_recalled_only_through_a_recall_entry(world: World):
+    alive = Memory(
+        1, world.producer, "mano", None, "制作人最近又开始喝咖啡", NOW.isoformat(),
+        kind="short",
+    )
+    dormant = Memory(
+        2, world.producer, "mano", None, "制作人喜欢喝咖啡", NOW.isoformat(),
+        kind="long", status="dormant",
+    )
+
+    assert _parse_recall(
+        '{"recall": [{"id": 2, "sources": [1]}]}',
+        [alive, dormant],
+    ) == [{"id": 2, "sources": [1]}]
+    assert _parse_recall(
+        '{"recall": [{"id": 1, "sources": [2]}]}',
+        [alive, dormant],
+    ) == []
+
+
+async def test_the_long_term_prompt_carries_only_five_newest(world: World):
+    memories = Memories(world.db, world.characters, lambda: NOW)
+
+    def fill(db: sqlite3.Connection) -> None:
+        for n in range(1, 8):
+            db.execute(
+                "INSERT INTO memories"
+                " (user_id, source_character_id, text, created_at, scope, kind, subject)"
+                " VALUES (?, 'mano', ?, ?, 'private', 'long', 'producer')",
+                (world.producer, f"长期记忆{n}", (NOW - timedelta(days=8 - n)).isoformat()),
+            )
+
+    await world.db.write(fill)
+    section = await memories.long_term(world.producer, "mano", TZ, NOW)
+
+    assert section is not None
+    lines = [line for line in section.splitlines() if line.startswith("- ")]
+    assert len(lines) == 5
+    assert "长期记忆1" not in "\n".join(lines)
+    assert "长期记忆2" not in "\n".join(lines)
+    assert all(f"长期记忆{n}" in "\n".join(lines) for n in range(3, 8))
 
 
 async def test_self_memories_are_always_private(world: World, make_memories: MemoriesFactory):

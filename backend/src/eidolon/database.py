@@ -23,6 +23,7 @@ from pathlib import Path
 
 USER_DATA = [
     ("memory_vectors", "user_id = ?"),
+    ("memory_consolidations", "user_id = ?"),
     ("memories", "user_id = ?"),
     ("photos", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),

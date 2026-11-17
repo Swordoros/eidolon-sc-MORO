@@ -19,6 +19,10 @@ const badgeVariants = cva(
         "scope-private": "bg-scope-private text-white [a]:hover:bg-scope-private/90",
         "scope-unit": "bg-scope-unit text-white [a]:hover:bg-scope-unit/90",
         "scope-shared": "bg-scope-shared text-white [a]:hover:bg-scope-shared/90",
+        // eidolon: 记忆的短期/中期/长期标签，和可见范围分开着色。
+        "memory-short": "bg-memory-short text-white [a]:hover:bg-memory-short/90",
+        "memory-mid": "bg-memory-mid text-white [a]:hover:bg-memory-mid/90",
+        "memory-long": "bg-memory-long text-white [a]:hover:bg-memory-long/90",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

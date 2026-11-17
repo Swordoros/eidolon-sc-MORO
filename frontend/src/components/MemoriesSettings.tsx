@@ -32,12 +32,13 @@ import {
   listMemories,
   setMemoryScope,
   type Memory,
+  type MemoryKind,
   type MemoryScope,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
+import { remainingTime, sortMemories, sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
 import { cn } from "@/lib/utils";
-import { ShowLessIcon, ShowMoreIcon, TrashIcon } from "@/theme/icons";
+import { TrashIcon } from "@/theme/icons";
 
 const t = copy.memories;
 
@@ -49,6 +50,12 @@ const SCOPE_VARIANT = {
   private: "scope-private",
   unit: "scope-unit",
   shared: "scope-shared",
+} as const;
+
+const KIND_VARIANT = {
+  short: "memory-short",
+  mid: "memory-mid",
+  long: "memory-long",
 } as const;
 
 /** 点一下标签，可见范围往后轮一圈（私密 → 群组 → 共享 → 私密）。 */
@@ -76,14 +83,25 @@ export function MemoriesSettings() {
   const { memoryCountChanged } = useSettingsValues();
   // 只用来给来源角色配头像；还没载入时照样列出记忆。
   const characters = useDirectory().characters ?? [];
-  // 按角色查看（排查用）：展开后选一位，只看她现在能想起来的记忆；「全部」是默认。
-  const [viewerOpen, setViewerOpen] = useState(false);
+  // 按角色查看：只看她现在能想起来的记忆；「全部」是默认。
   const [viewerId, setViewerId] = useState(ALL_VIEWERS);
+  const [kindFilter, setKindFilter] = useState<"all" | MemoryKind>("all");
+  const [statusFilter, setStatusFilter] = useState<"active" | "dormant">("active");
   const viewer = characters.find((c) => c.id === viewerId) ?? null;
-  const shown = viewer && memories ? memories.filter((m) => visibleTo(m, viewer, characters)) : memories;
+  const shown = memories
+    ?.filter((m) => !viewer || visibleTo(m, viewer, characters))
+    .filter((m) => kindFilter === "all" || m.kind === kindFilter)
+    .filter((m) => statusFilter === "active" ? m.status !== "dormant" : m.status === "dormant");
+  const ordered = shown ? sortMemories(shown) : null;
   const viewers = [
-    { value: ALL_VIEWERS, label: t.viewer.all },
+    { value: ALL_VIEWERS, label: t.filters.allCharacters },
     ...characters.map((c) => ({ value: c.id, label: c.name })),
+  ];
+  const kinds = [
+    { value: "all", label: t.filters.allKinds },
+    { value: "short", label: t.kindName.short },
+    { value: "mid", label: t.kindName.mid },
+    { value: "long", label: t.kindName.long },
   ];
 
   useEffect(() => {
@@ -153,6 +171,18 @@ export function MemoriesSettings() {
 
   const hasMemories = !!memories && memories.length > 0;
 
+  function chooseKind(next: string) {
+    const kind = next as "all" | MemoryKind;
+    setKindFilter(kind);
+    if (statusFilter === "dormant" && kind !== "long") setStatusFilter("active");
+  }
+
+  function chooseStatus(next: string) {
+    const status = next as "active" | "dormant";
+    setStatusFilter(status);
+    if (status === "dormant") setKindFilter("long");
+  }
+
   return (
     <SettingsPane
       category="memories"
@@ -168,39 +198,68 @@ export function MemoriesSettings() {
         <p className={cn(PROSE_WIDTH, "text-body text-muted-foreground")}>{t.intro}</p>
 
         {hasMemories && (
-          <div className="flex flex-col items-start gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-expanded={viewerOpen}
-              onClick={() => setViewerOpen(!viewerOpen)}
-              className="max-md:min-h-11"
-            >
-              {viewerOpen ? <ShowLessIcon data-icon="inline-start" /> : <ShowMoreIcon data-icon="inline-start" />}
-              {t.viewer.open}
-              {viewer && <span className="font-normal text-muted-foreground">· {viewer.name}</span>}
-            </Button>
-            {viewerOpen && (
-              <div className="flex w-full flex-col gap-2">
-                <p className={cn(PROSE_WIDTH, "text-subtitle text-muted-foreground")}>{t.viewer.hint}</p>
-                <Select
-                  items={viewers}
-                  value={viewerId}
-                  onValueChange={(next) => setViewerId(String(next ?? ALL_VIEWERS))}
-                >
-                  <SelectTrigger aria-label={t.viewer.label} className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {viewers.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-subtitle text-muted-foreground">{t.filters.character}</span>
+              <Select
+                items={viewers}
+                value={viewerId}
+                onValueChange={(next) => setViewerId(String(next ?? ALL_VIEWERS))}
+              >
+                <SelectTrigger aria-label={t.filters.character} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {viewers.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-subtitle text-muted-foreground">{t.filters.kind}</span>
+              <Select
+                items={kinds}
+                value={kindFilter}
+                onValueChange={(next) => chooseKind(String(next ?? "all"))}
+              >
+                <SelectTrigger aria-label={t.filters.kind} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {kinds.map((item) => (
+                    <SelectItem
+                      key={item.value}
+                      value={item.value}
+                      disabled={statusFilter === "dormant" && item.value !== "long"}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-subtitle text-muted-foreground">{t.filters.status}</span>
+              <Select
+                items={[
+                  { value: "active", label: t.statusName.active },
+                  { value: "dormant", label: t.statusName.dormant },
+                ]}
+                value={statusFilter}
+                onValueChange={(next) => chooseStatus(String(next ?? "active"))}
+              >
+                <SelectTrigger aria-label={t.filters.status} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">{t.statusName.active}</SelectItem>
+                  <SelectItem value="dormant">{t.statusName.dormant}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         )}
 
@@ -208,9 +267,9 @@ export function MemoriesSettings() {
 
         {memories === null ? (
           !failure && <p className="text-body text-muted-foreground">{t.loading}</p>
-        ) : shown && shown.length > 0 ? (
+        ) : ordered && ordered.length > 0 ? (
           <ul className="flex flex-col divide-y">
-            {shown.map((memory) => {
+            {ordered.map((memory) => {
               const source = sourceCharacter(memory, characters);
               const family = (source?.memory_share.length ?? 0) > 0;
               const name = memory.source_character_name ?? t.goneCharacter;
@@ -223,7 +282,14 @@ export function MemoriesSettings() {
                     <MarkedAvatar name={name} src={source?.avatar_url} size="sm" />
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className={cn("text-body break-words", mark && "text-muted-foreground line-through")}>{memory.text}</p>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Badge variant={KIND_VARIANT[memory.kind]} className="mt-0.5 shrink-0">
+                        {t.kindName[memory.kind]}
+                      </Badge>
+                      <p className={cn("text-body break-words", mark && "text-muted-foreground line-through")}>
+                        {memory.text}
+                      </p>
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{t.subjectName[memory.subject]}</Badge>
                       {memory.subject === "producer" ? (
@@ -242,7 +308,16 @@ export function MemoriesSettings() {
                       )}
                       {mark && <Badge variant="secondary">{mark}</Badge>}
                       {memory.emotion && <Badge variant="outline">{memory.emotion}</Badge>}
-                      <Badge variant="outline">{t.strengthValue(memory.strength)}</Badge>
+                      {memory.status === "dormant" ? (
+                        <Badge variant="secondary">{t.statusName.dormant}</Badge>
+                      ) : (
+                        <Badge variant="outline">{remainingTime(memory)}</Badge>
+                      )}
+                      {memory.status === "dormant" && memory.recall_count > 0 && (
+                        <span className="text-subtitle text-muted-foreground">
+                          {t.rememberedTimes(memory.recall_count)}
+                        </span>
+                      )}
                       <span className="text-subtitle text-muted-foreground">
                         {t.toldTo(name)} · {t.date(created.getFullYear(), created.getMonth() + 1, created.getDate())}
                       </span>
@@ -268,14 +343,18 @@ export function MemoriesSettings() {
               );
             })}
           </ul>
-        ) : viewer ? (
-          <p className="text-body text-muted-foreground">{t.viewer.empty(viewer.name)}</p>
-        ) : (
+        ) : !memories || memories.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyTitle>{t.empty}</EmptyTitle>
             </EmptyHeader>
           </Empty>
+        ) : viewer && kindFilter === "all" && statusFilter === "active" ? (
+          <p className="text-body text-muted-foreground">{t.viewer.empty(viewer.name)}</p>
+        ) : statusFilter === "dormant" ? (
+          <p className="text-body text-muted-foreground">{t.emptyForgotten}</p>
+        ) : (
+          <p className="text-body text-muted-foreground">{t.emptyForFilters}</p>
         )}
       </div>
 

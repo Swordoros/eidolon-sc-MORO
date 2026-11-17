@@ -30,3 +30,24 @@ export function visibleTo(memory: Memory, viewer: Character, characters: readonl
   if (source.memory_share.includes(viewer.id)) return true;
   return viewer.unit !== null && viewer.unit === source.unit;
 }
+
+const KIND_ORDER: Record<Memory["kind"], number> = { long: 0, mid: 1, short: 2 };
+
+/** 长期新→老，中期新→老，短期新→老；同一时间按 id 倒序。 */
+export function sortMemories(memories: readonly Memory[]): Memory[] {
+  return [...memories].sort(
+    (a, b) =>
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      b.created_at.localeCompare(a.created_at) ||
+      b.id - a.id,
+  );
+}
+
+/** 剩余时间：不足一小时、小时、天；没有到期时间时显示「—」。 */
+export function remainingTime(memory: Pick<Memory, "remaining_hours">): string {
+  const hours = memory.remaining_hours;
+  if (hours === null || hours <= 0) return copy.memories.remaining.none;
+  if (hours < 1) return copy.memories.remaining.lessThanHour;
+  if (hours < 24) return copy.memories.remaining.hours(Math.ceil(hours));
+  return copy.memories.remaining.days(Math.ceil(hours / 24));
+}

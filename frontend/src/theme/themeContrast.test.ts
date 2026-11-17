@@ -25,6 +25,12 @@ describe("主题对比度", () => {
         }
       });
 
+      it("记忆短期、中期、长期标签上的白字 ≥ 4.5", () => {
+        for (const kind of ["--memory-short", "--memory-mid", "--memory-long"]) {
+          expect(contrast(color(kind, mode), "#ffffff"), kind).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+
       it("制作人气泡（事务所深蓝墨水）上的字 ≥ 4.5", () => {
         expect(pair("--on-producer-ink", "--producer-ink", mode)).toBeGreaterThanOrEqual(4.5);
       });

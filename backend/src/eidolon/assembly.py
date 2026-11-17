@@ -261,6 +261,7 @@ class Backend:
         self._talking = asyncio.create_task(self.groups.keep_going())
         self._sweeping = asyncio.create_task(self.bar.keep_sweeping())
         self._decaying = asyncio.create_task(self.memories.keep_decaying())
+        self._consolidating = asyncio.create_task(self.memories.keep_consolidating())
         self._tidying = asyncio.create_task(
             keep_tidy(self.usage.forget_old, self.activity.forget_old, self.moments.forget_old)
         )
@@ -276,6 +277,7 @@ class Backend:
                 self._keeping_fresh, self._probing, self._reaching_out, self._posting, self._writing,
                 self._relationship_writing, self._talking,
                 self._sweeping,
+                getattr(self, "_consolidating", None),
                 self._tidying, self._watching, self._loading_stories,
             )
             if task is not None
@@ -480,7 +482,7 @@ def build(
         memories = Memories(
             database, characters, clock, embedder=embedder, reranker=reranker,
             min_relevance=lambda: config.rerank_thresholds.memories, promises=promises,
-            share_group=share_group,
+            share_group=share_group, store=store, config=config,
         )
     else:
         log.info(

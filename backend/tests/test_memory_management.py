@@ -109,7 +109,8 @@ async def test_lists_every_memory_with_the_character_it_was_told_to(
     ]
     assert all(set(m) == {"id", "text", "source_character_id", "source_character_name",
                           "created_at", "superseded", "resolution", "scope", "subject",
-                          "emotion", "strength"}
+                          "kind", "status", "remaining_hours", "recall_count", "emotion",
+                          "strength"}
                for m in listed)
 
 

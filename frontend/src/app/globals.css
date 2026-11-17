@@ -161,6 +161,9 @@
   --color-scope-private: var(--scope-private);
   --color-scope-unit: var(--scope-unit);
   --color-scope-shared: var(--scope-shared);
+  --color-memory-short: var(--memory-short);
+  --color-memory-mid: var(--memory-mid);
+  --color-memory-long: var(--memory-long);
   --color-producer-ink: var(--producer-ink);
   --color-on-producer-ink: var(--on-producer-ink);
   --color-bubble-her: var(--bubble-her);
@@ -306,6 +309,10 @@
   --scope-private: #a63b5c;
   --scope-unit: #2f63a8;
   --scope-shared: #26774f;
+  /* 新增：记忆短期/中期/长期标签的固定色，上面的白字 ≥ 4.5。 */
+  --memory-short: #5f6670;
+  --memory-mid: #1f6f78;
+  --memory-long: #6a4c93;
   /* 新增：挂断键（DESIGN.md hang-up-red），就是 --destructive。 */
   --hangup: var(--destructive);
   /* 新增：制作人气泡的事务所深蓝墨水和上面的字（producer-ink、producer-ink-night）。 */

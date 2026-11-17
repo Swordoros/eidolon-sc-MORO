@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Character, Memory, MemoryScope } from "@/lib/api";
-import { sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
+import { remainingTime, sortMemories, sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
 
 const mano: Character = {
   id: "mano",
@@ -42,8 +42,32 @@ const memory = (
   resolution,
   scope,
   subject: "producer",
+  kind: "short",
+  status: "active",
+  remaining_hours: 12,
+  recall_count: 0,
   emotion: null,
   strength: 1,
+});
+
+describe("sortMemories", () => {
+  it("长期新到老，然后中期新到老，最后短期新到老", () => {
+    const oldLong = { ...memory("mano"), id: 1, kind: "long" as const, created_at: "2026-09-01T00:00:00Z" };
+    const newLong = { ...memory("mano"), id: 2, kind: "long" as const, created_at: "2026-09-03T00:00:00Z" };
+    const mid = { ...memory("mano"), id: 3, kind: "mid" as const, created_at: "2026-09-04T00:00:00Z" };
+    const short = { ...memory("mano"), id: 4, kind: "short" as const, created_at: "2026-09-05T00:00:00Z" };
+
+    expect(sortMemories([short, mid, oldLong, newLong]).map((m) => m.id)).toEqual([2, 1, 3, 4]);
+  });
+});
+
+describe("remainingTime", () => {
+  it("不足一小时、小时、天、无到期时间", () => {
+    expect(remainingTime({ remaining_hours: 0.4 })).toBe("不足 1 小时");
+    expect(remainingTime({ remaining_hours: 8.2 })).toBe("9 小时");
+    expect(remainingTime({ remaining_hours: 49 })).toBe("3 天");
+    expect(remainingTime({ remaining_hours: null })).toBe("—");
+  });
 });
 
 describe("sourceCharacter", () => {

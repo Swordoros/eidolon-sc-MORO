@@ -69,7 +69,8 @@ def test_what_the_user_revealed_is_remembered_with_feeling_and_tier():
     db.execute(
         "CREATE TABLE memories (id INTEGER PRIMARY KEY, user_id TEXT, source_character_id TEXT,"
         " conversation_id TEXT, text TEXT, created_at TEXT, scope TEXT, emotion TEXT,"
-        " strength REAL NOT NULL DEFAULT 1, maintain_until TEXT, kind TEXT NOT NULL DEFAULT 'short')"
+        " strength REAL NOT NULL DEFAULT 1, maintain_until TEXT, kind TEXT NOT NULL DEFAULT 'short',"
+        " expires_at TEXT, last_reinforced_at TEXT, status TEXT NOT NULL DEFAULT 'active')"
     )
     now = datetime(2026, 11, 9, 3, 0, tzinfo=timezone.utc)
     owner = Member("mano", "櫻木真乃", "intro", "sheet", "真乃")
@@ -82,7 +83,7 @@ def test_what_the_user_revealed_is_remembered_with_feeling_and_tier():
     ).fetchone()
     assert row == (
         "制作人养了一只猫", "开心", 1.0,
-        (now + timedelta(hours=48)).astimezone(timezone.utc).isoformat(), "short", None,
+        (now + timedelta(hours=36)).astimezone(timezone.utc).isoformat(), "short", None,
     )
 
 

@@ -1460,10 +1460,12 @@ class Groups:
             maintain_until = (now + hold).astimezone(timezone.utc).isoformat()
             db.execute(
                 "INSERT INTO memories (user_id, source_character_id, conversation_id, text,"
-                " created_at, scope, emotion, strength, maintain_until, kind)"
-                " VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'short')",
+                " created_at, scope, emotion, strength, maintain_until, kind, expires_at,"
+                " last_reinforced_at, status)"
+                " VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'short', ?, ?, 'active')",
                 (user_id, owner.id, memory.text, created_at, memory.scope, memory.emotion,
-                 strength, maintain_until),
+                 strength, maintain_until, (now + hold).astimezone(timezone.utc).isoformat(),
+                 created_at),
             )
         if cursor is not None and topic_id is not None:
             db.execute(
