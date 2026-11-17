@@ -2788,8 +2788,8 @@ export const zh = {
     subjectName: { producer: "制作人", self: "她自己", both: "双方" } as const,
     /** 记忆的巩固程度，文本前的标签。 */
     kindName: { short: "短期", mid: "中期", long: "长期" } as const,
-    /** 记忆状态：生效、已淡忘、已作废。 */
-    statusName: { active: "生效", dormant: "遗忘", retired: "已作废" } as const,
+    /** 记忆状态：生效、不生效、已作废。 */
+    statusName: { active: "生效", dormant: "不生效", retired: "已作废" } as const,
     /** 三个筛选栏。 */
     filters: {
       character: "角色",
@@ -2807,7 +2807,7 @@ export const zh = {
     },
     rememberedTimes: (count: number) => `想起过 ${count} 次`,
     emptyForFilters: "没有符合这些条件的记忆。",
-    emptyForgotten: "还没有被遗忘的长期记忆。",
+    emptyInactive: "没有不生效的记忆。",
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
     superseded: "已被取代",

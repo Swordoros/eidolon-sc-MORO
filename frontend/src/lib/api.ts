@@ -293,7 +293,7 @@ export type Memory = {
   subject: MemorySubject;
   /** 短期、中期，还是已经巩固的长期记忆。 */
   kind: MemoryKind;
-  /** 生效、已淡忘，或已作废。 */
+  /** 生效、不生效，或已作废。 */
   status: MemoryStatus;
   /** 距自然遗忘还剩多少小时；没有到期时间时为 null。 */
   remaining_hours: number | null;

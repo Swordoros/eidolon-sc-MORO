@@ -86,12 +86,14 @@ export function MemoriesSettings() {
   // 按角色查看：只看她现在能想起来的记忆；「全部」是默认。
   const [viewerId, setViewerId] = useState(ALL_VIEWERS);
   const [kindFilter, setKindFilter] = useState<"all" | MemoryKind>("all");
-  const [statusFilter, setStatusFilter] = useState<"active" | "dormant">("active");
+  const [statusFilter, setStatusFilter] = useState<"active" | "inactive">("active");
   const viewer = characters.find((c) => c.id === viewerId) ?? null;
   const shown = memories
     ?.filter((m) => !viewer || visibleTo(m, viewer, characters))
     .filter((m) => kindFilter === "all" || m.kind === kindFilter)
-    .filter((m) => statusFilter === "active" ? m.status !== "dormant" : m.status === "dormant");
+    .filter((m) => statusFilter === "active"
+      ? m.status === "active" && !m.superseded
+      : m.superseded || m.status === "dormant");
   const ordered = shown ? sortMemories(shown) : null;
   const viewers = [
     { value: ALL_VIEWERS, label: t.filters.allCharacters },
@@ -172,15 +174,11 @@ export function MemoriesSettings() {
   const hasMemories = !!memories && memories.length > 0;
 
   function chooseKind(next: string) {
-    const kind = next as "all" | MemoryKind;
-    setKindFilter(kind);
-    if (statusFilter === "dormant" && kind !== "long") setStatusFilter("active");
+    setKindFilter(next as "all" | MemoryKind);
   }
 
   function chooseStatus(next: string) {
-    const status = next as "active" | "dormant";
-    setStatusFilter(status);
-    if (status === "dormant") setKindFilter("long");
+    setStatusFilter(next as "active" | "inactive");
   }
 
   return (
@@ -230,11 +228,7 @@ export function MemoriesSettings() {
                 </SelectTrigger>
                 <SelectContent>
                   {kinds.map((item) => (
-                    <SelectItem
-                      key={item.value}
-                      value={item.value}
-                      disabled={statusFilter === "dormant" && item.value !== "long"}
-                    >
+                    <SelectItem key={item.value} value={item.value}>
                       {item.label}
                     </SelectItem>
                   ))}
@@ -246,7 +240,7 @@ export function MemoriesSettings() {
               <Select
                 items={[
                   { value: "active", label: t.statusName.active },
-                  { value: "dormant", label: t.statusName.dormant },
+                  { value: "inactive", label: t.statusName.dormant },
                 ]}
                 value={statusFilter}
                 onValueChange={(next) => chooseStatus(String(next ?? "active"))}
@@ -256,7 +250,7 @@ export function MemoriesSettings() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="active">{t.statusName.active}</SelectItem>
-                  <SelectItem value="dormant">{t.statusName.dormant}</SelectItem>
+                  <SelectItem value="inactive">{t.statusName.dormant}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -308,7 +302,7 @@ export function MemoriesSettings() {
                       )}
                       {mark && <Badge variant="secondary">{mark}</Badge>}
                       {memory.emotion && <Badge variant="outline">{memory.emotion}</Badge>}
-                      {memory.status === "dormant" ? (
+                      {memory.status === "dormant" || memory.superseded ? (
                         <Badge variant="secondary">{t.statusName.dormant}</Badge>
                       ) : (
                         <Badge variant="outline">{remainingTime(memory)}</Badge>
@@ -351,8 +345,8 @@ export function MemoriesSettings() {
           </Empty>
         ) : viewer && kindFilter === "all" && statusFilter === "active" ? (
           <p className="text-body text-muted-foreground">{t.viewer.empty(viewer.name)}</p>
-        ) : statusFilter === "dormant" ? (
-          <p className="text-body text-muted-foreground">{t.emptyForgotten}</p>
+        ) : statusFilter === "inactive" ? (
+          <p className="text-body text-muted-foreground">{t.emptyInactive}</p>
         ) : (
           <p className="text-body text-muted-foreground">{t.emptyForFilters}</p>
         )}
