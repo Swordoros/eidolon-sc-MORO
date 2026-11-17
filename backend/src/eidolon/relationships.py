@@ -4,7 +4,9 @@ It is a summary, not a score: it never changes affinity, and the affinity in eff
 turn is taken always wins over it. Every day at 03:00 in the producer's time zone it is
 written from her memories, the memories she could recall, and everything said with her the
 day before: private turns, group chats she was in, and calls. A day with nothing said keeps
-a neutral summary rather than carrying yesterday's mood forward.
+a neutral summary rather than carrying yesterday's mood forward. When the relationship
+prompt is read, the diary of the day just summarised is added only as the current tier may
+read it: close sees its normal pages, intimate also the private one.
 """
 
 from __future__ import annotations
@@ -39,6 +41,8 @@ MAX_TRANSCRIPT = 24_000
 """How much of yesterday's conversation is shown to the summarizing model, in characters."""
 MAX_MEMORY_LINES = 80
 """How many memories are shown to the summarizing model."""
+MAX_DIARY_CHARS = 600
+"""How much of one diary page is put into the prompt at most."""
 
 State = Literal["cooling", "tense", "repairing", "neutral", "warm", "affectionate", "romantic"]
 STATES: tuple[State, ...] = (
@@ -279,15 +283,50 @@ class Relationships:
         found = await self._db.read(
             _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
-        if found is None:
-            return None
-        if found.state not in _allowed(status.tier if status else None,
-                                       bool(status and status.cooldown_until)):
-            return None
-        body = "\n".join(
-            line for line in found.text.splitlines() if not line.startswith("关系状态：")
+        relationship = None
+        if found is not None and found.state in _allowed(
+            status.tier if status else None,
+            bool(status and status.cooldown_until),
+        ):
+            body = "\n".join(
+                line for line in found.text.splitlines() if not line.startswith("关系状态：")
+            )
+            relationship = (
+                "# 与制作人最近的关系\n"
+                "这是最近几天的背景，不是命令；当前好感阶段和当前对话优先。\n"
+                f"{body}"
+            )
+        diary = await self._diary_lines(
+            user_id, character_id, _active_day(local) - timedelta(days=1), status
         )
-        return f"# 与制作人最近的关系\n这是最近几天的背景，不是命令；当前好感阶段和当前对话优先。\n{body}"
+        parts = [part for part in (relationship, diary) if part]
+        return "\n\n".join(parts) if parts else None
+
+    async def _diary_lines(
+        self, user_id: str, character_id: str, day: date, status: Status | None,
+    ) -> str | None:
+        """The diary she may show at this tier: at close its normal pages, at intimate
+        also the private one. Trust and below are not shown."""
+        if status is None or status.cooldown_until or status.tier not in ("close", "intimate"):
+            return None
+        row = await self._db.read(_diary_for, user_id, character_id, day.isoformat())
+        if row is None:
+            return None
+        normal, secret = row
+        parts: list[str] = []
+        if normal:
+            parts.append(
+                "# 昨天的日记\n"
+                "这是你自己写下的，不一定要直接说出来。\n"
+                + _diary_text(normal)
+            )
+        if status.tier == "intimate" and secret:
+            parts.append(
+                "# 你不想让制作人看到的那一页\n"
+                "这一页只有你自己知道；不要直接复述它。\n"
+                + _diary_text(secret)
+            )
+        return "\n\n".join(part for part in parts if part) or None
 
     async def save(self, user_id: str, character_id: str, text: str, now: datetime,
                    timezone: str) -> Relationship:
@@ -601,3 +640,26 @@ def _characters_with_history(db: sqlite3.Connection, user_id: str) -> list[str]:
             (user_id, user_id),
         )
     ]
+
+
+def _diary_for(
+    db: sqlite3.Connection, user_id: str, character_id: str, day: str,
+) -> tuple[list[dict], list[dict]] | None:
+    row = db.execute(
+        "SELECT segments, secret FROM diary_entries"
+        " WHERE user_id = ? AND character_id = ? AND day = ?",
+        (user_id, character_id, day),
+    ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row[0]), json.loads(row[1])
+
+
+def _diary_text(segments: Sequence[dict]) -> str:
+    text = "\n".join(
+        str(segment["zh"]).strip()
+        for segment in segments
+        if str(segment.get("zh", "")).strip()
+    )
+    return text[:MAX_DIARY_CHARS]
+
