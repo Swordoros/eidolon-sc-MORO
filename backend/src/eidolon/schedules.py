@@ -556,6 +556,44 @@ class Schedules:
             ),
         )
 
+    async def annotate(
+        self, user_id: str, character_id: str, day: date, start: time, end: time, note: str,
+    ) -> bool:
+        """Append `note` to the slot from `start` to `end` in her kept schedule, if it has
+        one; False when there is no such schedule or slot."""
+        return await self._db.write(
+            self._annotate_body, user_id, character_id, day, start, end, note
+        )
+
+    def _annotate_body(
+        self, db: sqlite3.Connection, user_id: str, character_id: str, day: date,
+        start: time, end: time, note: str,
+    ) -> bool:
+        row = db.execute(
+            "SELECT slots FROM schedules WHERE user_id = ? AND character_id = ? AND day = ?",
+            (user_id, character_id, day.isoformat()),
+        ).fetchone()
+        if row is None:
+            return False
+        slots = json.loads(row[0])
+        found = False
+        for slot in slots:
+            if slot.get("start") != start.strftime("%H:%M"):
+                continue
+            if slot.get("end") != end.strftime("%H:%M"):
+                continue
+            what = str(slot.get("what", ""))
+            if note not in what:
+                slot["what"] = (what[: max(0, MAX_WHAT - len(note))] + note)[:MAX_WHAT]
+            found = True
+        if not found:
+            return False
+        db.execute(
+            "UPDATE schedules SET slots = ? WHERE user_id = ? AND character_id = ? AND day = ?",
+            (json.dumps(slots, ensure_ascii=False), user_id, character_id, day.isoformat()),
+        )
+        return True
+
     async def forget(self, user_id: str, character_id: str, day: date) -> None:
         """Forget her schedule for `day`, to write it again."""
         return await self._db.write(self._forget_body, user_id, character_id, day)

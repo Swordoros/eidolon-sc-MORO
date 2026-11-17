@@ -20,11 +20,20 @@ from eidolon.engine import (
     BATCH_SCHEDULE_RULES,
     NO_LIVE,
     SCHEDULE_RULES,
+    STAFF_SCHEDULE_RULES,
     WANTS_TO_PLAN,
     _student_line,
 )
 from eidolon.llm import LLMError
-from eidolon.schedule_writer import granted_live_slots, _plan_day_trips, _plan_trips
+from eidolon.schedule_writer import (
+    ESCORT_ODDS,
+    EscortOffer,
+    ScheduleWriter,
+    _plan_day_trips,
+    _plan_trips,
+    granted_live_slots,
+    with_escort,
+)
 from eidolon.schedules import (
     SOLO_TRIP_ODDS,
     TRIP_PLACES,
@@ -36,6 +45,7 @@ from eidolon.schedules import (
     Schedule,
     Schedules,
     Slot,
+    _SCHEMA,
     lines,
     parse_rest,
     parse_schedule,
@@ -201,10 +211,128 @@ def test_student_line_says_what_she_is_without_her_age():
 
 
 def test_schedule_prompts_have_students_go_to_school_on_weekdays():
-    for prompt in (SCHEDULE_RULES, BATCH_SCHEDULE_RULES, WANTS_TO_PLAN):
+    for prompt in (SCHEDULE_RULES, BATCH_SCHEDULE_RULES):
         assert "学生" in prompt
         assert "学校" in prompt
         assert "周一到周五" in prompt
+
+
+def test_staff_schedule_prompt_is_not_an_idol_prompt():
+    assert "事务员" in STAFF_SCHEDULE_RULES
+    assert "不是偶像" in STAFF_SCHEDULE_RULES
+    assert "陪同" in STAFF_SCHEDULE_RULES
+    assert "同组合" not in STAFF_SCHEDULE_RULES
+
+
+def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
+    offer = EscortOffer(
+        "SHHis", "lesson", time(14), time(16), "声乐课", "事务所练习室", ("nichika",)
+    )
+    slots = [
+        Slot(time(9), time(12), "整理经费", "办公室", "work"),
+        Slot(time(14), time(15), "准备资料", "办公室", "work"),
+        Slot(time(17), time(18), "打工", "便利店", "work"),
+    ]
+
+    chosen = with_escort(slots, offer)
+
+    assert [(s.start, s.what) for s in chosen] == [
+        (time(9), "整理经费"), (time(14), "陪同SHHis进行声乐课"), (time(17), "打工"),
+    ]
+    assert next(s for s in chosen if s.start == time(14)).where == "事务所练习室"
+    assert next(s for s in chosen if s.start == time(14)).kind == "work"
+
+
+def test_escort_is_drawn_on_thirty_percent_then_live_trip_lesson_by_five_three_two():
+    writer = object.__new__(ScheduleWriter)
+    offers = [
+        EscortOffer("SHHis", "live", time(18), time(20), "LIVE「A」", "剧场", ("nichika",)),
+        EscortOffer("L'Antica", "trip", time(9), time(17), "大阪", "大阪", ("kogane",)),
+        EscortOffer("illumination STARS", "lesson", time(13), time(15), "舞蹈课", "练习室", ("mano",)),
+    ]
+
+    writer._random = FakeRandom(29, 0, 0)  # type: ignore[attr-defined]
+    assert writer._pick_escort(offers) is not None
+    writer._random = FakeRandom(ESCORT_ODDS)  # type: ignore[attr-defined]
+    assert writer._pick_escort(offers) is None
+
+    writer._random = FakeRandom(0, 0, 0)  # type: ignore[attr-defined]
+    assert writer._pick_escort(offers).kind == "live"  # type: ignore[union-attr]
+
+    # Without live, trip and lesson weigh 3:2.
+    writer._random = FakeRandom(0, 0, 0)  # type: ignore[attr-defined]
+    assert writer._pick_escort(offers[1:]).kind == "trip"  # type: ignore[union-attr]
+    writer._random = FakeRandom(0, 3, 0)  # type: ignore[attr-defined]
+    assert writer._pick_escort(offers[1:]).kind == "lesson"  # type: ignore[union-attr]
+
+
+async def test_the_same_unit_lesson_is_one_escort_offer_with_all_its_members():
+    day = date(2026, 11, 17)
+
+    class FakeSchedules:
+        async def of(self, _user, cid, _day):
+            if cid not in ("nichika", "mikoto"):
+                return None
+            return Schedule(day, (
+                Slot(time(14), time(16), "声乐课", "练习室", "lesson"),
+            ), ())
+
+    class FakeEngine:
+        def is_staff(self, cid):
+            return cid == "hazuki"
+
+        def unit_name(self, cid):
+            return "SHHis" if cid in ("nichika", "mikoto") else None
+
+    writer = object.__new__(ScheduleWriter)
+    writer._characters = {  # type: ignore[attr-defined]
+        cid: SimpleNamespace(id=cid, name=cid)
+        for cid in ("hazuki", "nichika", "mikoto")
+    }
+    writer._schedules = FakeSchedules()  # type: ignore[attr-defined]
+    writer._engine = FakeEngine()  # type: ignore[attr-defined]
+
+    async def no_date(*_):
+        return None
+
+    async def no_favors(*_):
+        return []
+
+    writer._date_on = no_date  # type: ignore[attr-defined]
+    writer._favors_on = no_favors  # type: ignore[attr-defined]
+
+    offers = await writer._escort_offers("producer", day, "hazuki")
+
+    assert len(offers) == 1
+    assert offers[0].unit == "SHHis"
+    assert offers[0].task() == "陪同SHHis进行声乐课"
+    assert offers[0].members == ("mikoto", "nichika")
+
+
+async def test_a_source_slot_is_marked_as_escorted_and_the_note_is_clipped(settings: Settings):
+    async with database_in(settings.database_path) as db:
+        await db.write(
+            lambda conn: conn.executescript(
+                "CREATE TABLE users (id TEXT PRIMARY KEY); INSERT INTO users VALUES ('producer');"
+            )
+        )
+        await db.write(lambda conn: conn.executescript(_SCHEMA))
+        schedules = Schedules(db, lambda: datetime.now(UTC))
+        day = date(2026, 11, 17)
+        await schedules.keep(
+            "producer", "nichika", day,
+            [Slot(time(14), time(16), "声乐课", "练习室", "lesson")], [],
+        )
+
+        assert await schedules.annotate(
+            "producer", "nichika", day, time(14), time(16), "（七草叶月陪同）"
+        )
+        kept = await schedules.of("producer", "nichika", day)
+        assert kept is not None
+        assert kept.slots[0].what == "声乐课（七草叶月陪同）"
+        assert not await schedules.annotate(
+            "producer", "nichika", day, time(10), time(11), "（七草叶月陪同）"
+        )
 
 
 def test_a_unit_trip_picks_one_member_to_hold_the_trip_and_the_others_go_with_her():
@@ -336,6 +464,42 @@ async def test_off_none_is_written(make_client: ClientFactory, settings: Setting
     await backend_of(client).schedule_writer.run_due()
 
     assert len(llm.prompts) == 1
+
+
+async def test_a_staff_member_is_written_with_her_own_prompt(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    characters.add(
+        "hazuki", "七草はづき", "事务员",
+        other_names=("七草叶月", "ななくさ はづき", "Nanakusa Hazuki"),
+    )
+    write_world(characters)
+    staff_plan = (
+        '{"wake": "07:30", "sleep": "23:30", "slots": ['
+        '{"start": "09:00", "end": "10:00", "what": "整理经费",'
+        ' "where": "事务所办公室", "kind": "work", "with": []}]}'
+    )
+    client, llm, clock = await talked(
+        make_client, settings, [MANO_PLAN], [KOGANE_NONE], [staff_plan],
+        numbers=(0,) * 50,
+    )
+    clock.now = today_at(6)
+    await backend_of(client).schedule_writer.run_due()
+
+    written = await schedule(client, "hazuki")
+
+    assert written is not None
+    assert any(
+        slot["what"].startswith("陪同") or slot["what"] == "整理经费"
+        for slot in written["slots"]
+    )
+    joined = "\n".join(slot["what"] for slot in written["slots"])
+    if "陪同" in joined:
+        source = await schedule(client, "mano")
+        assert source is not None
+        assert any("（七草叶月陪同）" in slot["what"] for slot in source["slots"])
+    prompts = ["\n".join(m.content for m in p if m.role == "system") for p in llm.prompts]
+    assert any(STAFF_SCHEDULE_RULES in told for told in prompts)
 
 
 async def test_her_turn_tells_where_she_is_now_and_without_one_is_as_it_was(

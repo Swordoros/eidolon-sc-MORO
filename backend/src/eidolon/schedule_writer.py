@@ -20,12 +20,17 @@ left to the world setting's live, not counted as a trip by itself (GLOSSARY.md�
 「外景照片」); a day the producer invited her out on (GLOSSARY.md「邀约」), that too, a twist of
 its own. A group may also draw a live of its own in `LIVE_ODDS` on a day the world setting has
 none, but waits `LIVE_COOLDOWN_DAYS` after one; the world setting's live always wins that day.
+A staff member alone is written last, after the units, and on `ESCORT_ODDS` may draw one
+lesson, trip or live they have that day (`ESCORT_WEIGHTS`); her own day then carries the
+escort, and every member's kept slot is marked with her name.
 """
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from eidolon.activity import ActivityLog
@@ -38,6 +43,8 @@ from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
 from eidolon.schedules import (
     JOINT_TRIP_ODDS,
+    MAX_SLOTS,
+    MAX_WHAT,
     SOLO_TRIP_ODDS,
     TRIP_PLACES,
     TRIP_TWIST,
@@ -45,9 +52,12 @@ from eidolon.schedules import (
     DATE_TWIST,
     UNIT_TRIP_ODDS,
     TWISTS,
+    Schedule,
     Slot,
     Schedules,
     draw_bath,
+    parse_rest,
+    parse_schedule,
     parse_schedules_batched,
     reconciled,
 )
@@ -55,6 +65,14 @@ from eidolon.schedules import said as schedule_said
 from eidolon.store import Store
 
 log = logging.getLogger(__name__)
+
+ESCORT_ODDS = 30
+"""One day in so many a staff member is given an idol unit to accompany."""
+
+ESCORT_WEIGHTS: dict[str, int] = {"live": 5, "trip": 3, "lesson": 2}
+"""How the kinds of escort are weighted among those the day actually has."""
+
+EscortKind = Literal["lesson", "trip", "live"]
 
 TICK = timedelta(minutes=30)
 """How often it is looked whose schedule is to be written, and the units that could not be
@@ -89,6 +107,10 @@ def granted_live_slots(slots: Sequence[Slot], granted: bool) -> list[Slot]:
     return list(slots) if granted else [slot for slot in slots if not _live_slot(slot)]
 
 
+def _overlaps(slot: Slot, start: time, end: time) -> bool:
+    return slot.start < end and start < slot.end
+
+
 async def _no_date(*_: object) -> str | None:
     return None
 
@@ -100,6 +122,35 @@ async def _no_favors(*_: object) -> list[str]:
 TripPlan = tuple[
     dict[str, list[str]], dict[str, tuple[str | None, tuple[str, ...]]]
 ]
+
+
+@dataclass(frozen=True)
+class EscortOffer:
+    """One thing an idol unit is doing that the staff member could accompany."""
+
+    unit: str
+    kind: EscortKind
+    start: time
+    end: time
+    what: str
+    where: str
+    members: tuple[str, ...]
+    """The character ids whose kept schedule has this slot, all to be marked."""
+
+    def task(self) -> str:
+        """What her own schedule says she does."""
+        if self.kind == "trip":
+            return f"陪同{self.unit}前往{self.where}进行外景拍摄"[:MAX_WHAT]
+        return f"陪同{self.unit}进行{self.what}"[:MAX_WHAT]
+
+
+def with_escort(slots: Sequence[Slot], offer: EscortOffer) -> list[Slot]:
+    """The day's slots with `offer` as one work slot, any ordinary slot it overlaps
+    dropped; the offer itself is what she does, so it is not left to the model's wording."""
+    kept = [slot for slot in slots if not _overlaps(slot, offer.start, offer.end)]
+    kept.append(Slot(offer.start, offer.end, offer.task(), offer.where, "work"))
+    kept.sort(key=lambda slot: slot.start)
+    return kept[:MAX_SLOTS]
 
 
 def _plan_group(
@@ -227,6 +278,11 @@ class ScheduleWriter:
         for user_id, unit, day in due:
             by_day.setdefault((user_id, day), []).append(unit)
         for (user_id, day), units in by_day.items():
+            # Staff read the day the idols have already written: their escorts are drawn
+            # from the units' kept schedules, so they must be written last.
+            units.sort(
+                key=lambda unit: len(unit) == 1 and self._engine.is_staff(unit[0])
+            )
             plans, joint, joint_plan = _plan_day_trips(units, names, self._random)
             lives = [await self._live_for(user_id, unit, day) for unit in units]
             if joint is not None:
@@ -245,8 +301,13 @@ class ScheduleWriter:
             for index, unit in enumerate(units):
                 if joint is not None and index in joint:
                     continue
+                escort = None
+                if len(unit) == 1 and self._engine.is_staff(unit[0]):
+                    escort = await self._escort_for(user_id, day, unit[0])
                 try:
-                    await self._write_unit(user_id, unit, day, plans[index], live=lives[index])
+                    await self._write_unit(
+                        user_id, unit, day, plans[index], live=lives[index], escort=escort
+                    )
                 except Exception:
                     log.exception("writing the schedules of %s for %s failed", unit, user_id)
         await self._schedules.sweep(now.date())
@@ -259,7 +320,10 @@ class ScheduleWriter:
         group = next(g for g in self._engine.schedule_groups() if character_id in g)
         day = await self._today(user_id, self._clock())
         live = await self._live_for(user_id, group, day)
-        await self._write_unit(user_id, group, day, live=live)
+        escort = None
+        if len(group) == 1 and self._engine.is_staff(group[0]):
+            escort = await self._escort_for(user_id, day, group[0])
+        await self._write_unit(user_id, group, day, live=live, escort=escort)
         return True
 
     async def _today(self, user_id: str, now: datetime) -> date:
@@ -322,21 +386,124 @@ class ScheduleWriter:
         await self._schedules.keep_live(user_id, key, day, name)
         return name
 
+    async def _escort_offers(
+        self, user_id: str, day: date, staff_id: str
+    ) -> list[EscortOffer]:
+        """The kept slots of the day's idol units that `staff_id` could accompany: lessons,
+        trips and lives, each once however many of the unit's members have it."""
+        date_away = await self._date_on(user_id, staff_id, day)
+        favors = await self._favors_on(user_id, staff_id, day)
+        found: dict[tuple[str, EscortKind, time, time, str, str], set[str]] = {}
+        schedules: dict[str, tuple[str, Schedule | None]] = {}
+        trip_places: dict[str, set[str]] = {}
+        for cid in self._characters:
+            if cid == staff_id or self._engine.is_staff(cid):
+                continue
+            unit = self._engine.unit_name(cid)
+            if unit is None:
+                continue
+            schedule = await self._schedules.of(user_id, cid, day)
+            schedules[cid] = (unit, schedule)
+            if schedule is not None and schedule.trip is not None:
+                trip_places.setdefault(unit, set()).add(schedule.trip)
+
+        def blocked(start: time, end: time) -> bool:
+            if date_away is not None and _overlaps(
+                Slot(start, end, "", "", "work"), time(14), time(17)
+            ):
+                return True
+            for favor in favors:
+                for word, low, high in (
+                    ("上午", time(6), time(12)),
+                    ("中午", time(11), time(14)),
+                    ("下午", time(13), time(18)),
+                    ("晚上", time(18), time(23, 59)),
+                ):
+                    if word in favor and _overlaps(
+                        Slot(start, end, "", "", "work"), low, high
+                    ):
+                        return True
+            return False
+
+        for cid, (unit, schedule) in schedules.items():
+            if schedule is None:
+                continue
+            for slot in schedule.slots:
+                if blocked(slot.start, slot.end):
+                    continue
+                if slot.kind == "lesson":
+                    kind: EscortKind = "lesson"
+                elif _live_slot(slot):
+                    kind = "live"
+                else:
+                    kind = None
+                if kind is not None:
+                    key = (unit, kind, slot.start, slot.end, slot.what, slot.where)
+                    found.setdefault(key, set()).add(cid)
+            for place in trip_places.get(unit, ()):
+                for slot in schedule.slots:
+                    if place not in slot.what and place not in slot.where:
+                        continue
+                    if blocked(slot.start, slot.end):
+                        continue
+                    key = (unit, "trip", slot.start, slot.end, place, slot.where)
+                    found.setdefault(key, set()).add(cid)
+                    break
+        return [
+            EscortOffer(unit, kind, start, end, what, where, tuple(sorted(members)))
+            for (unit, kind, start, end, what, where), members in found.items()
+        ]
+
+    def _pick_escort(self, offers: Sequence[EscortOffer]) -> EscortOffer | None:
+        """One offer to accompany, or none: first whether the day has one at all
+        (`ESCORT_ODDS`), then a kind among those the day has, by `ESCORT_WEIGHTS`."""
+        if not offers or self._random(100) >= ESCORT_ODDS:
+            return None
+        by_kind: dict[EscortKind, list[EscortOffer]] = {}
+        for offer in offers:
+            by_kind.setdefault(offer.kind, []).append(offer)
+        total = sum(ESCORT_WEIGHTS[kind] for kind in by_kind)
+        drawn = self._random(total)
+        for kind in ("live", "trip", "lesson"):
+            if kind not in by_kind:
+                continue
+            weight = ESCORT_WEIGHTS[kind]
+            if drawn < weight:
+                options = by_kind[kind]  # type: ignore[arg-type]
+                return options[self._random(len(options))]
+            drawn -= weight
+        return None
+
+    async def _escort_for(self, user_id: str, day: date, staff_id: str) -> EscortOffer | None:
+        return self._pick_escort(await self._escort_offers(user_id, day, staff_id))
+
+    def _escort_twist(self, offer: EscortOffer) -> str:
+        return (
+            f"今天 {offer.start.strftime('%H:%M')}–{offer.end.strftime('%H:%M')}，"
+            f"你要陪同{offer.unit}在{offer.where}进行{offer.what}。"
+            f"把这段时间排成 work，what 写「{offer.task()}」，where 写「{offer.where}」。"
+        )
+
     async def _write_unit(
         self, user_id: str, unit: list[str], day: date,
         plan: TripPlan | None = None, all_or_nothing: bool = False,
         live: str | Mapping[str, str | None] | None = None,
+        escort: EscortOffer | None = None,
     ) -> None:
         """Write the day's schedules of the unit's members together, in one call, so that
         they do not conflict; a member whose part cannot be read is left to be retried.
         `plan` is a day's trip draw when several units were planned together; a joint pair
-        passes all its members as one unit and writes none unless all their parts are read."""
+        passes all its members as one unit and writes none unless all their parts are read.
+        A staff member alone may be given one `escort` to write into her day."""
+        staff = len(unit) == 1 and self._engine.is_staff(unit[0])
         names = {c.id: c.name for c in self._characters.values()}
         live_by = (
             {cid: live for cid in unit} if isinstance(live, str) or live is None
             else dict(live)
         )
         twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
+        if staff and escort is not None:
+            twists[unit[0]].append(self._escort_twist(escort))
         if plan is None:
             plan = _plan_trips(unit, names, self._random)
         trip_twists, trips = plan
@@ -354,10 +521,21 @@ class ScheduleWriter:
         lease = self._config.lease()
         try:
             with recording.current():
-                answer = await self._engine.write_schedules(
-                    unit, lease.keys.chat_llm, day, twists, yesterday, live_by
-                )
-            parsed = parse_schedules_batched(answer, self._characters)
+                if staff:
+                    answer = await self._engine.write_staff_schedule(
+                        unit[0], lease.keys.chat_llm, day, twists[unit[0]],
+                        yesterday[unit[0]],
+                    )
+                else:
+                    answer = await self._engine.write_schedules(
+                        unit, lease.keys.chat_llm, day, twists, yesterday, live_by
+                    )
+            if staff:
+                slots = parse_schedule(answer, self._characters)
+                wake, sleep = parse_rest(answer)
+                parsed = {unit[0]: (slots, wake, sleep)}
+            else:
+                parsed = parse_schedules_batched(answer, self._characters)
             if all_or_nothing and any(cid not in parsed for cid in unit):
                 await recording.finish("failed")
                 return
@@ -365,6 +543,8 @@ class ScheduleWriter:
                 if cid not in parsed:
                     continue
                 slots, wake, sleep = parsed[cid]
+                if staff and escort is not None and cid == unit[0]:
+                    slots = with_escort(slots, escort)
                 if (
                     not live_by.get(cid)
                     and not self._engine.world_live_on(cid, day)
@@ -383,6 +563,17 @@ class ScheduleWriter:
                     user_id, cid, day, slots, twists[cid], wake, sleep, bath,
                     trip if slots else None, trip_with,
                 )
+                if staff and escort is not None and cid == unit[0]:
+                    character = self._characters[cid]
+                    note = f"（{character.name_zh or character.name}陪同）"
+                    for member in escort.members:
+                        if not await self._schedules.annotate(
+                            user_id, member, day, escort.start, escort.end, note
+                        ):
+                            log.warning(
+                                "could not mark %s's schedule as escorted by %s on %s",
+                                member, cid, day,
+                            )
             await recording.finish("success" if parsed else "failed")
         except Exception as e:
             # Not logged with what was raised: a service's error may repeat what it was asked.

@@ -1052,6 +1052,23 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 
 WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。学生成员周一到周五白天先排学校；只有 LIVE、外景或必须参加的工作与学校冲突时才调整。）"
 
+STAFF_SCHEDULE_RULES = """# 写今天的事务员日程
+你是 283 事务所的事务员，不是偶像。你要给自己排一份今天大概的安排，只输出 JSON，格式为
+{"wake": "08:00", "sleep": "00:30", "slots": [{"start": "09:00", "end": "12:00", "what": "整理经费", "where": "事务所办公室", "kind": "work", "with": []}]}
+- wake 是你今天几点起床（07:00 到 09:00），sleep 是你今天晚上几点睡（23:00 以后；过了午夜就写 00:30 这样，最晚 03:00）。照你的作息习惯排。
+- 一天排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
+- 所有 slots 都要在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟。
+- kind 只能是 work（事务工作、陪同、打工）、rest（在家休息）、private（自己的安排）之一；不要排 lesson、school 或 live。
+- 你的工作是事务所的事务员：经费、备品、おやつ、文件、联络、打扫、帮偶像准备东西、陪同偶像的课程/外景/LIVE，以及你自己的打工。
+- 陪同偶像时，kind 仍然写 work，what 写成「陪同{组合}进行{事情}」，例如「陪同SHHis进行声乐课」；不要写成你自己上课或上台演出。
+- with 只在确实和哪位角色一起行动时写她的标识，否则写 []；陪同写在 what 里就够了。
+- 不要给自己排组合练习、上台演出、学校课程，也不要编原作里的大事。
+- what 和 where 各不超过 30 个字。
+- **what 和 where 一律用简体中文写。** 即使你的人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。
+- 写到制作人时称「制作人」。"""
+
+STAFF_WANTS_TO_PLAN = "（排今天的事务员安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。）"
+
 
 _ADULT_SCHOOL = {
     "mamimi": "高中生",
@@ -1393,6 +1410,46 @@ class ConversationEngine:
             ChatMessage("system", "\n\n".join(p for p in (character.sheet, world_prompt) if p)),
             ChatMessage("system", SCHEDULE_RULES + "\n\n" + "\n".join(told)),
             ChatMessage("user", WANTS_TO_PLAN),
+        ]
+        answer = "".join([item async for item in llm.stream(prompt) if isinstance(item, str)])
+        if not answer.strip():
+            raise EmptyReply("对话模型没有返回任何内容")
+        return answer
+
+    async def write_staff_schedule(
+        self,
+        character_id: str,
+        llm: ChatLLM,
+        day: date,
+        twists: Sequence[str],
+        yesterday: str | None,
+    ) -> str:
+        """The day's schedule of one of the office's staff, as the model writes it on `llm`:
+        from her sheet and the world setting, the day, the office's real lives, the day
+        before, and her `twists` (one of which may be an escort). A staff member is not an
+        idol, so this asks for a staff's day, not a unit's."""
+        character = self._characters[character_id]
+        told: list[str] = [
+            f"今天是 {day.isoformat()}，星期{'一二三四五六日'[day.weekday()]}。",
+        ]
+        if self._world is not None:
+            told.append(_staff_lives(self._world, day))
+        else:
+            told.append("今天事务所没有 LIVE。不要写「陪同…LIVE」这类安排。")
+        habit = character.heart.sleep if character.heart is not None else None
+        if habit:
+            told.append(f"你的作息习惯：{habit}")
+        if yesterday:
+            told.append(f"你昨天的安排：{yesterday}")
+        told.append(
+            "今天的小变数（要真的影响当天的安排）："
+            + ("；".join(twists) if twists else "没有")
+        )
+        world_prompt = self._world.prompt(character.name, day) if self._world else None
+        prompt = [
+            ChatMessage("system", "\n\n".join(p for p in (character.sheet, world_prompt) if p)),
+            ChatMessage("system", STAFF_SCHEDULE_RULES + "\n\n" + "\n".join(told)),
+            ChatMessage("user", STAFF_WANTS_TO_PLAN),
         ]
         answer = "".join([item async for item in llm.stream(prompt) if isinstance(item, str)])
         if not answer.strip():
