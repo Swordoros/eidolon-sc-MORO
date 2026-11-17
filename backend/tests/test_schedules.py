@@ -506,13 +506,15 @@ async def test_her_turn_tells_where_she_is_now_and_without_one_is_as_it_was(
     make_client: ClientFactory, settings: Settings
 ):
     client, llm, clock = await talked(make_client, settings, [MANO_PLAN], [KOGANE_NONE])
-    before = context_of(llm.prompts[-1])
+    before = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
     clock.now = today_at(6)
     await backend_of(client).schedule_writer.run_due()
     clock.now = today_at(15)
     await send_turn(client, client.conversation_id, "在干嘛")  # type: ignore[attr-defined]
 
-    told = context_of(llm.prompts[-1])
+    # The turn's schedule is one of several system messages; the most recent one is
+    # the history note, so search them all rather than assuming it is last.
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
     assert "现在（15:00）你大概在：逛文具店" in told
     assert "大概的安排" not in before
 
@@ -838,7 +840,8 @@ async def test_woken_by_a_call_she_answers_it_first(
 
     assert spoken == ["……もしもし……？"]
     assert messages[0]["type"] == "user" and messages[0]["text"] == ""
-    assert llm.prompts[0][-1].content == ANSWERING
+    # The user line carries the turn's timestamp before the answering instruction.
+    assert llm.prompts[0][-1].content.endswith(ANSWERING)
     assert "是被制作人的电话吵醒的" in context_of(llm.prompts[0])
 
 
