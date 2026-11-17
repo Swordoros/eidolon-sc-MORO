@@ -882,7 +882,7 @@ export const zh = {
       "sign-in": "登录与数据",
       "data-package": "数据包",
       dev: "开发",
-      nsfw: "成人内容",
+      nsfw: "NSFW内容",
       about: "关于",
     },
     /** 一级每行名字下面的当前值摘要（「关于」没有）。 */
@@ -899,6 +899,8 @@ export const zh = {
       /** 搭话、周期这类只有一个开关的。 */
       switchOn: "开",
       switchOff: "关",
+      nsfwOn: "已开启",
+      nsfwOff: "未开启",
       ownKeysNone: "全部用部署者的服务",
       ownKeys: (services: string) => `已填 ${services}`,
     },

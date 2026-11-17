@@ -87,6 +87,9 @@ export function SettingsValuesProvider({ children }: { children: ReactNode }) {
         call,
         // 外观和角色一起由外壳读出；登录的用户读到之前还是默认值，不算读到。
         appearance: account ? appearance : null,
+        nsfwOn: account
+          ? account.nsfw || account.nsfw_voice || account.nsfw_photo
+          : null,
         crossChat: account?.cross_chat ?? null,
         ...settingsSwitches(account),
         ownServices: ownedServices,

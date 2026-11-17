@@ -13,7 +13,7 @@ import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.settings.chat;
 
-/** 设置「聊天设置」：群聊与私聊的上下文互通，以及成人内容。 */
+/** 设置「聊天设置」：群聊与私聊的上下文互通。 */
 export function ChatSettings() {
   const { account, accountChanged } = useDirectory();
   const id = useId();

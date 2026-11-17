@@ -118,6 +118,8 @@ export type SettingsValues = SettingsSwitches & {
   daysKnown: number | null;
   call: CallPreferences | null;
   appearance: Appearance | null;
+  /** Whether any adult-content switch is on. */
+  nsfwOn: boolean | null;
   /** The user's group/private chat context sharing switch. */
   crossChat: boolean | null;
   /** The services this browser keeps the user's own key for. */
@@ -142,6 +144,7 @@ export function settingsSummaries(values: SettingsValues): Partial<Record<Settin
   if (daysKnown !== null) summaries.stats = t.daysKnown(daysKnown);
   if (call) summaries.call = `${copy.settings.call.qualities[call.quality]} · ${call.phoneTexture ? t.phoneTextureOn : t.phoneTextureOff}`;
   if (appearance) summaries.appearance = appearance.scspAvatars ? t.scspAvatarsOn : t.scspAvatarsOff;
+  if (values.nsfwOn !== null) summaries.nsfw = values.nsfwOn ? t.nsfwOn : t.nsfwOff;
   if (crossChat !== null) summaries.chat = crossChat ? t.switchOn : t.switchOff;
   for (const [category, key] of SWITCHED) {
     const on = values[key];

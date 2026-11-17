@@ -112,6 +112,7 @@ describe("一级列表上的摘要", () => {
     daysKnown: null,
     call: null,
     appearance: null,
+    nsfwOn: null,
     crossChat: null,
     reachOuts: null,
     moments: null,
@@ -163,6 +164,11 @@ describe("一级列表上的摘要", () => {
   it("聊天设置是群聊上下文互通开／关", () => {
     expect(settingsSummaries({ ...loading, crossChat: true }).chat).toBe("开");
     expect(settingsSummaries({ ...loading, crossChat: false }).chat).toBe("关");
+  });
+
+  it("NSFW 内容是已开启／未开启", () => {
+    expect(settingsSummaries({ ...loading, nsfwOn: true }).nsfw).toBe("已开启");
+    expect(settingsSummaries({ ...loading, nsfwOn: false }).nsfw).toBe("未开启");
   });
 
   it("搭话是开／关", () => {
