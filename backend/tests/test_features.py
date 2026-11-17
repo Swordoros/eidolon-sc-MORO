@@ -128,7 +128,7 @@ async def test_with_her_schedule_off_she_has_none_told_nor_shown(
     called = await offer(client, conversation)
 
     assert status is None
-    assert "大概的安排" not in context_of(llm.prompts[-1])
+    assert "今天的安排" not in context_of(llm.prompts[-1])
     assert called.status_code != 409  # not in the bath for them: the call goes on to be set up
 
 
@@ -142,7 +142,7 @@ async def test_with_her_bath_off_she_is_not_in_it(make_client: ClientFactory, se
     assert status == {"free": True}
     told = context_of(llm.prompts[-1])
     assert "洗完出来才看到" not in told
-    assert "大概的安排" in told  # her schedule is still there
+    assert "今天的安排" in told  # her schedule is still there
 
 
 async def test_with_her_sleep_off_she_is_up_all_night(

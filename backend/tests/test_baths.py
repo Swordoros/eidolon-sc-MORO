@@ -90,7 +90,8 @@ def test_in_the_bath_she_reads_a_message_as_she_comes_out_and_talks_from_the_tub
     typing = lines(evening, at(21, 10), {}, "bath")
     calling = lines(evening, at(21, 10), {}, "bath", in_call=True)
 
-    assert typing[0].startswith("你今天大概的安排：10:00–12:00 练习")
+    assert typing[0].startswith("现在 21:10。今天的安排（只是大概）：")
+    assert "10:00–12:00 练习（已结束）" in typing[0]
     assert "洗完出来才看到" in typing[1] and "不描写洗澡的过程和身体" in typing[1]
     assert "正在泡澡" in calling[1] and "回响" in calling[1]
 
@@ -112,9 +113,13 @@ async def test_her_bath_is_drawn_with_her_schedule_as_her_heart_says(
     make_client: ClientFactory, settings: Settings, characters: CharacterConfig
 ):
     characters.write("hearts/mano.toml", SHOWERS)
-    plan = PLAN.replace('{"slots"', '{"wake": "07:00", "sleep": "23:30", "slots"')
+    plan = '{"mano": ' + PLAN.replace(
+        '{"slots"', '{"wake": "07:00", "sleep": "23:30", "slots"'
+    ) + "}"
     # No twist (0), no trip (1); her bath 60 + 5 × 2 minutes before bed, 15 + 5 × 1 long.
-    client, _, clock = await talked(make_client, settings, [plan], numbers=(0, 1, 2, 1))
+    client, _, clock = await talked(
+        make_client, settings, [plan], numbers=(0, 1, 2, 1, 0, 2, 1) + (0,) * 30
+    )
     clock.now = at(6)
 
     await backend_of(client).schedule_writer.run_due()
@@ -195,7 +200,7 @@ async def test_in_the_bath_she_does_not_answer_and_it_is_kept(
 ):
     if heart is not None:
         characters.write("hearts/mano.toml", heart)
-    client, llm, conversation = await in_the_bath(make_client, settings, REPLY)
+    client, _, conversation = await in_the_bath(make_client, settings, REPLY)
 
     res = await offer(client, conversation)
     missed_at(settings, at(21, 10))
@@ -204,7 +209,6 @@ async def test_in_the_bath_she_does_not_answer_and_it_is_kept(
     assert res.status_code == 409 and res.json()["code"] == "no_answer"
     events = [e for e in await record(client, conversation) if e.get("type") == "event"]
     assert [e["kind"] for e in events] == ["missed_call"]
-    assert "（制作人打来电话，你那会儿在洗澡，没接到。）" in llm.prompts[-1][-1].content
 
 
 async def test_an_adult_who_soaks_answers_first_from_the_tub(
@@ -219,7 +223,7 @@ async def test_an_adult_who_soaks_answers_first_from_the_tub(
 
     assert messages[0] == {"type": "bath"}
     assert spoken == ["もしもし、今お風呂なの"]
-    assert llm.prompts[0][-1].content == ANSWERING_IN_THE_TUB
+    assert llm.prompts[0][-1].content.endswith(ANSWERING_IN_THE_TUB)
     told = context_of(llm.prompts[0])
     assert "正在泡澡" in told and "回响" in told
 

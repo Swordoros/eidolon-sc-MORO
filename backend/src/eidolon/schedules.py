@@ -694,6 +694,37 @@ IN_THE_TUB = (
 )
 
 
+def _timeline(schedule: Schedule, at: datetime, names: Mapping[str, str]) -> list[str]:
+    """The day's slots with the state each has at `at`: ended, happening now with its
+    progress, or still to come."""
+    rows = []
+    for slot in schedule.slots:
+        if slot.end <= at.time():
+            note = "已结束"
+        elif slot.start <= at.time():
+            note = _progress(slot, at) or "进行中"
+        else:
+            note = "接下来"
+        rows.append(_said(slot, names, note=note))
+    return rows
+
+
+def _day_block(schedule: Schedule, at: datetime, names: Mapping[str, str]) -> str:
+    """The day's timeline as the prompt tells it, with its sleep at the end."""
+    clock = at.strftime("%H:%M")
+    block = f"现在 {clock}。今天的安排（只是大概）：\n\n" + "\n".join(
+        _timeline(schedule, at, names)
+    )
+    if schedule.sleep is not None:
+        block += f"\n\n打算 {schedule.sleep.strftime('%H:%M')} 睡觉。"
+    return block
+
+
+def _minutes_to(at: datetime, when: time) -> int:
+    target = datetime.combine(at.date(), when, tzinfo=at.tzinfo)
+    return max(0, int(abs((target - at).total_seconds()) // 60))
+
+
 def lines(
     schedule: Schedule | None,
     at: datetime,
@@ -702,8 +733,9 @@ def lines(
     woken: bool = True,
     in_call: bool = False,
 ) -> list[str]:
-    """What she is told of her schedule at `at` (in the producer's time zone): the day in a
-    sentence and where she is now, and that it is only roughly so; asleep (`resting`, by
+    """What she is told of her schedule at `at` (in the producer's time zone): the day
+    as one timeline with each slot's state, then what ended in the last half hour, what
+    is happening now and what starts in the next half hour; asleep (`resting`, by
     `rest`), that she was woken, by a message (`woken` by this one, or awake a while) or a
     call; in the bath (GLOSSARY.md「洗澡」), that she is talking from the tub in a call, or
     else saw the message as she came out; near her bedtime, that it is. Nothing without a
@@ -714,37 +746,47 @@ def lines(
         return [woke.format(clock=clock)]
     if resting == "bath":
         bath = (IN_THE_TUB if in_call else JUST_OUT).format(clock=clock)
-        day = said(schedule, names)
-        return [f"你今天大概的安排：{day}", bath] if day else [bath]
+        return [_day_block(schedule, at, names), bath] if schedule is not None else [bath]
     if schedule is None:
         return []
-    day = "；".join(_said(s, names) for s in schedule.slots)
-    if schedule.sleep is not None:
-        day += f"；打算 {schedule.sleep.strftime('%H:%M')} 睡觉"
     current = schedule.now(at.time())
-    if current is not None:
-        now = (
-            f"现在（{clock}）你大概在："
-            f"{_said(current, names, with_time=False, progress=_progress(current, at))}。"
+    told = [_day_block(schedule, at, names)]
+    hints: list[str] = []
+    recent = next(
+        (slot for slot in reversed(schedule.slots) if slot.end <= at.time()), None
+    )
+    if recent is not None:
+        minutes = _minutes_to(at, recent.end)
+        if minutes <= 30:
+            hints.append(
+                "刚刚结束的安排："
+                + _said(
+                    recent, names, with_time=False,
+                    note="刚刚" if minutes == 0 else f"{minutes}分钟前",
+                )
+            )
+    hints.append(
+        "正在进行的安排："
+        + (
+            _said(current, names, with_time=False)
+            if current is not None else "没有正在进行的安排，现在有空"
         )
-    elif at.time() < schedule.slots[0].start:
-        now = f"现在（{clock}）今天的安排还没开始。"
-    else:
-        now = f"现在（{clock}）你没什么安排。"
-    told = [
-        f"你今天大概的安排：{day}。",
-        now,
-        "这是大概的安排，可以有出入。被问到在干嘛时自然地说，不要像念行程表一样一条条背出来。",
-    ]
-    past = [slot for slot in schedule.slots if slot.end <= at.time()]
-    if past:
-        ended = "；".join(_said(slot, names) for slot in past)
-        told.append(
-            f"已经结束、现在不在做的安排：{ended}。"
-            + ("现在正在做的只有上面「现在」那一项；" if current is not None
-               else "现在没有正在做的安排；")
-            + "不要把已经结束的安排说成现在正在做。"
-        )
+    )
+    upcoming = next((slot for slot in schedule.slots if slot.start > at.time()), None)
+    if upcoming is not None:
+        minutes = _minutes_to(at, upcoming.start)
+        if minutes <= 30:
+            hints.append(
+                "即将开始的安排："
+                + _said(
+                    upcoming, names, with_time=False,
+                    note="马上" if minutes == 0 else f"{minutes}分钟后",
+                )
+            )
+    told.append("\n".join(hints))
+    told.append(
+        "这只是大概安排，不用逐条背；状态以括号为准，不要把已结束的说成现在正在做。"
+    )
     if resting == "bedtime":
         told.append(BEDTIME_NEAR)
     return told
@@ -764,31 +806,34 @@ def summary(schedule: Schedule | None, names: Mapping[str, str]) -> str | None:
 
 
 def _progress(slot: Slot, at: datetime) -> str | None:
-    """How far through `slot` it is, as she is told it: just begun in its first fifth,
-    nearly over in its last fifth; None for a slot without time to run."""
+    """How far through `slot` it is, as she is told it: just begun in its first
+    quarter, nearly over in its last quarter; None for a slot without time to run."""
     start = datetime.combine(at.date(), slot.start, tzinfo=at.tzinfo)
     end = datetime.combine(at.date(), slot.end, tzinfo=at.tzinfo)
     span = (end - start).total_seconds()
     if span <= 0:
         return None
     through = (at - start).total_seconds() / span
-    if through < 0.2:
+    if through < 0.25:
         return "刚刚开始"
-    if through >= 0.8:
-        return "快结束了"
+    if through >= 0.75:
+        return "即将结束"
     return "进行中"
 
 
 def _said(
-    slot: Slot, names: Mapping[str, str], with_time: bool = True, progress: str | None = None
+    slot: Slot, names: Mapping[str, str], with_time: bool = True,
+    progress: str | None = None, note: str | None = None,
 ) -> str:
     said = slot.what
     if slot.with_:
         said += "（和" + "、".join(names.get(c, c) for c in slot.with_) + "）"
-    if progress:
-        said += f"（{progress}）"
     if slot.where:
         said += f"，在{slot.where}"
+    if progress:
+        said += f"（{progress}）"
+    if note:
+        said += f"（{note}）"
     if with_time:
         said = f"{slot.start.strftime('%H:%M')}–{slot.end.strftime('%H:%M')} {said}"
     return said

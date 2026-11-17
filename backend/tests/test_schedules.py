@@ -109,15 +109,20 @@ def test_where_she_is_now_says_how_far_through_the_slot_she_is():
     ), ())
     names = {"sakuya": "白瀬咲耶", "kiriko": "幽谷霧子"}
 
-    def now(hour: int, minute: int) -> str:
-        return lines(schedule, datetime.combine(day, time(hour, minute)), names)[1]
+    def told(hour: int, minute: int) -> list[str]:
+        return lines(schedule, datetime.combine(day, time(hour, minute)), names)
 
-    assert now(19, 10).endswith("（刚刚开始），在宿舍的公共厨房。")
-    assert now(19, 30).endswith("（进行中），在宿舍的公共厨房。")
-    assert now(20, 25) == (
-        "现在（20:25）你大概在：在宿舍准备晚饭（和白瀬咲耶、幽谷霧子）"
-        "（快结束了），在宿舍的公共厨房。"
-    )
+    early = told(19, 10)
+    assert "（刚刚开始）" in early[0]
+    assert "正在进行的安排：在宿舍准备晚饭" in early[1]
+
+    middle = told(19, 30)
+    assert "（进行中）" in middle[0]
+    assert "正在进行的安排：在宿舍准备晚饭" in middle[1]
+
+    late = told(20, 25)
+    assert "（即将结束）" in late[0]
+    assert "正在进行的安排：在宿舍准备晚饭" in late[1]
 
 
 def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
@@ -132,16 +137,67 @@ def test_she_is_told_the_day_in_a_sentence_and_where_she_is_now():
     between = lines(schedule, datetime.combine(on, time(12, 30)), names)
     early = lines(schedule, datetime.combine(on, time(7)), names)
 
-    assert during[0] == (
-        "你今天大概的安排：09:00–12:00 舞蹈课，在事务所；14:00–17:00 逛文具店（和月岡恋鐘），在车站前。"
-    )
-    assert during[1] == "现在（15:05）你大概在：逛文具店（和月岡恋鐘）（进行中），在车站前。"
-    assert between[1] == "现在（12:30）你没什么安排。"
-    assert early[1] == "现在（07:00）今天的安排还没开始。"
-    assert "不要像念行程表" in during[2]
-    assert "已经结束、现在不在做的安排" in during[3]
-    assert "现在正在做的只有" in during[3]
+    assert during[0].startswith("现在 15:05。今天的安排（只是大概）：")
+    assert "09:00–12:00 舞蹈课，在事务所（已结束）" in during[0]
+    assert "14:00–17:00 逛文具店（和月岡恋鐘），在车站前（进行中）" in during[0]
+    assert "正在进行的安排：逛文具店（和月岡恋鐘），在车站前" in during[1]
+    assert "刚刚结束的安排：舞蹈课，在事务所（30分钟前）" in between[1]
+    assert "正在进行的安排：没有正在进行的安排，现在有空" in between[1]
+    assert early[1] == "正在进行的安排：没有正在进行的安排，现在有空"
+    assert "刚刚结束" not in early[1] and "即将开始" not in early[1]
+    assert "这只是大概安排" in during[2]
     assert lines(None, datetime.combine(on, time(9)), names) == []
+
+
+def test_schedule_progress_switches_at_a_quarter_and_three_quarters():
+    day = date(2026, 10, 22)
+    schedule = Schedule(day, (
+        Slot(time(10), time(14), "拍摄", "摄影棚", "work"),
+    ), ())
+
+    def at(hour: int, minute: int) -> list[str]:
+        return lines(schedule, datetime.combine(day, time(hour, minute)), {})
+
+    assert "（刚刚开始）" in at(10, 59)[0]
+    assert "（进行中）" in at(11, 0)[0]
+    assert "（进行中）" in at(12, 59)[0]
+    assert "（即将结束）" in at(13, 0)[0]
+
+
+def test_recent_and_upcoming_hints_only_cover_half_an_hour():
+    day = date(2026, 10, 22)
+    schedule = Schedule(day, (
+        Slot(time(9), time(10), "练习", "", "lesson"),
+        Slot(time(11), time(12), "拍摄", "", "work"),
+    ), ())
+
+    at_1030 = lines(schedule, datetime.combine(day, time(10, 30)), {})
+    assert "刚刚结束的安排：练习（30分钟前）" in at_1030[1]
+    assert "即将开始的安排：拍摄（30分钟后）" in at_1030[1]
+
+    late = lines(schedule, datetime.combine(day, time(10, 31)), {})
+    assert "刚刚结束" not in late[1]
+    assert "即将开始的安排：拍摄（29分钟后）" in late[1]
+
+    early = lines(schedule, datetime.combine(day, time(10, 29)), {})
+    assert "刚刚结束的安排：练习（29分钟前）" in early[1]
+    assert "即将开始" not in early[1]
+
+
+def test_the_schedule_prompt_tells_recent_and_upcoming_around_now():
+    day = date(2026, 11, 17)
+    schedule = Schedule(day, (
+        Slot(time(20, 30), time(22, 30), "ALSTROEMERIA 临时LIVE", "东京都内的Live House", "live"),
+        Slot(time(23), time(23, 45), "送甘奈甜花回家后回宿舍", "电车与宿舍", "private"),
+    ), ())
+
+    told = lines(schedule, datetime.combine(day, time(22, 48)), {})
+
+    assert "（已结束）" in told[0]
+    assert "（接下来）" in told[0]
+    assert "刚刚结束的安排：ALSTROEMERIA 临时LIVE，在东京都内的Live House（18分钟前）" in told[1]
+    assert "正在进行的安排：没有正在进行的安排，现在有空" in told[1]
+    assert "即将开始的安排：送甘奈甜花回家后回宿舍，在电车与宿舍（12分钟后）" in told[1]
 
 
 async def talked(
@@ -512,11 +568,11 @@ async def test_her_turn_tells_where_she_is_now_and_without_one_is_as_it_was(
     clock.now = today_at(15)
     await send_turn(client, client.conversation_id, "在干嘛")  # type: ignore[attr-defined]
 
-    # The turn's schedule is one of several system messages; the most recent one is
-    # the history note, so search them all rather than assuming it is last.
+    # The turn's schedule is one of several system messages; search all of them.
     told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
-    assert "现在（15:00）你大概在：逛文具店" in told
-    assert "大概的安排" not in before
+    assert "14:00–17:00 逛文具店（和月岡恋鐘），在车站前（进行中）" in told
+    assert "正在进行的安排：逛文具店（和月岡恋鐘），在车站前" in told
+    assert "今天的安排" not in before
 
 
 async def test_a_group_live_is_drawn_on_its_own_odds_and_waits_three_days(
