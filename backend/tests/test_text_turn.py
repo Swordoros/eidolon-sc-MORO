@@ -301,3 +301,20 @@ async def test_she_is_not_told_what_is_playing_unless_the_producer_mentions_musi
 
     told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
     assert "制作人现在正在听" not in told
+
+
+async def test_a_song_title_longer_than_the_field_is_cut_not_refused(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>その曲、いいですね</ja><zh>那首歌，真好呢</zh>"])
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+    long_title = "あ" * 150
+
+    await send_turn(
+        client, conversation_id, "这首歌怎么样", listening=long_title,
+    )
+
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert f"制作人现在正在听：{'あ' * 120}。" in told
+    assert "あ" * 121 not in told

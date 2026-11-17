@@ -155,6 +155,13 @@ class TurnInput(BaseModel):
     but not the key: her reply is written with delivery cues as the model it would be read
     aloud with reads them (GLOSSARY.md「朗读」), the deployer's without it."""
 
+    @field_validator("listening", mode="before")
+    @classmethod
+    def _clip_listening(cls, value: object) -> object:
+        """A song title longer than the field takes is cut, not refused: a page from before
+        the cut still sends what it plays, and a long title should not cost the turn."""
+        return value[:120] if isinstance(value, str) else value
+
 
 class ReadAloudInput(BaseModel):
     own_keys: OwnKeysInput | None = None
