@@ -70,6 +70,9 @@ export type CallInList = { characterId: string; state: LiveCall } | null;
 /** 用户刚发出、后端还没记下的一轮：列表先把它显示成「你：…」。 */
 export type PendingTurn = { text: string; at: string };
 
+/** 群聊里刚发出、后端还没记下的一行：群列表先显示「你：…」。 */
+export type PendingGroupTurn = { text: string; at: string };
+
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由导航外壳载入一次，设置页也拿得到。 */
 export type Directory = {
   /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存）；和角色一起载入，还在载入时为 null。
@@ -85,6 +88,14 @@ export type Directory = {
   latest: Record<string, LatestConversation>;
   /** 刚发出、还没被后端记下的文字回合：列表先显示「你：…」，回合记下后换回服务器摘要。 */
   pending: Record<string, PendingTurn>;
+  /** 刚发出、还没被后端记下的群聊行：群列表先显示「你：…」，服务端返回后换回群预览。 */
+  groupPending: Record<string, PendingGroupTurn>;
+  /** 群聊页记下一行刚发出的群消息；服务端返回后清掉。 */
+  groupTurnPending: (groupId: string, text: string, at: string) => void;
+  groupTurnSettled: (groupId: string) => void;
+  /** 群聊列表的刷新序号：群消息记下后让列表马上重拉一次。 */
+  groupsRevision: number;
+  refreshGroups: () => void;
   failure: Failure | null;
   /** 重新拉一遍摘要，例如一个回合记下之后、开了新对话之后。拉回来时她的对话页开着，就告诉那一页（`LiveConversation.listed`）。 */
   refresh: () => void;
@@ -192,6 +203,8 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [configured, setConfigured] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
   const [pending, setPending] = useState<Record<string, PendingTurn>>({});
+  const [groupPending, setGroupPending] = useState<Record<string, PendingGroupTurn>>({});
+  const [groupsRevision, setGroupsRevision] = useState(0);
   const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
   const characters = useMemo(() => configured && withAppearance(configured, appearance), [configured, appearance]);
@@ -247,6 +260,20 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const turnPending = useCallback((characterId: string, text: string, at: string) => {
     setPending((current) => ({ ...current, [characterId]: { text, at } }));
   }, []);
+
+  const groupTurnPending = useCallback((groupId: string, text: string, at: string) => {
+    setGroupPending((current) => ({ ...current, [groupId]: { text, at } }));
+  }, []);
+
+  const groupTurnSettled = useCallback((groupId: string) => {
+    setGroupPending((current) => {
+      if (!(groupId in current)) return current;
+      const { [groupId]: _, ...rest } = current;
+      return rest;
+    });
+  }, []);
+
+  const refreshGroups = useCallback(() => setGroupsRevision((n) => n + 1), []);
 
   const turnSettled = useCallback((characterId: string, _recorded: boolean) => {
     setPending((current) => {
@@ -630,6 +657,11 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         ambience: voice.ambience,
         latest,
         pending,
+        groupPending,
+        groupTurnPending,
+        groupTurnSettled,
+        groupsRevision,
+        refreshGroups,
         preferences,
         tidy,
         appearance,

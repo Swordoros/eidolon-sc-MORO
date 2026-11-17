@@ -95,7 +95,7 @@ export function GroupConversation({
   onBack?: () => void;
 }) {
   const router = useRouter();
-  const { account, characters } = useDirectory();
+  const { account, characters, groupTurnPending, groupTurnSettled, refreshGroups } = useDirectory();
   const isFullScreen = !useMediaQuery("(min-width: 768px)", true);
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [failed, setFailed] = useState(false);
@@ -210,30 +210,35 @@ export function GroupConversation({
     if (!value || !group?.on || busy) return;
     if (draftKey) forgetDraft(draftKey);
     setDraft("");
+    const at = new Date().toISOString();
     setPending({
       speaker: "user",
       name: "你",
       color: null,
       text: value,
       zh: "",
-      created_at: new Date().toISOString(),
+      created_at: at,
       photo: null,
     });
+    groupTurnPending(groupId, value, at);
     setBusy("sending");
     sayInGroup(groupId, value).then(
       (state) => {
+        groupTurnSettled(groupId);
+        refreshGroups();
         setGroup(state);
         setPending(null);
         setFailed(false);
       },
       () => {
+        groupTurnSettled(groupId);
         setPending(null);
         setDraft(value);
         if (draftKey) keepDraft(draftKey, value);
         setFailed(true);
       },
     ).finally(() => setBusy(null));
-  }, [busy, draft, draftKey, group?.on, groupId]);
+  }, [busy, draft, draftKey, group?.on, groupId, groupTurnPending, groupTurnSettled, refreshGroups]);
 
   const openRename = useCallback(() => {
     setNewName(group?.name ?? "");

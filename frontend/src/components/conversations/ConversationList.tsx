@@ -56,7 +56,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const router = useRouter();
   const pathname = usePathname();
   const { groupId: openGroupId } = useParams<{ groupId?: string }>();
-  const { account, characters, latest, pending, preferences, tidy, failure, reload, call, go, onScreen } = useDirectory();
+  const { account, characters, latest, pending, groupPending, groupsRevision, preferences, tidy, failure, reload, call, go, onScreen } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"contacts" | "groups">("contacts");
@@ -76,6 +76,10 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     loadGroups();
     setGroupPins(pinnedGroups(account?.id ?? ""));
   }, [account?.id, loadGroups, pathname]);
+
+  useEffect(() => {
+    if (groupsRevision > 0) loadGroups();
+  }, [groupsRevision, loadGroups]);
 
   /** 置顶 / 取消置顶一个群，存在这台设备上、按用户分开。 */
   const toggleGroupPin = useCallback(
@@ -159,7 +163,8 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         .filter((group) => !groupPins.includes(group.id))
         .map((group) => ({
           kind: "group" as const,
-          at: group.last_message_at ?? group.last_topic_at ?? group.created_at,
+          at: groupPending[group.id]?.at
+            ?? group.last_message_at ?? group.last_topic_at ?? group.created_at,
           group,
         }))
         .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
@@ -178,7 +183,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
       }))
       .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1));
     return [...pinned, ...rest];
-  }, [filteredGroups, groupPins, effectiveLatest, shown, tab]);
+  }, [filteredGroups, groupPins, groupPending, effectiveLatest, shown, tab]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -287,6 +292,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                       group={item.group}
                       characters={characters}
                       draft={groupDraftOf(item.group.id)}
+                      pending={groupPending[item.group.id]}
                       isOpen={item.group.id === openGroupId}
                       isPinned={groupPins.includes(item.group.id)}
                       go={go}
@@ -409,6 +415,7 @@ function GroupRow({
   group,
   characters,
   draft,
+  pending,
   isOpen,
   isPinned,
   go,
@@ -417,6 +424,8 @@ function GroupRow({
   group: GroupSummary;
   characters: Character[] | null;
   draft: string;
+  /** A line just sent, not yet in the server's preview. */
+  pending: { text: string } | undefined;
   /** 这一群正开着：红点当场就消（后端进群时也会把它记成看过）。 */
   isOpen: boolean;
   isPinned: boolean;
@@ -477,7 +486,13 @@ function GroupRow({
             </span>
           </span>
           <span className="truncate text-preview text-muted-foreground">
-            {draft ? `[草稿] ${draft}` : preview ? `${preview.name}：${preview.zh || preview.text}` : copy.play.group.noHistory}
+            {pending
+              ? `你：${pending.text}`
+              : draft
+                ? `[草稿] ${draft}`
+                : preview
+                  ? `${preview.name}：${preview.zh || preview.text}`
+                  : copy.play.group.noHistory}
           </span>
         </span>
       </ContextMenuTrigger>
