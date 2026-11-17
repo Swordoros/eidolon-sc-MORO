@@ -35,7 +35,8 @@
 #             她发朋友圈时这几类挑得多些，别的类别也会挑到。不用写剧情出处
 #   speakers  剧情台词里她的说话人名字，用来识别剧情的出场角色；修改后需要重新导入剧情库
 #   memory_share 她群组记忆额外共享给谁（可选），写角色 id 的列表：unit 记忆除了同组合伙伴，也对这里的人可见。
-#             事务员叶月没有组合，写 ["nichika"] 和妹妹日花共享（记忆页对叶月把「群组」显示成「家庭」）
+#             事务员叶月没有正式组合，记忆上把她的 unit 视为 SHHis（写 ["nichika", "mikoto"]）；
+#             前端仍把她的 unit 显示成「家庭」。
 #   idol_id   原作的偶像编号（可选），即 ShinyColorsDB 的 idolId（事务员はづき是 91）（整理目录 source/spine_manifest.json 里也有），正整数
 #   default_outfit 立绘的默认衣装（可选），写成 stand/<enzaId>（这张卡的私服）或 stand_costume/<enzaId>
 #             （这张卡的演出服），enzaId 是卡的十位编号（source/spine_manifest.json 里的 enzaId）。用户没选过衣装时她穿这一套。
@@ -983,7 +984,7 @@ bar_tolerance = "strong"
 photo_tag = "nanakusa hazuki"
 photo_appearance = "green hair, folded ponytail, swept bangs, green eyes"
 speakers = ["はづき"]
-memory_share = ["nichika"]  # 她没有组合；群组记忆和妹妹日花共享（家庭）
+memory_share = ["nichika", "mikoto"]  # 记忆上视为 SHHis；前端仍把 unit 显示成「家庭」
 idol_id = 91  # 她不是偶像，这是 ShinyColorsDB 给事务员的编号
 default_outfit = "stand/2040910010"  # 【２８３プロの日常】
 greeting = "[softly] 事務員の七草はづきです～。今日からよろしくお願いしますね、プロデューサーさん"
