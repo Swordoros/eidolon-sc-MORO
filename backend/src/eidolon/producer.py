@@ -215,6 +215,29 @@ def earlier_message_stamp(created_at: str, now: datetime, timezone: str) -> str:
     return f"[{when} {part}]"
 
 
+def reply_message_stamp(created_at: str, now: datetime, timezone: str) -> str:
+    """The stamp before one of her replies: today's part of the day and how long ago,
+    or the day and clock for an older one."""
+    zone = ZoneInfo(timezone)
+    at = _local_moment(datetime.fromisoformat(created_at.replace("Z", "+00:00")), zone)
+    local_now = _local_moment(now, zone)
+    part = _part_of_day(at.hour)
+    days = (local_now.date() - at.date()).days
+    if days == 0:
+        minutes = max(int((local_now - at).total_seconds() // 60), 0)
+        when = "刚刚" if minutes < 1 else (
+            f"{minutes}分钟前" if minutes < 60 else f"{minutes // 60}小时前"
+        )
+        return f"[今天 {part} {when}]"
+    if days == 1:
+        return f"[昨天 {part} {at:%H:%M}]"
+    if days == 2:
+        return f"[两天前 {part} {at:%H:%M}]"
+    if days == 3:
+        return f"[三天前 {part} {at:%H:%M}]"
+    return f"[{at.month}月{at.day}日 {part} {at:%H:%M}]"
+
+
 def producer_prompt(profile: ProducerProfile) -> str:
     """The prompt section about the user: who they are, the same from turn to turn."""
     lines = ["# 制作人", "和你对话的是你的制作人，也就是 283 事务所的制作人。"]

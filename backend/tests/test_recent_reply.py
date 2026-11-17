@@ -41,5 +41,5 @@ def test_the_note_says_how_long_ago_from_one_hour_on():
 
 def test_the_repeated_line_is_marked_as_the_characters():
     assert anchored(her(30)).startswith("角色：<ja>はい</ja>")
-    assert anchored(her(30), NOW).startswith("角色：[30分钟前 ")
+    assert anchored(her(30), NOW).startswith("角色：[今天 晚上 30分钟前]")
     assert "<ja>はい</ja>" in anchored(her(30), NOW)

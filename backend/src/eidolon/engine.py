@@ -152,7 +152,7 @@ from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo
 from eidolon.photo_prompt import SCENE_MARK, keepsake_words
 from eidolon.producer import (
     ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
-    history_stamp, local_date, producer_prompt,
+    history_stamp, local_date, producer_prompt, reply_message_stamp,
 )
 from eidolon.schedules import LIVE_CITIES, Schedules, bath_began
 from eidolon.schedules import lines as schedule_lines
@@ -508,7 +508,7 @@ def anchored(
     context, where a bare reply could be read as something the producer just said. With
     `now`, its stamp says how long ago she said it."""
     stamp = (
-        f"{earlier_message_stamp(anchor.created_at, now, timezone)} "
+        f"{reply_message_stamp(anchor.created_at, now, timezone)} "
         if now is not None else ""
     )
     return "角色：" + stamp + format_reply(
@@ -613,7 +613,7 @@ def history_block(
                 message.photo.tag if message.photo else None,
                 message.photo_failed,
             ) if japanese else _chinese_reply(message)
-            stamp = earlier_message_stamp(message.created_at, now, timezone)
+            stamp = reply_message_stamp(message.created_at, now, timezone)
             lines.append(f"角色：{stamp} {said}")
     for note in notes.get(None, ()):
         add_note(note)
@@ -2595,7 +2595,7 @@ class ConversationEngine:
                         message.photo_failed,
                     )
                     stamp = (
-                        f"{earlier_message_stamp(message.created_at, now, timezone)} "
+                        f"{reply_message_stamp(message.created_at, now, timezone)} "
                         if now is not None else ""
                     )
                     prompt.append(ChatMessage("assistant", f"{stamp}{said}"))

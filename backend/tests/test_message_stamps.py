@@ -5,7 +5,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from eidolon.producer import current_message_stamp, earlier_message_stamp, history_stamp
+from eidolon.producer import (
+    current_message_stamp, earlier_message_stamp, history_stamp, reply_message_stamp,
+)
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -18,6 +20,14 @@ def test_current_message_stamp_says_today_time_and_part_of_day():
     now = datetime(2026, 11, 14, 15, 35, tzinfo=SHANGHAI)
 
     assert current_message_stamp(now, "Asia/Shanghai") == "[今天 下午 15:35]"
+
+
+def test_reply_message_stamp_says_today_part_and_minutes_ago():
+    now = datetime(2026, 11, 14, 15, 35, tzinfo=SHANGHAI)
+
+    assert reply_message_stamp(
+        "2026-11-14T15:32:00+08:00", now, "Asia/Shanghai"
+    ) == "[今天 下午 3分钟前]"
 
 
 def test_earlier_message_stamp_says_how_long_ago_and_that_messages_part_of_day():
