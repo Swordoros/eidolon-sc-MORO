@@ -504,7 +504,9 @@ class ScheduleWriter:
         twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
         if staff and escort is not None:
             twists[unit[0]].append(self._escort_twist(escort))
-        if plan is None:
+        if staff:
+            plan = ({}, {cid: (None, ()) for cid in unit})
+        elif plan is None:
             plan = _plan_trips(unit, names, self._random)
         trip_twists, trips = plan
         for cid, additions in trip_twists.items():
