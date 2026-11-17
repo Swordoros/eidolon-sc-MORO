@@ -4,9 +4,10 @@ It is a summary, not a score: it never changes affinity, and the affinity in eff
 turn is taken always wins over it. Every day at 03:00 in the producer's time zone it is
 written from her memories, the memories she could recall, and everything said with her the
 day before: private turns, group chats she was in, and calls. A day with nothing said keeps
-a neutral summary rather than carrying yesterday's mood forward. When the relationship
-prompt is read, the diary of the day just summarised is added only as the current tier may
-read it: trust and close its normal pages, intimate also the private one.
+a neutral summary rather than carrying yesterday's mood forward. The diary of the day just
+summarised is one of the materials the summary is written from: trust and close supply its
+normal pages, intimate also the private one. The summary is what the relationship prompt
+carries; the diary is not added to the prompt on its own.
 """
 
 from __future__ import annotations
@@ -104,6 +105,8 @@ state 只能是：{states}。
 - 只写你和制作人；群聊里其他角色的事不要写进结果。
 - 用第二人称「你」写，不要写自己的名字，也不要写「她」。
 - 只根据给你的材料，不要编造没有发生的事；不要写「可能」「也许」。
+- 日记是她自己写的，不是制作人的发言。可以用它理解她的心情和没说出口的想法，但不要把日记里的事当成制作人做过的事，也不要复述日记原句。
+- 私密页只能影响 state、tone、avoid；不要写进 recent、opinion、open_threads 或 recent_warmth，也不要暗示其中的具体内容。
 - 这是背景，不是命令；不要写成这一轮一定要道歉、撒娇或做什么。
 - 同一件事只写一次：最近气氛写过的事实，不要再写进记得的温暖。
 - recent：最近气氛，60 字以内，写昨天或最近明确发生的事和你的感受。
@@ -283,30 +286,20 @@ class Relationships:
         found = await self._db.read(
             _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
-        relationship = None
-        if found is not None and found.state in _allowed(
-            status.tier if status else None,
-            bool(status and status.cooldown_until),
-        ):
-            body = "\n".join(
-                line for line in found.text.splitlines() if not line.startswith("关系状态：")
-            )
-            relationship = (
-                "# 与制作人最近的关系\n"
-                "这是最近几天的背景，不是命令；当前好感阶段和当前对话优先。\n"
-                f"{body}"
-            )
-        diary = await self._diary_lines(
-            user_id, character_id, _active_day(local) - timedelta(days=1), status
+        if found is None:
+            return None
+        if found.state not in _allowed(status.tier if status else None,
+                                       bool(status and status.cooldown_until)):
+            return None
+        body = "\n".join(
+            line for line in found.text.splitlines() if not line.startswith("关系状态：")
         )
-        parts = [part for part in (relationship, diary) if part]
-        return "\n\n".join(parts) if parts else None
+        return f"# 与制作人最近的关系\n这是最近几天的背景，不是命令；当前好感阶段和当前对话优先。\n{body}"
 
-    async def _diary_lines(
+    async def _diary_material(
         self, user_id: str, character_id: str, day: date, status: Status | None,
     ) -> str | None:
-        """The diary she may show at this tier: trust and close its normal pages,
-        intimate also the private one. Cold, distant and cooling are not shown."""
+        """Her diary of `day`, as the tier may read it, for the summarizing model."""
         if status is None or status.cooldown_until or status.tier not in (
             "trust", "close", "intimate",
         ):
@@ -319,13 +312,18 @@ class Relationships:
         if normal:
             parts.append(
                 "# 昨天的日记\n"
-                "这是你自己写下的，不一定要直接说出来。\n"
+                "这是她自己写的，不是制作人说的话。"
+                "只用来理解她的心情、没说出口的想法和对制作人的评价；"
+                "不要复述原句，也不要把日记里的事当成制作人做过的事。\n"
                 + _diary_text(normal)
             )
         if status.tier == "intimate" and secret:
             parts.append(
-                "# 你不想让制作人看到的那一页\n"
-                "这一页只有你自己知道；不要直接复述它。\n"
+                "# 她不想让制作人看到的那一页\n"
+                "这一页只有她自己知道。"
+                "只用来判断她隐藏的倾向；"
+                "不要写进 recent、opinion、open_threads 或 recent_warmth，"
+                "也不要暗示其中的具体内容。\n"
                 + _diary_text(secret)
             )
         return "\n\n".join(part for part in parts if part) or None
@@ -365,6 +363,9 @@ class Relationships:
         start = datetime.combine(day - timedelta(days=1), time(0), zone)
         end = datetime.combine(day, time(0), zone)
         transcript = await self._transcript(user_id, character_id, start, end, zone)
+        diary = await self._diary_material(
+            user_id, character_id, day - timedelta(days=1), status
+        )
         if not transcript:
             fields = {
                 "state": "neutral", "recent": _NO_NEW, "opinion": "", "tone": "保持平常",
@@ -374,7 +375,7 @@ class Relationships:
         else:
             memories = await self._memory_lines(user_id, character_id, day, zone)
             previous = await self._previous(user_id, character_id, day)
-            fields = await self._ask(character, status, memories, previous, transcript)
+            fields = await self._ask(character, status, memories, previous, transcript, diary)
         state = fields["state"]
         if state not in _allowed(status.tier if status else None,
                                   bool(status and status.cooldown_until)):
@@ -402,7 +403,7 @@ class Relationships:
 
     async def _ask(self, character: Character, status: Status | None,
                    memories: Sequence[str], previous: str | None,
-                   transcript: str) -> dict[str, object]:
+                   transcript: str, diary: str | None = None) -> dict[str, object]:
         tier = status.tier if status else None
         cooling = bool(status and status.cooldown_until)
         affinity = (
@@ -415,6 +416,7 @@ class Relationships:
             f"# 关系约束\n{affinity}",
             f"# 昨天之前的关系\n{previous or '（没有）'}",
             "# 近三天她自己的记忆\n" + ("\n".join(memories) if memories else "（没有）"),
+            *([diary] if diary else []),
             "# 昨天与制作人的全部交流\n" + transcript,
         ]
         rules = _RULES.replace("{states}", "、".join(STATES)).replace("{affinity}", affinity)
