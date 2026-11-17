@@ -6,7 +6,7 @@ written from her memories, the memories she could recall, and everything said wi
 day before: private turns, group chats she was in, and calls. A day with nothing said keeps
 a neutral summary rather than carrying yesterday's mood forward. When the relationship
 prompt is read, the diary of the day just summarised is added only as the current tier may
-read it: trust its opening, close its normal pages, intimate also the private one.
+read it: trust and close its normal pages, intimate also the private one.
 """
 
 from __future__ import annotations
@@ -305,7 +305,7 @@ class Relationships:
     async def _diary_lines(
         self, user_id: str, character_id: str, day: date, status: Status | None,
     ) -> str | None:
-        """The diary she may show at this tier: trust its opening, close its normal pages,
+        """The diary she may show at this tier: trust and close its normal pages,
         intimate also the private one. Cold, distant and cooling are not shown."""
         if status is None or status.cooldown_until or status.tier not in (
             "trust", "close", "intimate",
@@ -315,8 +315,6 @@ class Relationships:
         if row is None:
             return None
         normal, secret = row
-        if status.tier == "trust":
-            normal = normal[:1]
         parts: list[str] = []
         if normal:
             parts.append(

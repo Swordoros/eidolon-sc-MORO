@@ -41,11 +41,11 @@ async def test_diary_is_hidden_below_trust(tier: str):
     assert await told(tier) is None
 
 
-async def test_trust_sees_only_the_opening_page():
+async def test_trust_sees_all_normal_pages_but_not_the_private_one():
     text = await told("trust")
     assert text is not None
     assert "今天很开心。" in text
-    assert "明天也想见你。" not in text
+    assert "明天也想见你。" in text
     assert "其实有点不安。" not in text
 
 
