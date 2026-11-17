@@ -41,6 +41,7 @@ from eidolon.affinity_judge import AffinityJudge
 from eidolon.group_affinity import step as group_step
 from eidolon.group_affinity import targets as group_targets
 from eidolon.characters import Character, chinese_name_map
+from eidolon.cross_chat import recent_private_context
 from eidolon.weather import Weathers
 from eidolon.world import World
 from eidolon.group_context import GroupContext
@@ -1004,10 +1005,15 @@ class Groups:
                     except Exception:
                         log.warning("retrieving for the group failed", exc_info=True)
                 material = await self._material(user_id, speaker)
+                private_context = None
+                if self._store is not None and await self._store.get_cross_chat(user_id):
+                    private_context = await recent_private_context(
+                        self._db, user_id, speaker.id, now
+                    )
                 prompt = _say_prompt(
                     system, speaker, members, said, past, mention, outsiders,
                     self._names_block([*members, *outsiders]), now_told, material, history,
-                    reference, photo_for == speaker.id,
+                    reference, photo_for == speaker.id, private_context,
                 )
                 try:
                     answer = await self._ask(prompt, group_id, speaker)
@@ -1644,7 +1650,7 @@ def _say_prompt(
     system: str, speaker: Member, members: Sequence[Member], said: Sequence[Line],
     past: Sequence[Line], mention: float, outsiders: Sequence[Member], names: str,
     now_told: str = "", material: str = "", history: str = "", reference: str = "",
-    photo_request: bool = False,
+    photo_request: bool = False, private_context: str | None = None,
 ) -> list[ChatMessage]:
     """The next line's prompt: Chinese history, names, the rules, then the output format."""
     spoken = {member.id: member.name for member in members}
@@ -1669,6 +1675,7 @@ def _say_prompt(
     user = (
         (f"# 现在\n{now_told}\n\n" if now_told else "")
         + (f"# 相关资料\n{reference}\n\n" if reference else "")
+        + (f"{private_context}\n\n" if private_context else "")
         + f"群聊记录：\n{history or context}\n\n"
         + last_told
         + (f"# 记忆\n{material}\n\n" if material else "")

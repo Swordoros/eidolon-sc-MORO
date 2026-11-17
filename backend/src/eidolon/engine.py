@@ -137,6 +137,7 @@ from eidolon.clock import Clock
 from eidolon.config import FishAudioModel, ImageSettings
 from eidolon.cycles import HerDays
 from eidolon.daily_talk import DailyTalkBonuses
+from eidolon.cross_chat import recent_group_context
 from eidolon.data_access import Database
 from eidolon.gift_catalog import Gift
 from eidolon.happenings import Happenings, Open, Rewarded
@@ -1971,6 +1972,11 @@ class ConversationEngine:
             character, conversation.user_id, now, timezone, last_contact, in_call is not None,
             in_bath,
         )
+        group_context = None
+        if await self._store.get_cross_chat(conversation.user_id):
+            group_context = await recent_group_context(
+                self._db, conversation.user_id, character.id, self._characters, now
+            )
         relationship = (
             await self._relationships.prompt(
                 conversation.user_id, conversation.character_id, now, timezone, read.affinity,
@@ -2000,6 +2006,7 @@ class ConversationEngine:
                     known_weather,
                 ),
                 *known_schedule,
+                *([group_context] if group_context else []),
                 *(
                     [
                         f"制作人现在正在听：{listening}。"

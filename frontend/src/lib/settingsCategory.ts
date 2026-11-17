@@ -22,7 +22,7 @@ const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
   ["call", "reach-outs", "moments", "cycles", "appearance", "chat", "own-keys"],
   ["sign-in", "data-package"],
-  ["dev"],
+  ["dev", "nsfw"],
   ["about"],
 ] as const;
 
@@ -95,7 +95,6 @@ export function settingsRedirect(href: string): string | null {
   const params = url.searchParams;
   let to: string;
   if (path === "/memories") to = settingsHref("memories");
-  else if (path === `${ROOT}/nsfw`) to = settingsHref("chat");
   else if (path === ROOT && params.has("tab")) {
     const tab = params.get("tab");
     params.delete("tab");

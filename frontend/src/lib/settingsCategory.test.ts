@@ -45,7 +45,7 @@ describe("一级列表有哪几类", () => {
       ["profile", "memories", "stats"],
       ["call", "appearance", "chat", "own-keys"],
       ["sign-in", "data-package"],
-      ["dev"],
+      ["dev", "nsfw"],
       ["about"],
     ]);
   });
@@ -74,7 +74,6 @@ describe("一级列表有哪几类", () => {
 describe("旧地址和不认识的地址换成哪个路径", () => {
   it.each([
     ["/settings?tab=own-keys", "/settings/own-keys"],
-    ["/settings/nsfw", "/settings/chat"],
     ["/memories", "/settings/memories"],
   ])("旧地址 %s 换成 %s", (from, to) => {
     expect(settingsRedirect(from)).toBe(to);

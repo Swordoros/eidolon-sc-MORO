@@ -3,7 +3,6 @@
 import { useId, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
-import { NsfwSettings } from "@/components/NsfwSettings";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -57,7 +56,6 @@ export function ChatSettings() {
           {failure && <FailureNotice failure={failure} />}
         </FieldGroup>
       </SettingsSection>
-      <NsfwSettings title={t.nsfwTitle} />
     </>
   );
 }
