@@ -170,7 +170,7 @@ from eidolon.reply_format import (
     SpeechDelta,
     format_reply,
 )
-from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
+from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved, mentions_music
 from eidolon.delivery_cues import TAG_READERS, without_cues
 from eidolon.store import (
     Conversation,
@@ -1871,7 +1871,13 @@ class ConversationEngine:
                     known_weather,
                 ),
                 *known_schedule,
-                *([f"制作人现在正在听：{listening}。"] if listening else []),
+                *(
+                    [
+                        f"制作人现在正在听：{listening}。"
+                        "只有他先提到这首歌时才接，不要主动说起。"
+                    ]
+                    if listening and mentions_music(text) else []
+                ),
                 *promises_due.lines,
                 *_moments_told(known, now, timezone, affinity),
                 *_letters_told(read.letters),

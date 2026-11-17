@@ -11,7 +11,7 @@ import pytest
 
 from eidolon.characters import load_characters
 from eidolon.config import Settings
-from eidolon.retrieval import FALLBACK_REFERENCES, MAX_REFERENCES
+from eidolon.retrieval import FALLBACK_REFERENCES, MAX_REFERENCES, mentions_music
 from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, context_of, system_of
@@ -74,6 +74,15 @@ async def system_prompt(
 
 def reference_count(system: str) -> int:
     return system.count("\n## 剧情\n") + system.count("\n## 角色资料\n")
+
+
+def test_only_lines_about_music_let_her_be_told_what_is_playing():
+    assert mentions_music("这首歌是谁唱的")
+    assert mentions_music("在听什么")
+    assert mentions_music("《夜に駆ける》好听吗")
+    assert not mentions_music("今天好累")
+    assert not mentions_music("听我说")
+    assert not mentions_music("你听说了吗")
 
 
 async def test_small_talk_retrieves_nothing(

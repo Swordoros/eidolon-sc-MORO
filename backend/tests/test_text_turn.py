@@ -280,8 +280,24 @@ async def test_the_prompt_tells_her_what_the_producer_is_listening_to(
     conversation_id = await start_conversation(client)
 
     await send_turn(
-        client, conversation_id, "晚上好", listening="アルストロメリア · 大崎甘奈",
+        client, conversation_id, "这首歌怎么样", listening="アルストロメリア · 大崎甘奈",
     )
 
     told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
     assert "制作人现在正在听：アルストロメリア · 大崎甘奈。" in told
+    assert "不要主动说起" in told
+
+
+async def test_she_is_not_told_what_is_playing_unless_the_producer_mentions_music(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>こんばんは</ja><zh>晚上好</zh>"])
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    await send_turn(
+        client, conversation_id, "晚上好", listening="アルストロメリア · 大崎甘奈",
+    )
+
+    told = "\n".join(m.content for m in llm.prompts[-1] if m.role == "system")
+    assert "制作人现在正在听" not in told

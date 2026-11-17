@@ -97,9 +97,18 @@ RECALL_ENTRIES = 3
 episodes."""
 RECALL_KINDS: tuple[EntryKind, ...] = ("live", "release")
 
-_MUSIC_WORDS = ("歌", "曲", "听", "唱", "live", "演唱会", "演出", "专辑", "唱片", "这首", "那首")
+_MUSIC_WORDS = (
+    "歌", "曲", "听歌", "在听", "听什么", "这首", "那首",
+    "专辑", "唱片", "演唱会", "live", "演出", "唱", "好听",
+)
 """Words that make a turn with a song playing ask about works, even where the judge
-would otherwise call it nothing."""
+would otherwise call it nothing; and that let her be told what is playing, else it is
+not put before her at all."""
+
+
+def mentions_music(text: str) -> bool:
+    """Whether what the producer said is about music, and so may be told what is playing."""
+    return any(word in text.casefold() for word in _MUSIC_WORDS)
 """What of the work facts recalling looks in: how a live or a release went, not a song."""
 RECALL_EPISODE_CHARS = 3000
 """How much of an episode's dialogue the recall-story tool brings back before cutting it short."""
@@ -363,7 +372,7 @@ class Retrieval:
         mentioned = (
             self._cards.mentioned(character, history, text) if self._cards is not None else []
         )
-        if listening:
+        if listening and mentions_music(text):
             query = f"{query}\n制作人正在听：{listening}"
         embedding = asyncio.ensure_future(self._embed(query))
         finding = asyncio.ensure_future(self._find(character, embedding, memory))
@@ -379,7 +388,7 @@ class Retrieval:
                 need = "references"
             if (
                 need in ("nothing", "memories") and listening
-                and any(word in text.casefold() for word in _MUSIC_WORDS)
+                and mentions_music(text)
             ):
                 need = "references"
             if need == "nothing":
