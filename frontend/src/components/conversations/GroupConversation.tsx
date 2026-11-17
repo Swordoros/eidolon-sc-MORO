@@ -103,6 +103,7 @@ export function GroupConversation({
     null,
   );
   const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState<GroupLine | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [picking, setPicking] = useState(false);
@@ -115,7 +116,39 @@ export function GroupConversation({
     () => new Map((characters ?? []).map((c) => [c.id, c])),
     [characters],
   );
-  const stamps = groupStamps(group?.history ?? [], new Date());
+  const history = useMemo(() => {
+    if (!group) return [];
+    if (!pending) return group.history;
+    if (!group.topic) {
+      return [
+        ...group.history,
+        {
+          topic: {
+            id: "pending",
+            raised_by: "user",
+            text: pending.text,
+            created_at: pending.created_at,
+            open: true,
+          } satisfies GroupTopic,
+          lines: [pending],
+        },
+      ];
+    }
+    const already = group.history.some((entry) =>
+      entry.lines.some((line) => line.speaker === "user" && line.text === pending.text),
+    );
+    if (already) return group.history;
+    const found = group.history.some((entry) => entry.topic.id === group.topic?.id);
+    if (!found) {
+      return [...group.history, { topic: group.topic, lines: [pending] }];
+    }
+    return group.history.map((entry) =>
+      entry.topic.id === group.topic?.id
+        ? { ...entry, lines: [...entry.lines, pending] }
+        : entry,
+    );
+  }, [group, pending]);
+  const stamps = groupStamps(history, new Date());
   const open = group?.topic?.open ?? false;
   const userId = account?.id ?? "";
   const draftKey = userId ? groupDraftKey(userId, groupId) : null;
@@ -177,8 +210,30 @@ export function GroupConversation({
     if (!value || !group?.on || busy) return;
     if (draftKey) forgetDraft(draftKey);
     setDraft("");
-    void run("sending", () => sayInGroup(groupId, value));
-  }, [busy, draft, draftKey, group?.on, groupId, run]);
+    setPending({
+      speaker: "user",
+      name: "你",
+      color: null,
+      text: value,
+      zh: "",
+      created_at: new Date().toISOString(),
+      photo: null,
+    });
+    setBusy("sending");
+    sayInGroup(groupId, value).then(
+      (state) => {
+        setGroup(state);
+        setPending(null);
+        setFailed(false);
+      },
+      () => {
+        setPending(null);
+        setDraft(value);
+        if (draftKey) keepDraft(draftKey, value);
+        setFailed(true);
+      },
+    ).finally(() => setBusy(null));
+  }, [busy, draft, draftKey, group?.on, groupId]);
 
   const openRename = useCallback(() => {
     setNewName(group?.name ?? "");
@@ -317,7 +372,7 @@ export function GroupConversation({
           <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
-        ) : group.history.length === 0 ? (
+        ) : history.length === 0 ? (
           <div className="flex h-full items-center justify-center px-3">
             <Empty>
               <EmptyHeader>
@@ -331,7 +386,7 @@ export function GroupConversation({
             <MessageScroller>
               <MessageScrollerViewport>
                 <MessageScrollerContent className="gap-4 px-3 pt-4 pb-4">
-                  {group.history.map((entry) => (
+                  {history.map((entry) => (
                     <MessageScrollerItem key={entry.topic.id}>
                       <div className="w-full">
                         <TopicBlock entry={entry} byId={byId} stamps={stamps} />
