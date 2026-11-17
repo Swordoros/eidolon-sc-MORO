@@ -578,6 +578,20 @@ async def test_self_memories_are_always_private(world: World, make_memories: Mem
     assert written.scope == "private"
 
 
+async def test_a_producer_memory_without_a_scope_is_stored_as_a_unit_memory(
+    world: World, make_memories: MemoriesFactory
+):
+    background = FakeBackgroundLLM(json.dumps({"memories": [{
+        "text": "制作人今天在事务所加班到很晚", "subject": "producer",
+    }]}, ensure_ascii=False))
+    memories = make_memories(background_llm=background)
+
+    await tell(memories, world, await world.conversation("mano"), "今天要加班")
+    [written] = await memories.entries(world.producer)
+
+    assert written.scope == "unit"
+
+
 async def test_two_views_of_one_event_become_one_private_both_memory(
     world: World, make_memories: MemoriesFactory
 ):

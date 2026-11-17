@@ -5,7 +5,7 @@ clearing do to later turns is tested on the memories module (test_memories)."""
 
 import httpx
 
-from eidolon.memory import parse_memories
+from eidolon.memory import _INSTRUCTIONS, parse_memories
 from tests.conftest import ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_shared_memory import (
@@ -36,15 +36,47 @@ async def memories(client: httpx.AsyncClient) -> list[dict]:
     return res.json()
 
 
-def test_the_model_names_how_widely_each_memory_is_shared():
-    wrote = parse_memories(
-        '{"memories": [{"text": "制作人养了一只猫", "supersedes": [], "scope": "private"},'
-        ' {"text": "制作人喜欢喝咖啡", "supersedes": []}]}'
-    )
+def test_the_model_names_how_widely_each_memory_is_shared(caplog):
+    with caplog.at_level("WARNING"):
+        wrote = parse_memories(
+            '{"memories": [{"text": "制作人养了一只猫", "supersedes": [], "scope": "private"},'
+            ' {"text": "制作人喜欢喝咖啡", "supersedes": []}]}'
+        )
     assert [(m.text, m.scope) for m in wrote] == [
         ("制作人养了一只猫", "private"),
-        ("制作人喜欢喝咖啡", "private"),  # omitted scope falls back to private
+        ("制作人喜欢喝咖啡", "unit"),  # omitted scope for the producer falls back to unit
     ]
+    assert "using unit" in caplog.text
+
+
+def test_an_omitted_scope_for_their_own_memory_stays_private():
+    [wrote] = parse_memories(
+        '{"memories": [{"text": "真乃喜欢花", "subject": "self"}]}'
+    )
+
+    assert wrote.scope == "private"
+
+
+def test_an_unknown_scope_is_logged_and_defaulted_by_subject(caplog):
+    with caplog.at_level("WARNING"):
+        [producer] = parse_memories(
+            '{"memories": [{"text": "制作人今天在事务所加班", "subject": "producer",'
+            ' "scope": "secret"}]}'
+        )
+        [both] = parse_memories(
+            '{"memories": [{"text": "制作人和她一起吃饭", "subject": "both",'
+            ' "scope": "secret"}]}'
+        )
+
+    assert (producer.scope, both.scope) == ("unit", "private")
+    assert caplog.text.count("memory scope 'secret'") == 2
+
+
+def test_the_scope_prompt_defaults_to_unit_and_only_private_is_for_secrets():
+    assert "拿不准 scope 时写 unit" in _INSTRUCTIONS
+    assert "拿不准就写 private" not in _INSTRUCTIONS
+    assert "制作人今天在事务所加班到很晚" in _INSTRUCTIONS
+    assert "秘密、亲密、害羞" in _INSTRUCTIONS
 
 
 async def test_changing_how_widely_a_memory_is_shared(make_client: ClientFactory):

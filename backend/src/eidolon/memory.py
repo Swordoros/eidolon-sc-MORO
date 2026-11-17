@@ -1327,12 +1327,29 @@ _INSTRUCTIONS = """\
 制作人明确说其中哪一件改到别的日子，写进 promise_changes：{"id": 编号, "due": "YYYY-MM-DD"}；\
 明确说不做了、取消了，写 {"id": 编号, "cancel": true}。只是没提起、还没做，都不算改期或取消。
 
-每条记忆还要标 scope，判断作为来源偶像的她愿意让谁知道：
-- private（私密）：她不愿意告诉任何人、只自己知道的事——只属于她和制作人之间、说出来会让她害羞或不好意思外传的，\
-比如制作人夸她、她和制作人偷偷的约会。
-- unit（群组）：她会主动跟同组合的伙伴分享、但不会到处说的事——比如今天和制作人一起吃饭很开心这种普通的近况。
-- shared（共享）：她愿意让所有偶像都知道的事——比如公开场合的成绩、没什么敏感度的事实。
-拿不准就写 private。只有明确公开、愿意让所有偶像知道的事才写 shared；self 和 both 的 scope 必须是 private，不能写 unit 或 shared。
+每条记忆还要标 scope，判断作为来源偶像的她愿意让谁知道。
+先看 subject：subject 是 self 或 both 时，scope 固定写 private，不能写 unit 或 shared。
+subject 是 producer 时：
+
+- private（私密）：只属于她和制作人之间、她不愿意让任何人知道的事。
+  例如：秘密的约定、私下的约会、接吻或身体接触、制作人夸她让她害羞到不想转述、\
+只有两个人懂的称呼或暗号。
+  普通的工作、行程、事务所日常、制作人今天做了什么，都不算 private。
+
+- unit（群组）：她会主动跟同组合的伙伴分享、但不会到处说的事。
+  例如：制作人今天在事务所加班到很晚、制作人最近在准备新企划、\
+制作人今天来看了她们练习、制作人买了零食放在休息室、制作人下周要带她们去拍摄。
+  普通的工作近况、制作人最近的安排、事务所里发生的事，先考虑 unit。
+
+- shared（共享）：她愿意让所有偶像都知道的事。
+  例如：制作人在公开活动上被表扬、制作人负责的企划上了新闻、\
+制作人喜欢咖啡这种没什么敏感度的事实、公开的行程或成绩。
+
+判断顺序：
+1. 秘密、亲密、害羞、只属于两个人的感情 → private
+2. 公开场合的成绩、新闻、谁都可以知道的事实 → shared
+3. 其余普通工作、日常、安排、近况 → unit
+拿不准 scope 时写 unit；subject 是 self 或 both 时仍然只能写 private。
 
 每条记忆还要标 emotion、tier 和 subject：
 - emotion 是她记下这件事时的感情，用一两个词（开心、难过、生气、担心、怀念、平静…）；没有明显感情就写「平静」。
@@ -1342,7 +1359,7 @@ _INSTRUCTIONS = """\
 
 只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self|both", "evidence": "原话……", \
 "supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
-"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 private；\
+"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 unit；\
 没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
 都没有就输出 {"memories": [], "promises": [], "promise_changes": [], "moment": null}。
 
@@ -1477,12 +1494,21 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
         if not isinstance(text, str) or not (text := text.strip()[:MAX_MEMORY_LENGTH]):
             continue
         numbers = supersedes if isinstance(supersedes, list) else []
+        subject = subject if subject in SUBJECTS else "producer"
+        if scope in SCOPES:
+            chosen = scope
+        else:
+            chosen = "unit" if subject == "producer" else "private"
+            log.warning(
+                "memory scope %r is not one of %s; using %s for %r",
+                scope, SCOPES, chosen, text[:30],
+            )
         written.setdefault(text, NewMemory(
             text, tuple(dict.fromkeys(n for n in numbers if type(n) is int)),
-            scope if scope in SCOPES else "private",
+            chosen,
             emotion if isinstance(emotion, str) and emotion.strip() else None,
             tier if tier in TIERS else "medium",
-            subject if subject in SUBJECTS else "producer",
+            subject,
             evidence.strip()[:MAX_MEMORY_LENGTH]
             if isinstance(evidence, str) and evidence.strip() else None,
         ))
