@@ -17,7 +17,7 @@ const t = copy.settings.nsfw;
  * 设置「成人内容」（GLOSSARY.md「成人内容」）：对话、通话语音、照片三个开关，各自默认关，
  * 只影响自己，且只对 18 岁及以上的角色生效。存在服务器上，一拨马上存。
  */
-export function NsfwSettings() {
+export function NsfwSettings({ title }: { title?: string }) {
   const { account, accountChanged } = useDirectory();
   const id = useId();
   const [saving, setSaving] = useState(false);
@@ -47,7 +47,7 @@ export function NsfwSettings() {
   ];
 
   return (
-    <SettingsSection>
+    <SettingsSection title={title}>
       <FieldGroup>
         {switches.map(({ key, label, hint }) => (
           <Field key={key} orientation="horizontal">

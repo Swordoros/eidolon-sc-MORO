@@ -266,6 +266,12 @@ class DevSwitch(BaseModel):
     on: StrictBool
 
 
+class CrossChatSwitch(BaseModel):
+    """The user's own switch for sharing group and private chat contexts."""
+
+    on: StrictBool
+
+
 class NsfwSwitch(BaseModel):
     """The user's own switches for the adult scenes (GLOSSARY.md「成人内容」); a field left out
     leaves its switch as it was."""
@@ -463,6 +469,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "cycles": cycles,
             "moments": moments,
             "dev": await store.get_dev(user_id),
+            "cross_chat": await store.get_cross_chat(user_id),
             "nsfw": nsfw.conversation,
             "nsfw_voice": nsfw.voice,
             "nsfw_photo": nsfw.photo,
@@ -504,6 +511,11 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Turn the user's own switch for the development tools on or off (GLOSSARY.md
         「开发」)."""
         await store.set_dev(user_id, body.on)
+
+    @app.put("/api/account/cross-chat", status_code=204)
+    async def switch_cross_chat(body: CrossChatSwitch, user_id: UserId) -> None:
+        """Turn the user's own switch for group/private context sharing on or off."""
+        await store.set_cross_chat(user_id, body.on)
 
     @app.put("/api/account/nsfw", status_code=204)
     async def switch_nsfw(body: NsfwSwitch, user_id: UserId) -> None:

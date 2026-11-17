@@ -14,12 +14,12 @@ import { cn } from "@/lib/utils";
 import {
   AboutIcon,
   AppearanceIcon,
+  ChatSettingsIcon,
   CyclesIcon,
   DataPackageIcon,
   DevIcon,
   MemoriesIcon,
   MomentsIcon,
-  NsfwIcon,
   OwnKeysIcon,
   PhoneIcon,
   ProfileIcon,
@@ -39,11 +39,11 @@ const ICONS = {
   moments: MomentsIcon,
   cycles: CyclesIcon,
   appearance: AppearanceIcon,
+  chat: ChatSettingsIcon,
   "own-keys": OwnKeysIcon,
   "sign-in": SignInIcon,
   "data-package": DataPackageIcon,
   dev: DevIcon,
-  nsfw: NsfwIcon,
   about: AboutIcon,
 };
 

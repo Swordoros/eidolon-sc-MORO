@@ -554,6 +554,8 @@ export type Account = {
   /** The user's own switch for the development tools (GLOSSARY.md「开发」): shows the last
    * conversation prompt. Default off. */
   dev: boolean;
+  /** Whether group and private chat contexts may be shared with one another. Default off. */
+  cross_chat: boolean;
   /** The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each default off and
    * never for an under-age character: the conversation, her voiced lines in a call, the photos. */
   nsfw: boolean;
@@ -592,6 +594,17 @@ export async function getAccount(): Promise<Account> {
 export async function switchReachOuts(on: boolean): Promise<void> {
   await expectNoContent(
     await api("/api/account/reach-outs", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on }),
+    }),
+  );
+}
+
+/** Turn the user's group/private context sharing on or off. */
+export async function switchCrossChat(on: boolean): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/cross-chat", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ on }),

@@ -4,13 +4,13 @@ import { AboutSettings } from "@/components/AboutSettings";
 import { AdminEntry } from "@/components/AdminEntry";
 import { AppearanceSettings } from "@/components/AppearanceSettings";
 import { CallSettings } from "@/components/CallSettings";
+import { ChatSettings } from "@/components/ChatSettings";
 import { CyclesSettings } from "@/components/CyclesSettings";
 import { DataPackageSettings } from "@/components/DataPackageSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
 import { DevSettings } from "@/components/DevSettings";
 import { MemoriesSettings } from "@/components/MemoriesSettings";
 import { MomentsSettings } from "@/components/MomentsSettings";
-import { NsfwSettings } from "@/components/NsfwSettings";
 import { OwnKeysSettings } from "@/components/OwnKeysSettings";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
 import { ReachOutsSettings } from "@/components/ReachOutsSettings";
@@ -28,6 +28,7 @@ const PANELS: Record<Exclude<SettingsCategory, "memories" | "stats">, ReactNode>
   moments: <MomentsSettings />,
   cycles: <CyclesSettings />,
   appearance: <AppearanceSettings />,
+  chat: <ChatSettings />,
   "own-keys": <OwnKeysSettings />,
   "sign-in": (
     <>
@@ -39,7 +40,6 @@ const PANELS: Record<Exclude<SettingsCategory, "memories" | "stats">, ReactNode>
   ),
   "data-package": <DataPackageSettings />,
   dev: <DevSettings />,
-  nsfw: <NsfwSettings />,
   about: <AboutSettings />,
 };
 

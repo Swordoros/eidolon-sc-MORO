@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
     banned_at TEXT,
     ban_note TEXT,
     dev INTEGER NOT NULL DEFAULT 0,
+    cross_chat INTEGER NOT NULL DEFAULT 0,
     nsfw INTEGER NOT NULL DEFAULT 0,
     nsfw_voice INTEGER NOT NULL DEFAULT 0,
     nsfw_photo INTEGER NOT NULL DEFAULT 0
@@ -623,6 +624,14 @@ class Store:
         """Turn the user's development switch on or off."""
         await self._db.write(_set_dev, user_id, on)
 
+    async def get_cross_chat(self, user_id: str) -> bool:
+        """Whether the user lets group and private chat contexts cross into one another."""
+        return await self._db.read(_cross_chat, user_id)
+
+    async def set_cross_chat(self, user_id: str, on: bool) -> None:
+        """Turn the user's group/private context sharing on or off."""
+        await self._db.write(_set_cross_chat, user_id, on)
+
     async def get_nsfw(self, user_id: str) -> NsfwSettings:
         """The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each off by
         default and never for an under-age character."""
@@ -1003,6 +1012,7 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("UPDATE users SET name = id")
     _add_missing_columns(db, "users", ("consented_at", "banned_at", "ban_note"), "TEXT")
     _add_missing_columns(db, "users", ("dev",), "INTEGER NOT NULL DEFAULT 0")
+    _add_missing_columns(db, "users", ("cross_chat",), "INTEGER NOT NULL DEFAULT 0")
     _add_missing_columns(
         db, "users", ("nsfw", "nsfw_voice", "nsfw_photo"), "INTEGER NOT NULL DEFAULT 0"
     )
@@ -1073,6 +1083,15 @@ def _dev(db: sqlite3.Connection, user_id: str) -> bool:
 
 def _set_dev(db: sqlite3.Connection, user_id: str, on: bool) -> None:
     db.execute("UPDATE users SET dev = ? WHERE id = ?", (1 if on else 0, user_id))
+
+
+def _cross_chat(db: sqlite3.Connection, user_id: str) -> bool:
+    row = db.execute("SELECT cross_chat FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def _set_cross_chat(db: sqlite3.Connection, user_id: str, on: bool) -> None:
+    db.execute("UPDATE users SET cross_chat = ? WHERE id = ?", (1 if on else 0, user_id))
 
 
 def _nsfw(db: sqlite3.Connection, user_id: str) -> NsfwSettings:

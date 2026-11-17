@@ -20,9 +20,9 @@ import { PROVIDER_LABELS, type Provider } from "@/lib/signIn";
 /** The first level's groups, top to bottom, with a separator between each two. */
 const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
-  ["call", "reach-outs", "moments", "cycles", "appearance", "own-keys"],
+  ["call", "reach-outs", "moments", "cycles", "appearance", "chat", "own-keys"],
   ["sign-in", "data-package"],
-  ["dev", "nsfw"],
+  ["dev"],
   ["about"],
 ] as const;
 
@@ -95,6 +95,7 @@ export function settingsRedirect(href: string): string | null {
   const params = url.searchParams;
   let to: string;
   if (path === "/memories") to = settingsHref("memories");
+  else if (path === `${ROOT}/nsfw`) to = settingsHref("chat");
   else if (path === ROOT && params.has("tab")) {
     const tab = params.get("tab");
     params.delete("tab");
@@ -118,6 +119,8 @@ export type SettingsValues = SettingsSwitches & {
   daysKnown: number | null;
   call: CallPreferences | null;
   appearance: Appearance | null;
+  /** The user's group/private chat context sharing switch. */
+  crossChat: boolean | null;
   /** The services this browser keeps the user's own key for. */
   ownServices: OwnService[] | null;
   signInMethods: Provider[] | null;
@@ -127,7 +130,7 @@ export type SettingsValues = SettingsSwitches & {
  * or「关于」) shows its name alone. */
 export function settingsSummaries(values: SettingsValues): Partial<Record<SettingsCategory, string>> {
   const t = copy.settings.summaries;
-  const { profile, memoryCount, daysKnown, call, appearance, ownServices, signInMethods } = values;
+  const { profile, memoryCount, daysKnown, call, appearance, crossChat, ownServices, signInMethods } = values;
   const summaries: Partial<Record<SettingsCategory, string>> = {};
   if (profile) {
     const { saved, draft } = profile;
@@ -140,6 +143,7 @@ export function settingsSummaries(values: SettingsValues): Partial<Record<Settin
   if (daysKnown !== null) summaries.stats = t.daysKnown(daysKnown);
   if (call) summaries.call = `${copy.settings.call.qualities[call.quality]} · ${call.phoneTexture ? t.phoneTextureOn : t.phoneTextureOff}`;
   if (appearance) summaries.appearance = appearance.scspAvatars ? t.scspAvatarsOn : t.scspAvatarsOff;
+  if (crossChat !== null) summaries.chat = crossChat ? t.switchOn : t.switchOff;
   for (const [category, key] of SWITCHED) {
     const on = values[key];
     if (on !== null) summaries[category] = on ? t.switchOn : t.switchOff;

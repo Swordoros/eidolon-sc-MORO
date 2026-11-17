@@ -35,6 +35,7 @@ describe("一级列表有哪几类", () => {
       "moments",
       "cycles",
       "appearance",
+      "chat",
       "own-keys",
     ]);
   });
@@ -42,9 +43,9 @@ describe("一级列表有哪几类", () => {
   it("账号里没有搭话、朋友圈、周期（部署者没开）时没有这几类，别的照旧", () => {
     expect(settingsGroups({ reachOuts: null, moments: null, cycles: null, dev: false })).toEqual([
       ["profile", "memories", "stats"],
-      ["call", "appearance", "own-keys"],
+      ["call", "appearance", "chat", "own-keys"],
       ["sign-in", "data-package"],
-      ["dev", "nsfw"],
+      ["dev"],
       ["about"],
     ]);
   });
@@ -54,6 +55,7 @@ describe("一级列表有哪几类", () => {
       "call",
       "cycles",
       "appearance",
+      "chat",
       "own-keys",
     ]);
   });
@@ -63,6 +65,7 @@ describe("一级列表有哪几类", () => {
       "call",
       "moments",
       "appearance",
+      "chat",
       "own-keys",
     ]);
   });
@@ -71,6 +74,7 @@ describe("一级列表有哪几类", () => {
 describe("旧地址和不认识的地址换成哪个路径", () => {
   it.each([
     ["/settings?tab=own-keys", "/settings/own-keys"],
+    ["/settings/nsfw", "/settings/chat"],
     ["/memories", "/settings/memories"],
   ])("旧地址 %s 换成 %s", (from, to) => {
     expect(settingsRedirect(from)).toBe(to);
@@ -106,6 +110,7 @@ describe("一级列表上的摘要", () => {
     daysKnown: null,
     call: null,
     appearance: null,
+    crossChat: null,
     reachOuts: null,
     moments: null,
     cycles: null,
@@ -151,6 +156,11 @@ describe("一级列表上的摘要", () => {
   it("外观是 SCSP 头像开／关", () => {
     expect(settingsSummaries({ ...loading, appearance: { scspAvatars: true } }).appearance).toBe("SCSP 头像开");
     expect(settingsSummaries({ ...loading, appearance: { scspAvatars: false } }).appearance).toBe("SCSP 头像关");
+  });
+
+  it("聊天设置是群聊上下文互通开／关", () => {
+    expect(settingsSummaries({ ...loading, crossChat: true }).chat).toBe("开");
+    expect(settingsSummaries({ ...loading, crossChat: false }).chat).toBe("关");
   });
 
   it("搭话是开／关", () => {
