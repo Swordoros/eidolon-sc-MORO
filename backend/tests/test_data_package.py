@@ -308,7 +308,8 @@ async def test_memories_move_to_another_deployment_superseded_as_they_were(
     assert all(m["conversation"] is None for m in data["memories"])
     assert set(osaka) == {
         "id", "source_character_id", "source_character_name", "conversation", "text",
-        "created_at", "superseded_by", "scope", "subject", "resolution",
+        "created_at", "superseded_by", "scope", "subject", "resolution", "kind", "status",
+        "remaining_hours", "recall_count",
     }
     res = await import_package(there, package, "memories")
 
@@ -357,7 +358,13 @@ async def test_a_memory_already_here_is_not_added_again_and_stands_in_for_it(
     ]
     again = await import_package(client, package, "memories")
     assert again.json() == {**NOTHING_ELSE, "profile": False}
-    assert await memories(client) == listed
+
+    def without_remaining(memory: dict) -> dict:
+        return {key: value for key, value in memory.items() if key != "remaining_hours"}
+
+    assert [without_remaining(m) for m in await memories(client)] == [
+        without_remaining(m) for m in listed
+    ]
     # Osaka is superseded by Tokyo here: with Tokyo gone, it holds again.
     tokyo = next(m for m in listed if m["text"] == TOKYO)
     assert (await client.delete(f"/api/memories/{tokyo['id']}")).status_code == 204

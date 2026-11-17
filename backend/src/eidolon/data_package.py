@@ -60,6 +60,7 @@ from eidolon.memory import (
     Resolution,
     Scope,
     Subject,
+    _remaining_hours,
     add_carried,
 )
 from eidolon.producer import (
@@ -528,6 +529,14 @@ class PackagedMemory(_Strict):
     """What it is about; `producer` for packages before subjects."""
     resolution: Resolution | None = None
     """Replaced or merged; nothing for a package before resolutions."""
+    kind: str = "short"
+    """short, mid or long; short for a package before kinds."""
+    status: str = "active"
+    """active or dormant; active for a package before statuses."""
+    remaining_hours: float | None = None
+    """How long it still had when exported, if it had an expiry."""
+    recall_count: int = 0
+    """How many times a dormant long one had been recalled."""
 
     @classmethod
     def of(cls, memory: Memory, with_conversations: bool) -> "PackagedMemory":
@@ -544,6 +553,10 @@ class PackagedMemory(_Strict):
             scope=memory.scope,
             subject=memory.subject,
             resolution=memory.resolution,
+            kind=memory.kind,
+            status=memory.status,
+            remaining_hours=_remaining_hours(memory, datetime.now(UTC)),
+            recall_count=memory.recall_count,
         )
 
     def carried(self, conversations: Mapping[PackageKey, str]) -> CarriedMemory:
@@ -560,6 +573,10 @@ class PackagedMemory(_Strict):
             scope=self.scope,
             subject=self.subject,
             resolution=self.resolution,
+            kind=self.kind,
+            status=self.status,
+            remaining_hours=self.remaining_hours,
+            recall_count=self.recall_count,
         )
 
 
@@ -1142,7 +1159,7 @@ def _write_import(
             imported.photos += carried.photos
     if unpacked.memories:
         imported.memories = add_carried(
-            db, user_id, [m.carried(here) for m in unpacked.memories]
+            db, user_id, [m.carried(here) for m in unpacked.memories], now
         )
     if unpacked.promises and promises is not None:
         imported.promises = _add_promises(db, user_id, unpacked.promises, promises, now)

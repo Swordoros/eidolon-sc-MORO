@@ -5,7 +5,16 @@ maintenance and then decays hourly; recall orders by strength and forgets what h
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
-from eidolon.memory import TIERS, _decay, _expire, _reinforced, parse_memories
+from eidolon.memory import (
+    TIERS,
+    _backfill_legacy,
+    _consolidation_run,
+    _decay,
+    _expire,
+    _record_attempt,
+    _reinforced,
+    parse_memories,
+)
 
 NOW = datetime(2026, 11, 8, 3, 0, tzinfo=UTC)
 
@@ -61,10 +70,61 @@ def test_expiry_deletes_short_and_mid_and_keeps_long_dormant():
 
     _expire(db, NOW.isoformat(), (NOW - timedelta(days=90)).isoformat())
 
-    assert db.execute("SELECT id FROM memories ORDER BY id").fetchall() == [(3,)]
-    assert db.execute("SELECT status, forgotten_at FROM memories").fetchone() == (
+    assert db.execute("SELECT id FROM memories ORDER BY id").fetchall() == [(1,), (2,), (3,)]
+    assert db.execute(
+        "SELECT id, status FROM memories ORDER BY id"
+    ).fetchall() == [(1, "expired"), (2, "expired"), (3, "dormant")]
+    assert db.execute("SELECT status, forgotten_at FROM memories WHERE id = 3").fetchone() == (
         "dormant", NOW.isoformat()
     )
+
+
+def test_legacy_memories_get_an_expiry_and_faded_ones_disappear():
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE memories (id INTEGER PRIMARY KEY, kind TEXT, strength REAL,"
+        " created_at TEXT, expires_at TEXT, last_reinforced_at TEXT, status TEXT,"
+        " superseded_by INTEGER)"
+    )
+    db.execute("CREATE TABLE memory_vectors (memory_id INTEGER)")
+    db.execute(
+        "INSERT INTO memories (id, kind, strength, created_at, expires_at, status) VALUES"
+        " (1, 'short', 0.5, '2026-11-01T00:00:00+00:00', NULL, 'active'),"
+        " (2, 'short', 0.05, '2026-11-01T00:00:00+00:00', NULL, 'active'),"
+        " (3, 'long', 1.0, '2026-11-01T00:00:00+00:00', NULL, 'active')"
+    )
+
+    _backfill_legacy(db)
+
+    ids = [row[0] for row in db.execute("SELECT id FROM memories ORDER BY id")]
+    assert ids == [1, 3]
+    assert db.execute("SELECT expires_at FROM memories WHERE id = 1").fetchone()[0]
+    assert db.execute("SELECT expires_at FROM memories WHERE id = 3").fetchone()[0]
+
+
+def test_consolidation_stops_after_five_failed_attempts():
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE memory_consolidations (user_id TEXT, character_id TEXT, day TEXT,"
+        " attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'pending',"
+        " last_attempt_at TEXT, PRIMARY KEY (user_id, character_id, day))"
+    )
+    for _ in range(5):
+        _record_attempt(db, "user", "mano", "2026-11-08", False, NOW)
+
+    assert _consolidation_run(db, "user", "mano", "2026-11-08") == (5, "failed")
+
+
+def test_a_successful_consolidation_marks_the_day_done():
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE memory_consolidations (user_id TEXT, character_id TEXT, day TEXT,"
+        " attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'pending',"
+        " last_attempt_at TEXT, PRIMARY KEY (user_id, character_id, day))"
+    )
+    _record_attempt(db, "user", "mano", "2026-11-08", True, NOW)
+
+    assert _consolidation_run(db, "user", "mano", "2026-11-08") == (1, "done")
 
 
 def test_decay_weakens_what_is_past_its_maintenance_only():
