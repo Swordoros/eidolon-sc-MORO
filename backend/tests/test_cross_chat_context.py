@@ -78,6 +78,41 @@ def test_group_context_takes_only_the_latest_five_rounds():
     assert "小A：回答6" in result
 
 
+def test_group_context_works_with_fewer_than_five_rounds():
+    import sqlite3
+
+    now = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
+    connection = sqlite3.connect(":memory:")
+    tables(connection)
+    connection.execute(
+        "INSERT INTO group_chats VALUES ('g', 'u', '测试群', 1, '', NULL, NULL, NULL, NULL)"
+    )
+    connection.execute("INSERT INTO group_members VALUES ('g', 'a')")
+    connection.execute(
+        "INSERT INTO group_topics VALUES ('t', 'g', 'u', 'user', '', '', NULL)"
+    )
+    rows = []
+    for n in range(3):
+        at = (now - timedelta(minutes=10 - n * 2)).isoformat()
+        rows.extend([
+            (n * 2 + 1, "t", "u", "user", f"第{n}轮", "", at),
+            (n * 2 + 2, "t", "u", "a", f"回答{n}", f"回答{n}", at),
+        ])
+    connection.executemany(
+        "INSERT INTO group_messages VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+    )
+
+    result = asyncio.run(
+        recent_group_context(
+            FakeDB(connection), "u", "a",
+            {"a": SimpleNamespace(name="A", name_zh="小A")}, now,
+        )
+    )
+
+    assert result is not None
+    assert "第0轮" in result and "第2轮" in result
+
+
 def test_private_context_only_keeps_chinese_lines_and_five_rounds():
     import sqlite3
 

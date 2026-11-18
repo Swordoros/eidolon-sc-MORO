@@ -132,7 +132,7 @@ def _rounds(rows: Sequence[tuple[str, str, str]], user: str) -> list[tuple[str, 
     starts = [index for index, row in enumerate(rows) if row[0] == user]
     if not starts:
         return list(rows[-ROUNDS * 2:])
-    return list(rows[starts[-ROUNDS]:])
+    return list(rows[starts[max(0, len(starts) - ROUNDS)]:])
 
 
 def _fit(header: str, lines: Sequence[str]) -> str:
