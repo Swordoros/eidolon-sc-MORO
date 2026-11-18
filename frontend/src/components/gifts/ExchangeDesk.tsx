@@ -146,7 +146,9 @@ function ExchangeDialog({
         : await buyGift(chosen.gift.id, count);
       onDone(exchange);
       setConfirming(false);
-      onClose();
+      setChosen(null);
+      setCount(1);
+      setFailed(false);
     } catch {
       setFailed(true);
       setConfirming(false);
