@@ -74,6 +74,12 @@ ESCORT_WEIGHTS: dict[str, int] = {"live": 5, "trip": 3, "lesson": 2}
 
 EscortKind = Literal["lesson", "trip", "live"]
 
+HOUSEHOLDS: dict[str, tuple[str, ...]] = {
+    "hazuki": ("nichika",),
+    "nichika": ("hazuki",),
+}
+"""Characters who live together, for the home part of their days."""
+
 TICK = timedelta(minutes=30)
 """How often it is looked whose schedule is to be written, and the units that could not be
 are retried."""
@@ -309,11 +315,14 @@ class ScheduleWriter:
                 if joint is not None and index in joint:
                     continue
                 escort = None
+                household = None
                 if len(unit) == 1 and self._engine.is_staff(unit[0]):
                     escort = await self._escort_for(user_id, day, unit[0])
+                    household = await self._household_context(user_id, unit[0], day)
                 try:
                     await self._write_unit(
-                        user_id, unit, day, plans[index], live=lives[index], escort=escort
+                        user_id, unit, day, plans[index], live=lives[index], escort=escort,
+                        household=household,
                     )
                 except Exception:
                     log.exception("writing the schedules of %s for %s failed", unit, user_id)
@@ -330,7 +339,11 @@ class ScheduleWriter:
         escort = None
         if len(group) == 1 and self._engine.is_staff(group[0]):
             escort = await self._escort_for(user_id, day, group[0])
-        await self._write_unit(user_id, group, day, live=live, escort=escort)
+        household = (
+            await self._household_context(user_id, group[0], day)
+            if len(group) == 1 and self._engine.is_staff(group[0]) else None
+        )
+        await self._write_unit(user_id, group, day, live=live, escort=escort, household=household)
         return True
 
     async def _today(self, user_id: str, now: datetime) -> date:
@@ -484,6 +497,27 @@ class ScheduleWriter:
     async def _escort_for(self, user_id: str, day: date, staff_id: str) -> EscortOffer | None:
         return self._pick_escort(await self._escort_offers(user_id, day, staff_id))
 
+    async def _household_context(self, user_id: str, staff_id: str, day: date) -> str | None:
+        """Her household's day, so her own home hours are written around it."""
+        parts: list[str] = []
+        for cid in HOUSEHOLDS.get(staff_id, ()):
+            schedule = await self._schedules.of(user_id, cid, day)
+            if schedule is None:
+                continue
+            character = self._characters.get(cid)
+            name = character.name_zh if character and character.name_zh else (character.name if character else cid)
+            lines = [f"{s.start.strftime('%H:%M')}–{s.end.strftime('%H:%M')} {s.what}（{s.where}）" for s in schedule.slots]
+            rest = []
+            if schedule.wake is not None:
+                rest.append(f"{schedule.wake.strftime('%H:%M')} 起床")
+            if schedule.bath is not None:
+                rest.append(f"{schedule.bath.at.strftime('%H:%M')} 洗澡，约 {schedule.bath.minutes} 分钟")
+            if schedule.sleep is not None:
+                rest.append(f"{schedule.sleep.strftime('%H:%M')} 睡觉")
+            said = "\n".join([*lines, *rest])
+            parts.append(f"和你住在一起的{name}今天的安排：\n{said}")
+        return "\n\n".join(parts) or None
+
     def _escort_twist(self, offer: EscortOffer) -> str:
         return (
             f"今天 {offer.start.strftime('%H:%M')}–{offer.end.strftime('%H:%M')}，"
@@ -496,6 +530,7 @@ class ScheduleWriter:
         plan: TripPlan | None = None, all_or_nothing: bool = False,
         live: str | Mapping[str, str | None] | None = None,
         escort: EscortOffer | None = None,
+        household: str | None = None,
     ) -> None:
         """Write the day's schedules of the unit's members together, in one call, so that
         they do not conflict; a member whose part cannot be read is left to be retried.
@@ -533,7 +568,7 @@ class ScheduleWriter:
                 if staff:
                     answer = await self._engine.write_staff_schedule(
                         unit[0], lease.keys.chat_llm, day, twists[unit[0]],
-                        yesterday[unit[0]],
+                        yesterday[unit[0]], household,
                     )
                 else:
                     answer = await self._engine.write_schedules(

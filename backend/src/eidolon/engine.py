@@ -1513,6 +1513,7 @@ class ConversationEngine:
         day: date,
         twists: Sequence[str],
         yesterday: str | None,
+        household: str | None = None,
     ) -> str:
         """The day's schedule of one of the office's staff, as the model writes it on `llm`:
         from her sheet and the world setting, the day, the office's real lives, the day
@@ -1531,6 +1532,14 @@ class ConversationEngine:
             told.append(f"你的作息习惯：{habit}")
         if yesterday:
             told.append(f"你昨天的安排：{yesterday}")
+        if household:
+            told.append(household)
+            told.append(
+                "你和家人住在一起时："
+                "不要写她在外面时已经在家里，也不要写两个人同时占着浴室；"
+                "谁先洗澡、谁先睡觉不强制，只把晚饭、洗澡和睡觉的时间错开，"
+                "能一起吃就一起，不能就各吃各的。"
+            )
         told.append(
             "今天的小变数（要真的影响当天的安排）："
             + ("；".join(twists) if twists else "没有")

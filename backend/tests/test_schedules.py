@@ -281,6 +281,34 @@ def test_staff_schedule_prompt_is_not_an_idol_prompt():
     assert "同组合" not in STAFF_SCHEDULE_RULES
 
 
+async def test_staff_household_context_carries_her_sisters_home_hours():
+    class FakeSchedules:
+        async def of(self, *_):
+            return Schedule(
+                date(2026, 11, 18),
+                (
+                    Slot(time(18, 30), time(20), "晚餐", "自宅厨房", "private"),
+                    Slot(time(21, 30), time(22, 45), "复习", "自宅书桌", "private"),
+                ),
+                (),
+                wake=time(6, 30),
+                sleep=time(0, 45),
+                bath=Bath(time(23, 30), 35),
+            )
+
+    writer = object.__new__(ScheduleWriter)
+    writer._schedules = FakeSchedules()  # type: ignore[attr-defined]
+    writer._characters = {"nichika": SimpleNamespace(name="七草にちか", name_zh="七草日花")}  # type: ignore[attr-defined]
+
+    context = await writer._household_context("producer", "hazuki", date(2026, 11, 18))
+
+    assert context is not None
+    assert "七草日花" in context
+    assert "18:30–20:00 晚餐（自宅厨房）" in context
+    assert "23:30 洗澡，约 35 分钟" in context
+    assert "00:45 睡觉" in context
+
+
 def test_an_escort_the_model_invents_is_dropped_unless_it_was_drawn():
     slots = [
         Slot(time(9), time(10), "整理经费", "办公室", "work"),
