@@ -70,6 +70,7 @@ class FakeFish:
         self.attempts = 0
         self.log: list[str] = []
         self.at: dict[str, float] = {}  # when each entry was first logged
+        self.silences: list[int] = []  # bytes of silence between two voiced segments
         self.sockets: list[FakeFishSocket] = []
         self.starts: list[dict[str, Any]] = []  # each session's `start` request
 
@@ -214,7 +215,11 @@ class Speaker(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, TTSAudioRawFrame):
             text = frame.audio.rstrip(b"\0").decode()
-            self.fish.note(f"audio {text}")
+            if text:
+                self.fish.note(f"audio {text}")
+            else:
+                self.fish.silences.append(len(frame.audio))
+                self.fish.note("pause")
         elif isinstance(frame, OutputTransportMessageFrame):
             data = frame.message["data"]
             assert frame.message["type"] == "server-message" and data["type"] == "segment-playing"
@@ -290,6 +295,14 @@ async def test_paired_tags_reach_only_a_model_that_reads_them():
 
     assert "text [softly] 内緒だよ。" in others.of(1)
     assert "text [softly] <whisper>内緒</whisper>だよ。" in drama.of(1)
+
+
+async def test_a_second_of_silence_separates_segments():
+    fish = await run(*reply(1, ["ほわっ。"], ["今日も。"]))
+
+    assert fish.silences and len(fish.silences) == 1
+    assert fish.silences[0] > 0
+    assert fish.log.index("pause") < fish.log.index("playing 1/1")
 
 
 async def test_a_segment_is_voiced_in_full_once_complete_without_waiting_for_the_next():

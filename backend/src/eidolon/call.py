@@ -425,6 +425,19 @@ FINISH_TIMEOUT = 10.0
 Japanese: to send the rest of its audio, some seconds of it at most. A session that takes
 longer is given up, and the rest of the segment with it."""
 
+SEGMENT_PAUSE_SECONDS = 1.0
+"""The least silence between two voiced segments: her sentences should not run together."""
+
+
+def segment_pause(sample_rate: int, context_id: str) -> TTSAudioRawFrame:
+    """One second of silence, so the next segment starts after a real pause."""
+    return TTSAudioRawFrame(
+        b"\x00\x00" * int(sample_rate * SEGMENT_PAUSE_SECONDS),
+        sample_rate,
+        1,
+        context_id=context_id,
+    )
+
 
 class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
     """Fish Audio, speaking as the character a segment at a time.
@@ -433,11 +446,12 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
     segment is voiced in a Fish Audio session of its own (a session of its websocket
     protocol, not the call). Once the segment has all its Japanese, what
     is held of it is sent and the session told to stop; it finishes once Fish Audio has sent
-    the last of its audio, and only then does the next segment start, so that ahead of its
-    first audio can go its `segment-playing` message (`SegmentTextFrame` says which segment
-    the Japanese is of). Starting a session takes a connection a second or more to open, so
-    the connection for the next segment is opened while the current one is voiced, and the
-    next segment starts on it at once: no pause is heard between them.
+    the last of its audio, and only then does the next segment start. After that segment,
+    a second of silence keeps her sentences from running together, so ahead of the next
+    segment's first audio a short pause is heard (and its `segment-playing` message goes
+    after it). Starting a session takes a connection a second or more to open, so the
+    connection for the next segment is opened while the current one is voiced, and the
+    next segment starts on it at once.
 
     After a reply's last segment, that connection is left open for the next reply: Fish
     Audio keeps an idle one open, and so did the single connection a call had before. It
@@ -464,6 +478,8 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
         self._arriving: tuple[int, int] | None = None  # (reply, segment) of the Japanese coming in
         self._voiced: tuple[int, int] | None = None  # (reply, segment) being voiced
         self._announced = False  # its `segment-playing` message is queued
+        self._heard_audio = False  # the segment being voiced has sent some audio
+        self._pause_before_next = False  # a segment with audio just ended
         # The Fish Audio session voicing it, and what receives the session's audio until it
         # has finished:
         self._session: ClientConnection | None = None
@@ -485,10 +501,13 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
                 await self._end_segment()
         elif isinstance(frame, LLMFullResponseEndFrame):
             await self._end_segment()  # should its last segment never have completed
+            self._pause_before_next = False
 
     async def _handle_interruption(self, frame: InterruptionFrame, direction: FrameDirection):
         await super()._handle_interruption(frame, direction)
         self._arriving = self._voiced = None
+        self._heard_audio = False
+        self._pause_before_next = False
 
     def _holds_speech(self) -> bool:
         return super()._holds_speech() or self._session is not None
@@ -497,6 +516,11 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
         await self._reconnected()
         if self._voiced != self._arriving:  # the first of the next segment's Japanese
             await self._end_segment()
+            if self._pause_before_next:
+                await self.append_to_audio_context(
+                    context_id, segment_pause(self.sample_rate, context_id),
+                )
+                self._pause_before_next = False
             self._voiced = self._arriving
             self._announced = self._arriving is None  # Japanese under no segment: nothing to say
         if self._session is None or self._finished.is_set():  # or it ended early
@@ -543,7 +567,10 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
                 self._session = self._receiving = None
             else:
                 await self._close_session()
+        if self._voiced is not None and self._heard_audio:
+            self._pause_before_next = True
         self._voiced = None
+        self._heard_audio = False
 
     async def _start_session(self, context_id: str) -> None:
         """Voice the segment in a new session, on the spare connection, whose audio goes to
@@ -581,6 +608,7 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
                     if audio and len(audio) > 1024:  # as Pipecat's own receiver has it
                         frame = TTSAudioRawFrame(audio, self.sample_rate, 1, context_id=context_id)
                         await self.append_to_audio_context(context_id, frame)
+                        self._heard_audio = True
                         await self.stop_ttfb_metrics()
                 elif event.get("event") == "finish":
                     if event.get("reason") == "error":
