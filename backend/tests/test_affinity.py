@@ -273,3 +273,19 @@ def test_how_much_a_turn_hurts_her_is_weighed_by_its_level_not_by_its_step(
     ending the conversation, is what turns once lowered her affinity by, whatever they lower
     it by now."""
     assert hurt(judged) == hurts
+
+
+def test_the_first_level_zero_is_buffered_and_a_repeat_is_not():
+    first = Judged(0, buffered=True)
+    repeat = Judged(0)
+
+    assert (first.step, hurt(first)) == (-0.2, 2.0)
+    assert (repeat.step, hurt(repeat)) == (-0.5, 5.0)
+
+
+def test_the_first_level_zero_in_her_days_is_still_milder_than_a_repeat():
+    first = Judged(0, days="period", buffered=True)
+    repeat = Judged(0, days="period")
+
+    assert (first.step, hurt(first)) == (-1.0, 2.0)
+    assert (repeat.step, hurt(repeat)) == (-3.0, 5.0)

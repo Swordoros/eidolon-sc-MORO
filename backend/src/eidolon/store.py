@@ -366,11 +366,12 @@ class Message:
 @dataclass(frozen=True)
 class Typed:
     """What a typed turn, one taken outside calls, comes to for her ending the conversation
-    (GLOSSARY.md「已结束的对话」): how much it hurt her (`affinity.hurt`), and
-    whether it was out of line."""
+    (GLOSSARY.md「已结束的对话」): how much it hurt her (`affinity.hurt`), whether it was out
+    of line, and the judge's level (None if not judged)."""
 
     hurt: float = 0.0
     out_of_line: bool = False
+    level: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1024,6 +1025,7 @@ def _open(db: sqlite3.Connection) -> None:
     _add_missing_columns(db, "messages", ("affinity",), "TEXT")
     _add_missing_columns(db, "messages", ("hurt",), "REAL")
     _add_missing_columns(db, "messages", ("out_of_line",), "INTEGER")
+    _add_missing_columns(db, "messages", ("level",), "INTEGER")
     _add_missing_columns(db, "conversations", ("title",), "TEXT")
     _add_missing_columns(db, "conversation_events", ("gift_id",), "TEXT")
     _add_missing_columns(db, "conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
@@ -1889,11 +1891,11 @@ def read_ended(db: sqlite3.Connection, conversation_id: str) -> ConversationEven
 
 def _typed_turns(db: sqlite3.Connection, conversation_id: str, latest: int) -> list[Typed]:
     rows = db.execute(
-        "SELECT hurt, out_of_line FROM messages WHERE conversation_id = ?"
+        "SELECT hurt, out_of_line, level FROM messages WHERE conversation_id = ?"
         " AND role = 'user' AND hurt IS NOT NULL ORDER BY id DESC LIMIT ?",
         (conversation_id, latest),
     ).fetchall()
-    return [Typed(hurt, bool(out_of_line)) for hurt, out_of_line in reversed(rows)]
+    return [Typed(hurt, bool(out_of_line), level) for hurt, out_of_line, level in reversed(rows)]
 
 
 def _list_messages(db: sqlite3.Connection, conversation_id: str) -> list[Message]:
@@ -2176,11 +2178,11 @@ def _insert_message(
         zh = "".join(s.zh for s in segments)
     cursor = db.execute(
         "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
-        " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " affinity, hurt, out_of_line, level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             conversation_id, role, text, ja, zh, _stored_segments(segments), created_at,
             _stored_change(affinity),
-            typed and typed.hurt, typed and int(typed.out_of_line),
+            typed and typed.hurt, typed and int(typed.out_of_line), typed and typed.level,
         ),
     )
     assert cursor.lastrowid is not None

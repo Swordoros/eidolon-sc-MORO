@@ -112,6 +112,7 @@ from typing import Literal, ParamSpec, TypeVar
 from eidolon.activity import detached
 from eidolon.affinity import (
     FED_UP_TURNS,
+    SEVERE_WINDOW,
     NSFW_ADULT,
     NSFW_TIER,
     SCENE_INVITATION,
@@ -272,6 +273,7 @@ class InCall:
 
     out_of_line: int = 0
     hurts: tuple[float, ...] = ()
+    levels: tuple[int | None, ...] = ()
     connected_at: datetime | None = None
     """When the call connected, as the clock told: they were last in touch before it."""
     asmr: bool = False
@@ -292,6 +294,7 @@ class CallTurnRecorded:
     hangs_up: EndsFor | None = None
     cooldown_until: datetime | None = None
     hurt: float = 0.0
+    level: int | None = None
     type: Literal["call-turn-recorded"] = field(default="call-turn-recorded", init=False)
 
 
@@ -1971,15 +1974,20 @@ class ConversationEngine:
             conversation, now, timezone, record, judged, affinity,
             in_call=in_call is not None, opening=opening,
         )
-        cools = await self._cools(conversation, judged)
         if in_call is not None:
             out_of_line_before, hurt_before = in_call.out_of_line, in_call.hurts
+            levels_before = in_call.levels
         else:
             # As many as are weighed, so that whether she warns is told against the latest
             # before this one; out of line is counted in the latest with this one among them.
-            earlier = await self._store.typed_turns(conversation.id, FED_UP_TURNS)
-            out_of_line_before = sum(t.out_of_line for t in earlier[-(FED_UP_TURNS - 1):])
+            earlier = await self._store.typed_turns(conversation.id, FED_UP_TURNS - 1)
+            out_of_line_before = sum(t.out_of_line for t in earlier)
             hurt_before = [t.hurt for t in earlier]
+            levels_before = tuple(t.level for t in earlier)
+        if judged is not None and judged.level == 0 and not judged.out_of_line:
+            prior = levels_before[-(SEVERE_WINDOW - 1):]
+            judged = replace(judged, buffered=not any(level == 0 for level in prior))
+        cools = await self._cools(conversation, judged)
         ending = ends(judged, cools, out_of_line_before, hurt_before)
         way: Parting = "hangs_up" if in_call is not None else "parts"
         affinity_lines = (
@@ -2137,7 +2145,10 @@ class ConversationEngine:
             raise EmptyReply("对话模型没有返回任何内容")
         typed = (
             None if in_call is not None
-            else Typed(hurt(judged), judged is not None and judged.out_of_line)
+            else Typed(
+                hurt(judged), judged is not None and judged.out_of_line,
+                judged.level if judged is not None else None,
+            )
         )
         ends_conversation = typed is not None and ending is not None
         # Once handed in, the turn is recorded whatever becomes of it, and what comes of that
@@ -2186,6 +2197,7 @@ class ConversationEngine:
                 ending,
                 affinity and affinity.cooldown_until,
                 hurt(judged),
+                judged.level if judged is not None else None,
             )
         if photo_asked and photo_asked.used_up_until is not None:
             yield PhotosUsedUp(photo_asked.used_up_until.isoformat())

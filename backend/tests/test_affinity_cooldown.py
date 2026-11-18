@@ -66,7 +66,7 @@ def refused(res: httpx.Response, until: str = UNTIL) -> None:
     assert res.json()["detail"]
 
 
-async def test_the_turn_that_takes_it_to_0_has_her_part_and_begins_a_cooldown(
+async def test_the_first_level_zero_is_buffered_and_the_next_takes_it_to_0(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
@@ -75,20 +75,18 @@ async def test_the_turn_that_takes_it_to_0_has_her_part_and_begins_a_cooldown(
     llm = FakeLLM(REPLY, REPLY)
     unlimited = replace(settings, usage_limits=UsageLimits())
     client = make_client(llm, clients=clients, clock=clock, settings=unlimited)
-    other = await start_conversation(client, "kogane")
-    keep(settings.database_path, "producer", 45, clock.now, character="kogane")
     conversation = await start_conversation(client)
-    keep(settings.database_path, "producer", 1, clock.now)
+    keep(settings.database_path, "producer", 0.5, clock.now)
 
-    staying = await send_turn(client, other, "随便你")
-    parting = await send_turn(client, conversation, "随便你")
+    first = await send_turn(client, conversation, "随便你")
+    second = await send_turn(client, conversation, "随便你")
 
+    assert first[-1]["affinity"]["cooldown_until"] is None
     assert PARTING not in about_now(llm, 0)
-    assert staying[-1]["affinity"]["cooldown_until"] is None
-    assert PARTING in about_now(llm, 1)
     assert "挂断电话" not in about_now(llm, 1)  # that is for calls alone
-    assert parting[-1]["message"]["affinity"]["cooldown"] is True
-    assert parting[-1]["affinity"]["cooldown_until"] == UNTIL
+    assert PARTING in about_now(llm, 1)
+    assert second[-1]["message"]["affinity"]["cooldown"] is True
+    assert second[-1]["affinity"]["cooldown_until"] == UNTIL
 
 
 async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothing_until_it_ends(
@@ -99,7 +97,7 @@ async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothin
 ):
     clock = FakeClock()
     clients = FakeServiceClients()
-    clients.judge.judgings = [level(1, out_of_line=True), level(0)]
+    clients.judge.judgings = [level(0), level(0)]
     llm = FakeLLM(REPLY, REPLY)
     client = make_client(llm, clients=clients, clock=clock)
     conversation = await start_conversation(client)
@@ -118,6 +116,7 @@ async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothin
         thawed = (await status(client)).json()
         # Had the refused turn counted, the hour's one turn would be used up.
         again = await send_turn(client, conversation, "你这个废物")
+        keep(settings.database_path, "producer", 0.05, clock.now)
         clock.advance(hours=1)
         fell_again = await send_turn(client, conversation, "随便你")
         cooling_again = await post_turn(client, conversation)

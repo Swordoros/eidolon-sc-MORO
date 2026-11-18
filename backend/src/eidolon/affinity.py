@@ -159,9 +159,23 @@ day (`day_of`): a day in hers raises it twice as far at most (ADR-0030)."""
 OUT_OF_LINE_PER_CALL = 2
 """How many times the user may be out of line in one call: she hangs up after the last."""
 
-FED_UP_TURNS = 8
+FED_UP_TURNS = 6
 """How many of a call's latest turns, or of a conversation's latest typed turns, how much they
 hurt her is added up over (`hurt`), the turn just taken among them."""
+
+SEVERE_WINDOW = FED_UP_TURNS
+"""How many recent turns are weighed for whether a level 0 is a repeat."""
+
+FIRST_SEVERE_STEP = -0.2
+"""How much the first level 0 in `SEVERE_WINDOW` lowers affinity: a buffer before the full
+step of a repeated one."""
+
+FIRST_SEVERE_DAYS_STEP = -1.0
+"""`FIRST_SEVERE_STEP` in her days, where a level 0 is otherwise much heavier."""
+
+FIRST_SEVERE_HURT = 2.0
+"""How much the first level 0 in `SEVERE_WINDOW` hurts her, before the full `LEVEL_HURTS` of
+a repeated one."""
 
 FED_UP_AT = 12.0
 """How much those turns may hurt her between them: she hangs up, or ends the conversation,
@@ -511,6 +525,8 @@ for a turn that has no effect."""
 
 _OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
 
+_BUFFERED_FEELING = "制作人刚才说的话让你有点不高兴。"
+
 _CONSIDERATE_FEELINGS: dict[Days, dict[int, str]] = {
     "period": {
         INCONSIDERATE: "制作人没顾及你现在不舒服，你更难受了。",
@@ -561,14 +577,19 @@ class Judged:
     days: Days | None = None
     considerate: int = UNRELATED
     beyond: bool = False
+    buffered: bool = False
+    """A first level 0 in `SEVERE_WINDOW`, held to the lighter step and hurt."""
 
     @property
     def step(self) -> float:
         """How much its level changes affinity, before the day's gains are limited: out of
-        line, by `OUT_OF_LINE_STEP`; else by its level's step, her days' if judged in them,
-        never up if it tried to dictate."""
+        line, by `OUT_OF_LINE_STEP`; the first level 0 in `SEVERE_WINDOW` by the buffer;
+        else by its level's step, her days' if judged in them, never up if it tried to
+        dictate."""
         if self.out_of_line:
             return OUT_OF_LINE_STEP
+        if self.level == 0 and self.buffered:
+            return FIRST_SEVERE_DAYS_STEP if self.days else FIRST_SEVERE_STEP
         step = (HER_DAYS_LEVEL_STEPS if self.days else LEVEL_STEPS)[self.level]
         return 0.0 if self.manipulation and step > 0 else step
 
@@ -592,6 +613,8 @@ class Judged:
         not does, never warm when it changes nothing for being considerate."""
         if self.out_of_line:
             felt = [_OUT_OF_LINE_FEELING]
+        elif self.level == 0 and self.buffered:
+            felt = [_BUFFERED_FEELING]
         elif self.manipulation and self.level > NO_EFFECT:
             felt = []
         else:
@@ -751,6 +774,8 @@ def hurt(judged: Judged | None) -> float:
         return 0.0
     if judged.out_of_line:
         return OUT_OF_LINE_HURT
+    if judged.level == 0 and judged.buffered:
+        return FIRST_SEVERE_HURT
     inconsiderate = judged.days is not None and judged.considerate == INCONSIDERATE
     return LEVEL_HURTS[judged.level] + (INCONSIDERATE_HURT if inconsiderate else 0.0)
 

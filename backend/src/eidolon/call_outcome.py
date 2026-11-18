@@ -134,6 +134,7 @@ class CallOutcome:
         self._recorded = 0
         self._out_of_line = 0  # turns recorded out of line
         self._hurts: list[float] = []  # how much each turn recorded hurt her
+        self._levels: list[int | None] = []  # the judge's level each turn
         self._hanging_up: CallTurnRecorded | None = None  # the turn she hangs up after
         self._time_up = False
         self._told = False  # the browser has been told why the call ended
@@ -190,6 +191,7 @@ class CallOutcome:
         self._recorded += 1
         self._out_of_line += recorded.out_of_line
         self._hurts.append(recorded.hurt)
+        self._levels.append(recorded.level)
         if recorded.hangs_up is not None:
             self._hang_up_after(recorded)
         return None
@@ -221,7 +223,10 @@ class CallOutcome:
     @property
     def in_call(self) -> InCall:
         """What the call's next turn is told of it."""
-        return InCall(self._out_of_line, tuple(self._hurts), self._connected_by_clock)
+        return InCall(
+            self._out_of_line, tuple(self._hurts), tuple(self._levels),
+            self._connected_by_clock,
+        )
 
     def time_up(self) -> dict | None:
         """The call's time is up, `time_limit` after it connected."""
