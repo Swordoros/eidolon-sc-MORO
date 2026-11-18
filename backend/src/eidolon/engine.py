@@ -1563,6 +1563,7 @@ class ConversationEngine:
         twists: Mapping[str, Sequence[str]],
         yesterday: Mapping[str, str | None],
         lives: Mapping[str, str | None] | None = None,
+        households: Mapping[str, str] | None = None,
     ) -> str:
         """The schedules of the `unit`'s members for `day`, written together on `llm` so
         that they do not conflict: from each member's sheet and the world setting, the day,
@@ -1595,6 +1596,8 @@ class ConversationEngine:
                 own.append(f"你的作息习惯：{habit}")
             if before := yesterday.get(character_id):
                 own.append(f"你昨天的安排：{before}")
+            if household := (households or {}).get(character_id):
+                own.append(household)
             own_twists = twists.get(character_id, ())
             own.append(
                 "今天的小变数（要真的影响当天的安排）："

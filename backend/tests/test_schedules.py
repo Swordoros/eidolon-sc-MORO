@@ -358,6 +358,27 @@ def test_a_staff_bath_keeps_clear_of_her_sisters_bath():
     assert writer._sleep_after_bath(time(0, 40), moved) == time(0, 50)  # type: ignore[attr-defined]
 
 
+def test_the_dinner_plan_follows_the_weekday_and_is_stable():
+    writer = object.__new__(ScheduleWriter)
+    writer._characters = {  # type: ignore[attr-defined]
+        "hazuki": SimpleNamespace(name="七草はづき", name_zh="七草叶月"),
+        "nichika": SimpleNamespace(name="七草にちか", name_zh="七草日花"),
+    }
+    monday = date(2026, 11, 16)
+    tuesday = date(2026, 11, 17)
+
+    monday_plan = writer._dinner_plan("producer", monday)  # type: ignore[attr-defined]
+    tuesday_plan = writer._dinner_plan("producer", tuesday)  # type: ignore[attr-defined]
+
+    assert monday_plan.cook == "hazuki"
+    assert tuesday_plan.cook == "nichika"
+    assert monday_plan == writer._dinner_plan("producer", monday)  # type: ignore[attr-defined]
+    context = writer._dinner_context(  # type: ignore[attr-defined]
+        "nichika", tuesday, tuesday_plan
+    )
+    assert context is not None and "七草日花" in context
+
+
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
     offer = EscortOffer(
         "SHHis", "lesson", time(14), time(16), "声乐课", "事务所练习室", ("nichika",)
@@ -467,6 +488,12 @@ async def test_a_source_slot_is_marked_as_escorted_and_the_note_is_clipped(setti
         assert not await schedules.annotate(
             "producer", "nichika", day, time(10), time(11), "（七草叶月陪同）"
         )
+        assert await schedules.unannotate(
+            "producer", day, "（七草叶月陪同）"
+        ) == 1
+        kept = await schedules.of("producer", "nichika", day)
+        assert kept is not None
+        assert kept.slots[0].what == "声乐课"
 
 
 def test_a_unit_trip_picks_one_member_to_hold_the_trip_and_the_others_go_with_her():

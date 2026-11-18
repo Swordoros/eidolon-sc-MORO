@@ -565,6 +565,39 @@ class Schedules:
             self._annotate_body, user_id, character_id, day, start, end, note
         )
 
+    async def unannotate(self, user_id: str, day: date, note: str) -> int:
+        """Remove `note` from every schedule of the user's on `day`; how many slots
+        it was removed from."""
+        return await self._db.write(self._unannotate_body, user_id, day, note)
+
+    def _unannotate_body(
+        self, db: sqlite3.Connection, user_id: str, day: date, note: str,
+    ) -> int:
+        rows = db.execute(
+            "SELECT character_id, slots FROM schedules WHERE user_id = ? AND day = ?",
+            (user_id, day.isoformat()),
+        ).fetchall()
+        removed = 0
+        for character_id, raw in rows:
+            slots = json.loads(raw)
+            changed = False
+            for slot in slots:
+                what = str(slot.get("what", ""))
+                if note in what:
+                    slot["what"] = what.replace(note, "").rstrip()
+                    changed = True
+                    removed += 1
+            if changed:
+                db.execute(
+                    "UPDATE schedules SET slots = ?"
+                    " WHERE user_id = ? AND character_id = ? AND day = ?",
+                    (
+                        json.dumps(slots, ensure_ascii=False), user_id, character_id,
+                        day.isoformat(),
+                    ),
+                )
+        return removed
+
     def _annotate_body(
         self, db: sqlite3.Connection, user_id: str, character_id: str, day: date,
         start: time, end: time, note: str,

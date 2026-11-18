@@ -26,6 +26,7 @@ escort, and every member's kept slot is marked with her name.
 """
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -80,6 +81,15 @@ HOUSEHOLDS: dict[str, tuple[str, ...]] = {
     "nichika": ("hazuki",),
 }
 """Characters who live together, for the home part of their days."""
+
+COOKS: dict[int, str] = {
+    0: "hazuki", 2: "hazuki", 4: "hazuki", 6: "hazuki",
+    1: "nichika", 3: "nichika", 5: "nichika",
+}
+"""Who cooks dinner on each weekday (Monday is 0): the older sister on 一三五日."""
+
+SEPARATE_DINNER_IN = 256
+"""One draw in this many days is a day the sisters eat separately by choice."""
 
 TICK = timedelta(minutes=30)
 """How often it is looked whose schedule is to be written, and the units that could not be
@@ -158,6 +168,14 @@ class EscortOffer:
         if self.what.startswith(self.unit):
             return self.what[len(self.unit):].lstrip(" 　・-")
         return self.what
+
+
+@dataclass(frozen=True)
+class DinnerPlan:
+    """Who cooks and whether the sisters plan to eat together that evening."""
+
+    cook: str
+    together: bool
 
 
 def with_escort(slots: Sequence[Slot], offer: EscortOffer) -> list[Slot]:
@@ -510,6 +528,9 @@ class ScheduleWriter:
     async def _household_context(self, user_id: str, staff_id: str, day: date) -> str | None:
         """Her household's day, so her own home hours are written around it."""
         parts: list[str] = []
+        plan = self._dinner_plan(user_id, day)
+        if household := self._dinner_context(staff_id, day, plan):
+            parts.append(household)
         for cid in HOUSEHOLDS.get(staff_id, ()):
             schedule = await self._schedules.of(user_id, cid, day)
             if schedule is None:
@@ -527,6 +548,38 @@ class ScheduleWriter:
             said = "\n".join([*lines, *rest])
             parts.append(f"和你住在一起的{name}今天的安排：\n{said}")
         return "\n\n".join(parts) or None
+
+    def _dinner_plan(self, user_id: str, day: date) -> DinnerPlan:
+        """The household's dinner plan for `day`, stable when the day is rewritten."""
+        cook = COOKS[day.weekday()]
+        digest = hashlib.sha256(f"{user_id}:{day.isoformat()}:dinner".encode()).digest()
+        return DinnerPlan(cook, digest[0] >= SEPARATE_DINNER_IN)
+
+    def _dinner_context(self, character_id: str, day: date, plan: DinnerPlan) -> str | None:
+        """What one sister is told of the plan, in her own terms."""
+        if character_id not in HOUSEHOLDS:
+            return None
+        other = HOUSEHOLDS[character_id][0]
+        cook = self._characters.get(plan.cook)
+        cook_name = cook.name_zh if cook and cook.name_zh else (cook.name if cook else plan.cook)
+        other_character = self._characters.get(other)
+        other_name = (
+            other_character.name_zh if other_character and other_character.name_zh
+            else (other_character.name if other_character else other)
+        )
+        lines = [f"今天是星期{'一二三四五六日'[day.weekday()]}，按轮班今天轮到{cook_name}做晚饭。"]
+        if plan.together:
+            lines.append("今晚你们计划一起吃饭。")
+            if plan.cook == character_id:
+                lines.append(f"你负责做饭，{other_name}会和你一起吃；不要写她做饭。")
+            else:
+                lines.append(f"今天不是你做饭，不要写自己准备晚餐；你可以写和{cook_name}一起吃。")
+            lines.append("如果今晚有一方要外出工作、上课或演出，实在没有共同时间，就按实际各自吃，不要硬写共同晚饭。")
+        else:
+            lines.append(
+                "今晚不安排共同晚饭，各自吃；即使都在家也不要写一起吃饭、等对方或留饭。"
+            )
+        return "\n".join(lines)
 
     async def _household_baths(self, user_id: str, staff_id: str, day: date) -> list[Bath]:
         """The baths her household takes that day, to keep hers clear of them."""
@@ -615,6 +668,12 @@ class ScheduleWriter:
         for cid in unit:
             before = await self._schedules.of(user_id, cid, day - timedelta(days=1))
             yesterday[cid] = schedule_said(before, names)
+        households: dict[str, str] = {}
+        if not staff:
+            dinner = self._dinner_plan(user_id, day)
+            for cid in unit:
+                if context := self._dinner_context(cid, day, dinner):
+                    households[cid] = context
         recording = self._activity.begin("schedule", user_id, unit[0], own_llm=False, exempt=False)
         lease = self._config.lease()
         try:
@@ -626,7 +685,8 @@ class ScheduleWriter:
                     )
                 else:
                     answer = await self._engine.write_schedules(
-                        unit, lease.keys.chat_llm, day, twists, yesterday, live_by
+                        unit, lease.keys.chat_llm, day, twists, yesterday, live_by,
+                        households,
                     )
             if staff:
                 slots = parse_schedule(answer, self._characters)
@@ -668,17 +728,19 @@ class ScheduleWriter:
                     user_id, cid, day, slots, twists[cid], wake, sleep, bath,
                     trip if slots else None, trip_with,
                 )
-                if staff and escort is not None and cid == unit[0]:
+                if staff and cid == unit[0]:
                     character = self._characters[cid]
                     note = f"（{character.name_zh or character.name}陪同）"
-                    for member in escort.members:
-                        if not await self._schedules.annotate(
-                            user_id, member, day, escort.start, escort.end, note
-                        ):
-                            log.warning(
-                                "could not mark %s's schedule as escorted by %s on %s",
-                                member, cid, day,
-                            )
+                    await self._schedules.unannotate(user_id, day, note)
+                    if escort is not None:
+                        for member in escort.members:
+                            if not await self._schedules.annotate(
+                                user_id, member, day, escort.start, escort.end, note
+                            ):
+                                log.warning(
+                                    "could not mark %s's schedule as escorted by %s on %s",
+                                    member, cid, day,
+                                )
             await recording.finish("success" if parsed else "failed")
         except Exception as e:
             # Not logged with what was raised: a service's error may repeat what it was asked.
