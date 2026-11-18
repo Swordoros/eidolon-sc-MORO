@@ -142,11 +142,14 @@ export function useBarSound(base: string | null) {
 
   /** 正在放的是哪句语音（她的话合成出来的 mp3）。 */
   const saying = useRef<AudioBufferSourceNode | null>(null);
+  /** 她的语音是否正在响：酒吧立绘的嘴型跟这个，而不是跟文字打字。 */
+  const [isSaying, setSaying] = useState(false);
 
   /** 停掉正在放的那句语音（换句、翻页或离开这一页时）。 */
   const stopSay = useCallback(() => {
     saying.current?.stop();
     saying.current = null;
+    setSaying(false);
   }, []);
 
   /** 放一段现成的音频（她的台词合成出来的 mp3）：解码后接在同一个 AudioContext 上，先停掉上一句。 */
@@ -163,8 +166,12 @@ export function useBarSound(base: string | null) {
           stopSay();
           const source = sourceOf(decoded, false);
           saying.current = source;
+          setSaying(true);
           source.onended = () => {
-            if (saying.current === source) saying.current = null;
+            if (saying.current === source) {
+              saying.current = null;
+              setSaying(false);
+            }
           };
         })
         .catch(() => {});
@@ -173,8 +180,8 @@ export function useBarSound(base: string | null) {
   );
 
   return useMemo(
-    () => ({ audio, start, play, loop, say, stopSay, setVolume }),
-    [audio, start, play, loop, say, stopSay, setVolume],
+    () => ({ audio, start, play, loop, say, stopSay, setVolume, isSaying }),
+    [audio, start, play, loop, say, stopSay, setVolume, isSaying],
   );
 }
 

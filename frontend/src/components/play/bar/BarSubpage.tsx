@@ -126,6 +126,8 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
   });
 
   const voice = isFailed ? null : typingVoice(scene, now);
+  // 嘴型优先跟语音；没有语音时（TTS 没开、还在等合成）退回逐字打字的节奏。
+  const isMouthMoving = !isFailed && (sound.isSaying || isSpeaking(scene, now));
   const { loop } = sound;
   useEffect(() => {
     loop(voice && TYPING_SOUND[voice]);
@@ -161,7 +163,7 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
     <BarScreen
       room={<BarRoom />}
       guest={
-        her && <BarGuest key={current.guest?.key} character={her} mood={scene.mood} speaking={!isFailed && isSpeaking(scene, now)} />
+        her && <BarGuest key={current.guest?.key} character={her} mood={scene.mood} speaking={isMouthMoving} />
       }
       book={isMixing && <BarRecipeBook drinks={drinks} isCounterOpen={isCounterUnlocked} counter={counter} sound={sound} />}
       portrait={<PortraitGuard />}
