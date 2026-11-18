@@ -2016,6 +2016,7 @@ class ConversationEngine:
             character, conversation.user_id, now, timezone, last_contact, in_call is not None,
             in_bath,
         )
+        schedule_state = _schedule_state(known_schedule)
         group_context = None
         if await self._store.get_cross_chat(conversation.user_id):
             group_context = await recent_group_context(
@@ -2068,7 +2069,7 @@ class ConversationEngine:
             [p for p in (retrieved.cards_prompt, retrieved.related_prompt, long_term, retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
-            history_block=compact_history, anchor=anchor,
+            history_block=compact_history, anchor=anchor, now_state=schedule_state,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2709,6 +2710,7 @@ class ConversationEngine:
         timezone: str = "Asia/Shanghai",
         history_block: str | None = None,
         anchor: Message | None = None,
+        now_state: str | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2750,6 +2752,8 @@ class ConversationEngine:
             context.append(NOT_RECEIVED)
         context += closing
         prompt.append(ChatMessage("system", "\n\n".join(context)))
+        if now_state:
+            prompt.append(ChatMessage("system", f"# 你现在\n{now_state}"))
         if anchor is not None and history_block is not None:
             note = anchor_note(anchor, now)
             if note is not None:
