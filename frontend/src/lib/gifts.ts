@@ -18,7 +18,15 @@ export type Category = "food" | "drink" | "flower" | "trinket";
 export type Rarity = "common" | "uncommon" | "rare";
 
 /** 目录里的一件礼物。下架的（`retired`）不再从抽奖里出，持有的照样显示、照样能送。不带谁喜欢它。 */
-export type GiftInfo = { id: string; name: string; category: Category; rarity: Rarity; retired: boolean };
+export type GiftInfo = {
+  id: string;
+  name: string;
+  category: Category;
+  rarity: Rarity;
+  retired: boolean;
+  sell_price: number;
+  buy_price: number;
+};
 
 /** 一位角色现在的好感度，送礼时选人用：档位、是否冷却、冷却的解除时刻（ISO，不在冷却是 null）。 */
 export type GiftCharacter = { id: string; tier: Tier; cooling: boolean; cooldown_until: string | null };
@@ -37,6 +45,8 @@ export type GiftState = {
   /** 只列持有的，按目录的顺序。 */
   backpack: Owned[];
   reset_cards: number;
+  /** 现在持有的 P-Coin。 */
+  p_coins: number;
   /** 下次发抽奖次数的时刻（ISO，每天北京时间 0 点），攒满了也照样给；没开放时是 null。 */
   next_draw_at: string | null;
   /** 现在用重置卡会拉回的角色；没开放时是空的。 */
@@ -62,6 +72,36 @@ export async function getGiftState(): Promise<GiftState> {
 /** 读礼物目录（含下架的）。 */
 export async function getGiftCatalog(): Promise<GiftInfo[]> {
   return json(await api("/api/gifts/catalog"));
+}
+
+/** 出售或兑换后的余额和背包。 */
+export type Exchange = {
+  gift_id: string;
+  count: number;
+  p_coins: number;
+  backpack: Owned[];
+};
+
+/** 出售背包里的礼物换 P-Coin；没开放、数量不够、礼物不存在时抛 ApiError。 */
+export async function sellGift(giftId: string, count: number): Promise<Exchange> {
+  return json(
+    await api("/api/gifts/sell", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gift_id: giftId, count }),
+    }),
+  );
+}
+
+/** 用 P-Coin 兑换礼物；余额不够、已下架时抛 ApiError。 */
+export async function buyGift(giftId: string, count: number): Promise<Exchange> {
+  return json(
+    await api("/api/gifts/buy", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gift_id: giftId, count }),
+    }),
+  );
 }
 
 /** 抽一次，或 `all` 时把攒下的全部抽完。没开放时抛 `giftsClosed` 的 ApiError。 */

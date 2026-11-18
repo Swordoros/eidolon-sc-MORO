@@ -40,12 +40,17 @@ async def test_the_catalog_lists_every_gift_with_its_category_rarity_and_whether
     assert res.status_code == 200
     catalog = res.json()
     assert len(catalog) == 20
-    assert all(set(g) == {"id", "name", "category", "rarity", "retired"} for g in catalog)
+    assert all(
+        set(g) == {
+            "id", "name", "category", "rarity", "retired", "sell_price", "buy_price"
+        }
+        for g in catalog
+    )
     assert Counter(g["rarity"] for g in catalog) == {"common": 9, "uncommon": 8, "rare": 3}
     assert {"id": "pudding", "name": "布丁", "category": "food", "rarity": "common",
-            "retired": False} in catalog
+            "retired": False, "sell_price": 5, "buy_price": 10} in catalog
     assert {"id": "hot-water-bag", "name": "热水袋", "category": "trinket", "rarity": "uncommon",
-            "retired": False} in catalog
+            "retired": False, "sell_price": 15, "buy_price": 30} in catalog
     assert not any(g["retired"] for g in catalog)
 
 

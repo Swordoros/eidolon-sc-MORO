@@ -15,6 +15,7 @@ function giftState(change: Partial<GiftState> = {}): GiftState {
     max_draws: 7,
     backpack: [],
     reset_cards: 0,
+    p_coins: 0,
     next_draw_at: AFTER,
     resettable: [],
     characters: [],

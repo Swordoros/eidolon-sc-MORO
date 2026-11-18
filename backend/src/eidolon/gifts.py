@@ -55,8 +55,8 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.cycles import Cycles
 from eidolon.data_access import Database
-from eidolon.gift_catalog import Gift
-from eidolon.producer import effective_timezone
+from eidolon.gift_catalog import BUY_PRICES, SELL_PRICES, Gift
+from eidolon.producer import effective_timezone, local_date
 from eidolon.randomness import Random
 from eidolon.store import add_gift, read_profile
 
@@ -85,6 +85,12 @@ CREATE TABLE IF NOT EXISTS gift_backpacks (
     count INTEGER NOT NULL,
     PRIMARY KEY (user_id, gift_id)
 );
+-- Each user's P-Coin, and the day they last got the daily login grant on.
+CREATE TABLE IF NOT EXISTS gift_wallets (
+    user_id TEXT PRIMARY KEY REFERENCES users(id),
+    balance INTEGER NOT NULL DEFAULT 0,
+    granted_on TEXT
+);
 -- One row each time an admin gave every user a reset card: when, and how many were given.
 CREATE TABLE IF NOT EXISTS reset_card_grants (
     granted_at TEXT NOT NULL,
@@ -104,6 +110,9 @@ CREATE TABLE IF NOT EXISTS gift_rewards (
 
 RESET_CARD = "reset_card"
 """What a draw gives that is not a gift."""
+
+DAILY_P_COINS = 5
+"""P-Coin given once a producer-local day, the first time the gifts page is read."""
 
 
 class GiftsClosed(Exception):
@@ -139,6 +148,27 @@ class NoOneToReset(Exception):
 
     def __init__(self) -> None:
         super().__init__("现在没有低于信任的角色")
+
+
+class NotEnoughPCoin(Exception):
+    """The user has too few P-Coin to buy the gift."""
+
+    def __init__(self) -> None:
+        super().__init__("P-Coin 不足")
+
+
+class RetiredGift(Exception):
+    """The gift is retired and cannot be bought."""
+
+    def __init__(self) -> None:
+        super().__init__("这件礼物已经下架，不能兑换")
+
+
+class UnknownGift(LookupError):
+    """There is no such gift in the catalog."""
+
+    def __init__(self) -> None:
+        super().__init__("礼物不存在")
 
 
 class NoSuchCharacter(LookupError):
@@ -209,6 +239,8 @@ class GiftState:
     whom a reset card would bring back: none while closed, as affinity shows nothing then."""
     rewarded_at: datetime | None
     """When the user was last rewarded (`Gifts.reward`, `Gifts.reward_draw`); None if never."""
+    p_coins: int = 0
+    """The user's P-Coin."""
 
     def shown(self) -> dict:
         """As the browser is told it."""
@@ -218,6 +250,7 @@ class GiftState:
             "max_draws": MAX_DRAWS,
             "backpack": [{"gift_id": g, "count": n} for g, n in self.backpack],
             "reset_cards": self.reset_cards,
+            "p_coins": self.p_coins,
             "next_draw_at": self.next_draw_at and self.next_draw_at.isoformat(),
             "resettable": [
                 {"id": c, "tier": status.tier, "cooling": status.cooling}
@@ -229,6 +262,25 @@ class GiftState:
                 for c, status in self.characters
             ],
             "rewarded_at": self.rewarded_at and self.rewarded_at.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class Exchange:
+    """What selling or buying did: the gift, how many, the balance now, and the backpack."""
+
+    gift_id: str
+    count: int
+    p_coins: int
+    backpack: list[tuple[str, int]]
+
+    def shown(self) -> dict:
+        """As the browser is told it."""
+        return {
+            "gift_id": self.gift_id,
+            "count": self.count,
+            "p_coins": self.p_coins,
+            "backpack": [{"gift_id": g, "count": n} for g, n in self.backpack],
         }
 
 
@@ -313,16 +365,21 @@ class Gifts:
         if not self._is_open():
             raise GiftsClosed()
 
-    async def state(self, user_id: str) -> GiftState:
-        """What the user has now, having been given the draw chances due today, if gifts are
-        open. Notices first whether they have opened, as the switch may have just been
-        turned on and not yet noticed. Read first, and written only when chances are due."""
+    async def state(self, user_id: str, device_timezone: str | None = None) -> GiftState:
+        """What the user has now, having been given the draw chances and P-Coin due today, if
+        gifts are open. Notices first whether they have opened, as the switch may have just
+        been turned on and not yet noticed. Read first, and written only when chances or the
+        daily P-Coin are due."""
         await self.notice()
         is_open = self._is_open()
         now = self._clock()
-        found = await self._db.read(self._state, user_id, is_open, now, False)
+        timezone = effective_timezone(
+            await self._db.read(read_profile, user_id), device_timezone
+        )
+        day = local_date(now, timezone).isoformat()
+        found = await self._db.read(self._state, user_id, is_open, now, False, day)
         if found is None:
-            found = await self._db.write(self._state, user_id, is_open, now, True)
+            found = await self._db.write(self._state, user_id, is_open, now, True, day)
         assert found is not None
         return found
 
@@ -401,6 +458,57 @@ class Gifts:
         timezone = effective_timezone(await self._db.read(read_profile, user_id), device_timezone)
         her_days = await self._cycles.her_days(user_id, character_id)
         return her_days(self._clock(), timezone) is not None
+
+    async def sell(self, user_id: str, gift_id: str, count: int) -> Exchange:
+        """Sell `count` of a gift from the backpack for P-Coin, all or none. Retired gifts
+        may be sold; raises UnknownGift or NoneLeft, and GiftsClosed while closed."""
+        await self.refuse_unless_open()
+        return await self._db.write(self._sell, user_id, gift_id, count)
+
+    def _sell(self, db: sqlite3.Connection, user_id: str, gift_id: str, count: int) -> Exchange:
+        gift = self._catalog.get(gift_id)
+        if gift is None:
+            raise UnknownGift()
+        taken = db.execute(
+            "UPDATE gift_backpacks SET count = count - ?"
+            " WHERE user_id = ? AND gift_id = ? AND count >= ? RETURNING count",
+            (count, user_id, gift_id, count),
+        ).fetchone()
+        if taken is None:
+            raise NoneLeft()
+        balance = _wallet(db, user_id) + SELL_PRICES[gift.rarity] * count
+        db.execute(
+            "UPDATE gift_wallets SET balance = ? WHERE user_id = ?", (balance, user_id)
+        )
+        return Exchange(gift_id, count, balance, _held(db, user_id, self._catalog))
+
+    async def buy(self, user_id: str, gift_id: str, count: int) -> Exchange:
+        """Buy `count` of a gift with P-Coin, all or none. Retired gifts cannot be bought;
+        raises UnknownGift, RetiredGift or NotEnoughPCoin, and GiftsClosed while closed."""
+        await self.refuse_unless_open()
+        return await self._db.write(self._buy, user_id, gift_id, count)
+
+    def _buy(self, db: sqlite3.Connection, user_id: str, gift_id: str, count: int) -> Exchange:
+        gift = self._catalog.get(gift_id)
+        if gift is None:
+            raise UnknownGift()
+        if gift.retired:
+            raise RetiredGift()
+        cost = BUY_PRICES[gift.rarity] * count
+        _wallet(db, user_id)
+        paid = db.execute(
+            "UPDATE gift_wallets SET balance = balance - ?"
+            " WHERE user_id = ? AND balance >= ? RETURNING balance",
+            (cost, user_id, cost),
+        ).fetchone()
+        if paid is None:
+            raise NotEnoughPCoin()
+        db.execute(
+            "INSERT INTO gift_backpacks (user_id, gift_id, count) VALUES (?, ?, ?)"
+            " ON CONFLICT (user_id, gift_id) DO UPDATE SET count = count + excluded.count",
+            (user_id, gift_id, count),
+        )
+        return Exchange(gift_id, count, paid[0], _held(db, user_id, self._catalog))
 
     def give(
         self, db: sqlite3.Connection, user_id: str, gift_id: str, character_id: str,
@@ -526,13 +634,15 @@ class Gifts:
         is_open: bool,
         now: datetime,
         giving: bool,
+        day: str,
     ) -> GiftState | None:
-        """What the user has at `now`, read through `db`: giving the draw chances due if
-        `giving`, else None if any are due."""
+        """What the user has at `now`, read through `db`: giving the draw chances and daily
+        P-Coin due if `giving`, else None if any are due."""
         if is_open:
             if giving:
                 _give(db, user_id, day_of(now))
-            elif _due(db, user_id, day_of(now)):
+                _grant_daily(db, user_id, day)
+            elif _due(db, user_id, day_of(now)) or _wallet_day(db, user_id) != day:
                 return None
         row = db.execute(
             "SELECT draws, reset_cards FROM gift_balances WHERE user_id = ?", (user_id,)
@@ -543,6 +653,9 @@ class Gifts:
                 (user_id,),
             ).fetchall()
         )
+        wallet = db.execute(
+            "SELECT balance FROM gift_wallets WHERE user_id = ?", (user_id,)
+        ).fetchone()
         draws, reset_cards = row or (0, 0)
         backpack = [(g, held[g]) for g in self._catalog if g in held]
         # Open where affinity is on: what is shown of her affinity is shown while open.
@@ -553,7 +666,7 @@ class Gifts:
         next_draw_at = next_day(now) if is_open else None
         return GiftState(
             is_open, draws, backpack, reset_cards, next_draw_at, characters,
-            _last_rewarded(db, user_id),
+            _last_rewarded(db, user_id), wallet[0] if wallet else 0,
         )
 
     def _use_reset_card(self, db: sqlite3.Connection, user_id: str) -> Reset:
@@ -640,6 +753,52 @@ def _last_grant(db: sqlite3.Connection) -> Grant | None:
         " ORDER BY granted_at DESC, rowid DESC LIMIT 1"
     ).fetchone()
     return row and Grant(datetime.fromisoformat(row[0]), row[1])
+
+
+def _wallet_day(db: sqlite3.Connection, user_id: str) -> str | None:
+    """The producer-local day the user last got P-Coin on; None if no wallet yet."""
+    row = db.execute(
+        "SELECT granted_on FROM gift_wallets WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _grant_daily(db: sqlite3.Connection, user_id: str, day: str) -> None:
+    """Give the user `DAILY_P_COINS` once for `day`, through `db`."""
+    db.execute(
+        "INSERT INTO gift_wallets (user_id, balance, granted_on) VALUES (?, ?, ?)"
+        " ON CONFLICT (user_id) DO NOTHING",
+        (user_id, DAILY_P_COINS, day),
+    )
+    db.execute(
+        "UPDATE gift_wallets SET balance = balance + ?, granted_on = ?"
+        " WHERE user_id = ? AND (granted_on IS NULL OR granted_on <> ?)",
+        (DAILY_P_COINS, day, user_id, day),
+    )
+
+
+def _wallet(db: sqlite3.Connection, user_id: str) -> int:
+    """The user's P-Coin, creating an empty wallet if they have none."""
+    db.execute(
+        "INSERT INTO gift_wallets (user_id, balance) VALUES (?, 0)"
+        " ON CONFLICT (user_id) DO NOTHING",
+        (user_id,),
+    )
+    (balance,) = db.execute(
+        "SELECT balance FROM gift_wallets WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return balance
+
+
+def _held(db: sqlite3.Connection, user_id: str, catalog: Iterable[str]) -> list[tuple[str, int]]:
+    """The user's backpack, in catalog order, through `db`."""
+    held = dict(
+        db.execute(
+            "SELECT gift_id, count FROM gift_backpacks WHERE user_id = ? AND count > 0",
+            (user_id,),
+        ).fetchall()
+    )
+    return [(g, held[g]) for g in catalog if g in held]
 
 
 def _due(db: sqlite3.Connection, user_id: str, today: date) -> bool:

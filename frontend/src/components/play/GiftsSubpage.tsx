@@ -8,6 +8,7 @@ import { SectionHeading } from "@/components/app/SubpageHeader";
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
 import { useProducerTimezone } from "@/components/conversations/useProducerTimezone";
 import { DrawDialog, type Drawing } from "@/components/gifts/DrawDialog";
+import { ExchangeDesk } from "@/components/gifts/ExchangeDesk";
 import { GivenToast, type GivenNotice } from "@/components/gifts/GivenToast";
 import { GivePanel, type Giving } from "@/components/gifts/GivePanel";
 import { MyGifts } from "@/components/gifts/MyGifts";
@@ -224,6 +225,17 @@ export function GiftsSubpage({ pick }: { pick: GiftsFor | null }) {
             next={nextDraw}
             isDrawing={drawing !== null}
             onDraw={draw}
+          />
+          <ExchangeDesk
+            pCoins={state.p_coins}
+            backpack={state.backpack}
+            catalog={catalog}
+            onDone={(exchange) =>
+              setState((s) =>
+                s && { ...s, p_coins: exchange.p_coins, backpack: exchange.backpack },
+              )
+            }
+            onClose={() => {}}
           />
           {state.reset_cards > 0 && (
             <ResetCards

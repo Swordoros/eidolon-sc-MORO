@@ -2685,6 +2685,38 @@ export const zh = {
         note: "不是礼物，自己用：把所有低于信任的角色拉回信任，冷却中的马上可以说话。能攒，不过期。",
       },
     },
+    /** 礼物兑换：出售背包里的礼物换 P-Coin，或用 P-Coin 兑换礼物。 */
+    exchange: {
+      title: "礼物兑换",
+      pCoins: (n: number) => `P-Coin ${n}`,
+      balance: (n: number) => `现在有 ${n} P-Coin`,
+      sell: "出售",
+      buy: "兑换",
+      sellHint: "卖掉不想要的礼物，换成 P-Coin",
+      buyHint: "用 P-Coin 换一件想要的礼物",
+      empty: "背包里还没有可以出售的礼物",
+      buyEmpty: "现在没有可以兑换的礼物",
+      quantity: "数量",
+      less: "减少",
+      more: "增加",
+      total: (n: number) => `共 ${n} P-Coin`,
+      owned: (n: number) => `持有 ${n}`,
+      retired: "已下架",
+      notEnough: "P-Coin 不足",
+      confirmSell: {
+        title: "确认出售？",
+        description: (name: string, count: number, total: number) =>
+          `出售 ${name} ×${count}，获得 ${total} P-Coin。`,
+        action: "确认出售",
+      },
+      confirmBuy: {
+        title: "确认兑换？",
+        description: (name: string, count: number, total: number) =>
+          `花费 ${total} P-Coin，兑换 ${name} ×${count}。`,
+        action: "确认兑换",
+      },
+      failed: "兑换没有完成，请再试一次",
+    },
     /** 重置卡条（有重置卡时才出现）和用之前的确认框。 */
     resetCards: {
       title: "重置卡",

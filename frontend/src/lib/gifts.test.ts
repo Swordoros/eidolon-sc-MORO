@@ -66,10 +66,10 @@ describe("重置卡条那句话", () => {
 
 describe("我的礼物按类别筛选", () => {
   const catalog: GiftInfo[] = [
-    { id: "cake", name: "蛋糕", category: "food", rarity: "common", retired: false },
-    { id: "tea", name: "红茶", category: "drink", rarity: "common", retired: false },
-    { id: "cocoa", name: "热可可", category: "drink", rarity: "uncommon", retired: true },
-    { id: "rose", name: "玫瑰", category: "flower", rarity: "rare", retired: false },
+    { id: "cake", name: "蛋糕", category: "food", rarity: "common", retired: false, sell_price: 5, buy_price: 10 },
+    { id: "tea", name: "红茶", category: "drink", rarity: "common", retired: false, sell_price: 5, buy_price: 10 },
+    { id: "cocoa", name: "热可可", category: "drink", rarity: "uncommon", retired: true, sell_price: 15, buy_price: 30 },
+    { id: "rose", name: "玫瑰", category: "flower", rarity: "rare", retired: false, sell_price: 25, buy_price: 50 },
   ];
   const backpack = [
     { gift_id: "cake", count: 2 },

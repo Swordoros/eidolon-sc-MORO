@@ -30,6 +30,12 @@ Category = Literal["food", "drink", "flower", "trinket"]
 Rarity = Literal["common", "uncommon", "rare"]
 """普通、少见、稀有, from the commonest."""
 
+SELL_PRICES: dict[Rarity, int] = {"common": 5, "uncommon": 15, "rare": 25}
+"""What selling one gift gives in P-Coin, by rarity."""
+
+BUY_PRICES: dict[Rarity, int] = {"common": 10, "uncommon": 30, "rare": 50}
+"""What buying one gift costs in P-Coin, by rarity."""
+
 GIFTS_FILE = "gifts.toml"
 """The file's name, in the directory of the character configuration."""
 
@@ -61,6 +67,8 @@ class Gift:
         return {
             "id": self.id, "name": self.name, "category": self.category,
             "rarity": self.rarity, "retired": self.retired,
+            "sell_price": SELL_PRICES[self.rarity],
+            "buy_price": BUY_PRICES[self.rarity],
         }
 
 

@@ -60,6 +60,88 @@ def gift_drawn(id: str) -> dict:
 CARD_DRAWN = {"kind": "reset_card"}
 
 
+async def test_the_first_state_of_a_day_gives_five_p_coins_and_only_once(
+    make_client: ClientFactory,
+):
+    clock = FakeClock()
+    client = make_client(FakeLLM(), clock=clock)
+
+    first = await state(client)
+    clock.advance(hours=3)
+    again = await state(client)
+    clock.advance(days=1)
+    tomorrow = await state(client)
+
+    assert [first["p_coins"], again["p_coins"], tomorrow["p_coins"]] == [5, 5, 10]
+
+
+async def test_selling_a_gift_gives_p_coins_and_buying_spends_them(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM(), clock=FakeClock(), random=FakeRandom(COMMON, FIRST))
+    await state(client)
+    await draw(client)
+
+    sold = await client.post("/api/gifts/sell", json={"gift_id": "cake", "count": 1})
+    assert sold.status_code == 200, sold.text
+    assert sold.json()["p_coins"] == 10
+    assert sold.json()["backpack"] == []
+
+    bought = await client.post("/api/gifts/buy", json={"gift_id": "cake", "count": 1})
+    assert bought.status_code == 200, bought.text
+    assert bought.json()["p_coins"] == 0
+    assert bought.json()["backpack"] == [{"gift_id": "cake", "count": 1}]
+
+
+async def test_buying_without_enough_p_coins_is_refused(make_client: ClientFactory):
+    client = make_client(FakeLLM(), clock=FakeClock())
+
+    res = await client.post("/api/gifts/buy", json={"gift_id": "cake", "count": 1})
+
+    assert res.status_code == 409
+    assert (await state(client))["p_coins"] == 5
+
+
+async def test_selling_more_than_is_held_or_an_unknown_gift_is_refused(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM(), clock=FakeClock())
+
+    too_many = await client.post("/api/gifts/sell", json={"gift_id": "cake", "count": 2})
+    unknown = await client.post("/api/gifts/sell", json={"gift_id": "nope", "count": 1})
+
+    assert too_many.status_code == 409
+    assert unknown.status_code == 404
+    assert (await state(client))["p_coins"] == 5
+
+
+async def test_a_gift_that_is_retired_cannot_be_bought(make_client: ClientFactory):
+    client = make_client(FakeLLM(), clock=FakeClock())
+
+    res = await client.post("/api/gifts/buy", json={"gift_id": "candy", "count": 1})
+
+    assert res.status_code == 409
+    assert "下架" in res.json()["detail"]
+
+
+async def test_a_gift_that_became_retired_can_still_be_sold(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    client = make_client(FakeLLM(), clock=FakeClock(), random=FakeRandom(UNCOMMON, FIRST))
+    await state(client)
+    await draw(client)
+    characters.write(
+        GIFTS_FILE,
+        gift("cake") + gift("cocoa", "uncommon", retired=True) + gift("plush", "rare"),
+    )
+
+    res = await client.post("/api/gifts/sell", json={"gift_id": "cocoa", "count": 1})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["p_coins"] == 20
+    assert res.json()["backpack"] == []
+
+
 @pytest.mark.parametrize(
     ("numbers", "drawn"),
     [

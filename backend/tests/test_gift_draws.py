@@ -54,6 +54,7 @@ async def test_a_new_user_has_two_draws_the_day_they_come_and_nothing_else_yet(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "p_coins": 5,
         "next_draw_at": "2026-09-25T16:00:00+00:00",
         "resettable": [],
         "characters": [
@@ -178,6 +179,7 @@ async def test_off_the_state_is_read_all_the_same_saying_so(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "p_coins": 5,
         "next_draw_at": None,
         "resettable": [],
         "characters": [],

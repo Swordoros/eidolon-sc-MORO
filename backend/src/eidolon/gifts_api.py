@@ -14,7 +14,7 @@ from dataclasses import replace
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
@@ -25,6 +25,9 @@ from eidolon.gifts import (
     NoOneToReset,
     NoResetCards,
     NoSuchCharacter,
+    NotEnoughPCoin,
+    RetiredGift,
+    UnknownGift,
 )
 from eidolon.sessions import DeviceTimezone, UserId
 
@@ -36,6 +39,11 @@ class DrawInput(BaseModel):
 
 class GiftInput(BaseModel):
     gift_id: str
+
+
+class ExchangeInput(BaseModel):
+    gift_id: str
+    count: int = Field(ge=1, le=99)
 
 
 def add_gift_routes(app: FastAPI, backend: Backend) -> None:
@@ -50,8 +58,14 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
     @app.exception_handler(NoneLeft)
     @app.exception_handler(NoResetCards)
     @app.exception_handler(NoOneToReset)
+    @app.exception_handler(NotEnoughPCoin)
+    @app.exception_handler(RetiredGift)
     async def none_to_use(_: Request, e: Exception) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=409)
+
+    @app.exception_handler(UnknownGift)
+    async def unknown_gift(_: Request, e: UnknownGift) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=404)
 
     @app.get("/api/gifts/catalog")
     def read_catalog(_: UserId) -> list[dict]:
@@ -59,15 +73,27 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
         return [g.described() for g in catalog.values()]
 
     @app.get("/api/gifts")
-    async def read_state(user_id: UserId) -> dict:
-        """What the user has, having been given the draw chances due today; whether gifts
-        are open, and if so when the next chance is given and each character's affinity,
-        for choosing whom to give to, and how far the user has come with the achievements of
-        all the characters together."""
+    async def read_state(
+        user_id: UserId, device_timezone: DeviceTimezone = None
+    ) -> dict:
+        """What the user has, having been given the draw chances and daily P-Coin due today;
+        whether gifts are open, and if so when the next chance is given and each character's
+        affinity, for choosing whom to give to, and how far the user has come with the
+        achievements of all the characters together."""
         of_all = await happenings.of_all(user_id)
-        return (await gifts.state(user_id)).shown() | {
+        return (await gifts.state(user_id, device_timezone)).shown() | {
             "achievements": of_all and [p.shown() for p in of_all],
         }
+
+    @app.post("/api/gifts/sell")
+    async def sell(body: ExchangeInput, user_id: UserId) -> dict:
+        """Sell gifts from the backpack for P-Coin, and say the balance and backpack left."""
+        return (await gifts.sell(user_id, body.gift_id, body.count)).shown()
+
+    @app.post("/api/gifts/buy")
+    async def buy(body: ExchangeInput, user_id: UserId) -> dict:
+        """Exchange P-Coin for gifts, and say the balance and backpack left."""
+        return (await gifts.buy(user_id, body.gift_id, body.count)).shown()
 
     @app.post("/api/gifts/draws")
     async def draw(body: DrawInput, user_id: UserId) -> dict:
