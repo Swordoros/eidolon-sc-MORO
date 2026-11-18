@@ -52,6 +52,7 @@ from eidolon.schedules import (
     DATE_TWIST,
     UNIT_TRIP_ODDS,
     TWISTS,
+    Bath,
     Schedule,
     Slot,
     Schedules,
@@ -527,6 +528,38 @@ class ScheduleWriter:
             parts.append(f"和你住在一起的{name}今天的安排：\n{said}")
         return "\n\n".join(parts) or None
 
+    async def _household_baths(self, user_id: str, staff_id: str, day: date) -> list[Bath]:
+        """The baths her household takes that day, to keep hers clear of them."""
+        baths: list[Bath] = []
+        for cid in HOUSEHOLDS.get(staff_id, ()):
+            schedule = await self._schedules.of(user_id, cid, day)
+            if schedule is not None and schedule.bath is not None:
+                baths.append(schedule.bath)
+        return baths
+
+    @staticmethod
+    def _bath_minutes(at: time, minutes: int) -> tuple[int, int]:
+        """Minutes from midnight, a time before noon being after midnight."""
+        return ((at.hour + 24 if at.hour < 12 else at.hour) * 60 + at.minute, minutes)
+
+    @classmethod
+    def _bath_clear(cls, bath: Bath, others: Sequence[Bath]) -> Bath:
+        """The same bath, moved past any household bath it overlaps."""
+        start, length = cls._bath_minutes(bath.at, bath.minutes)
+        end = start + length
+        changed = True
+        while changed:
+            changed = False
+            for other in others:
+                other_start, other_length = cls._bath_minutes(other.at, other.minutes)
+                other_end = other_start + other_length
+                if start < other_end and other_start < end:
+                    start = other_end + 10
+                    end = start + length
+                    changed = True
+        hour = (start // 60) % 24
+        return Bath(time(hour, start % 60), length)
+
     def _escort_twist(self, offer: EscortOffer) -> str:
         return (
             f"今天 {offer.start.strftime('%H:%M')}–{offer.end.strftime('%H:%M')}，"
@@ -611,6 +644,10 @@ class ScheduleWriter:
                 if sleep is not None:
                     heart = self._characters[cid].heart
                     bath = draw_bath(sleep, heart.bath if heart else "tub", self._random)
+                if staff and household and bath is not None:
+                    bath = self._bath_clear(
+                        bath, await self._household_baths(user_id, unit[0], day)
+                    )
                 slots, wake, sleep, bath = reconciled(slots, wake, sleep, bath)
                 trip, trip_with = trips[cid]
                 await self._schedules.forget(user_id, cid, day)

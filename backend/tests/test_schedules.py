@@ -347,6 +347,16 @@ def test_a_long_live_escort_is_named_plainly():
     assert offer.task() == "陪同放課後クライマックスガールズ进行LIVE"
 
 
+def test_a_staff_bath_keeps_clear_of_her_sisters_bath():
+    writer = object.__new__(ScheduleWriter)
+
+    moved = writer._bath_clear(  # type: ignore[attr-defined]
+        Bath(time(23, 20), 35), [Bath(time(23, 10), 45)]
+    )
+
+    assert (moved.at, moved.minutes) == (time(0, 5), 35)
+
+
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
     offer = EscortOffer(
         "SHHis", "lesson", time(14), time(16), "声乐课", "事务所练习室", ("nichika",)
