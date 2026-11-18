@@ -38,7 +38,7 @@ KEPT_DAYS = 14
 """How many days a schedule is kept."""
 
 MAX_SLOTS = 8
-MAX_WHAT = 40
+MAX_WHAT = 30
 MAX_WHERE = 30
 DAY_STARTS = time(6)
 """The earliest a slot may begin; the latest it may end is midnight."""
@@ -584,7 +584,7 @@ class Schedules:
                 continue
             what = str(slot.get("what", ""))
             if note not in what:
-                slot["what"] = (what[: max(0, MAX_WHAT - len(note))] + note)[:MAX_WHAT]
+                slot["what"] = (what + note)[:MAX_WHAT + len(note)]
             found = True
         if not found:
             return False
