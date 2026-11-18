@@ -42,7 +42,7 @@ def tables(connection):
     )
 
 
-def test_group_context_takes_only_the_latest_five_rounds():
+def test_group_context_takes_only_latest_five_messages_with_a_producer():
     import sqlite3
 
     now = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
@@ -74,8 +74,42 @@ def test_group_context_takes_only_the_latest_five_rounds():
     assert result is not None
     assert result.startswith("# 最近半小时的群聊")
     assert "群「测试群」" in result
-    assert "第2轮" in result and "第0轮" not in result
-    assert "小A：回答6" in result
+    assert "第5轮" in result and "第6轮" in result
+    assert "第4轮" not in result
+    assert "小A：回答4" in result
+
+
+def test_group_context_is_skipped_when_the_last_five_have_no_producer():
+    import sqlite3
+
+    now = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
+    connection = sqlite3.connect(":memory:")
+    tables(connection)
+    connection.execute(
+        "INSERT INTO group_chats VALUES ('g', 'u', '测试群', 1, '', NULL, NULL, NULL, NULL)"
+    )
+    connection.execute("INSERT INTO group_members VALUES ('g', 'a')")
+    connection.execute(
+        "INSERT INTO group_topics VALUES ('t', 'g', 'u', 'user', '', '', NULL)"
+    )
+    rows = [(1, "t", "u", "user", "制作人上一次发言", "", now.isoformat())]
+    for n in range(6):
+        rows.append((
+            n + 2, "t", "u", "a", f"角色继续说{n}", f"角色继续说{n}",
+            (now + timedelta(minutes=n + 1)).isoformat(),
+        ))
+    connection.executemany(
+        "INSERT INTO group_messages VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+    )
+
+    result = asyncio.run(
+        recent_group_context(
+            FakeDB(connection), "u", "a",
+            {"a": SimpleNamespace(name="A", name_zh="小A")}, now + timedelta(minutes=10),
+        )
+    )
+
+    assert result is None
 
 
 def test_group_context_works_with_fewer_than_five_rounds():
@@ -110,7 +144,7 @@ def test_group_context_works_with_fewer_than_five_rounds():
     )
 
     assert result is not None
-    assert "第0轮" in result and "第2轮" in result
+    assert "第1轮" in result and "第2轮" in result
 
 
 def test_private_context_only_keeps_chinese_lines_and_five_rounds():

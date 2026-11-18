@@ -37,7 +37,7 @@ async def recent_group_context(
         return None
     group_id, name = row
     rows = await db.read(_group_lines, user_id, group_id, cutoff)
-    lines = _rounds(rows, "user")
+    lines = _recent_messages(rows)
     if not lines:
         return None
     said: list[str] = []
@@ -125,6 +125,12 @@ def _private_lines(
         (user_id, character_id, cutoff, LIMIT),
     ).fetchall()
     return [tuple(row) for row in reversed(rows)]
+
+
+def _recent_messages(rows: Sequence[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """The last `ROUNDS` messages, only when a producer's line is among them."""
+    recent = list(rows[-ROUNDS:])
+    return recent if any(row[0] == "user" for row in recent) else []
 
 
 def _rounds(rows: Sequence[tuple[str, str, str]], user: str) -> list[tuple[str, str, str]]:
