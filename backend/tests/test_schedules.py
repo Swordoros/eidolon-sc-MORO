@@ -355,6 +355,7 @@ def test_a_staff_bath_keeps_clear_of_her_sisters_bath():
     )
 
     assert (moved.at, moved.minutes) == (time(0, 5), 35)
+    assert writer._sleep_after_bath(time(0, 40), moved) == time(0, 50)  # type: ignore[attr-defined]
 
 
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():

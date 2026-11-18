@@ -560,6 +560,18 @@ class ScheduleWriter:
         hour = (start // 60) % 24
         return Bath(time(hour, start % 60), length)
 
+    @classmethod
+    def _sleep_after_bath(cls, sleep: time | None, bath: Bath | None) -> time | None:
+        """Sleep no earlier than ten minutes after a bath moved past midnight."""
+        if sleep is None or bath is None:
+            return sleep
+        start, length = cls._bath_minutes(bath.at, bath.minutes)
+        latest = start + length + 10
+        bed = cls._bath_minutes(sleep, 0)[0]
+        if latest <= bed:
+            return sleep
+        return time((latest // 60) % 24, latest % 60)
+
     def _escort_twist(self, offer: EscortOffer) -> str:
         return (
             f"今天 {offer.start.strftime('%H:%M')}–{offer.end.strftime('%H:%M')}，"
@@ -644,11 +656,12 @@ class ScheduleWriter:
                 if sleep is not None:
                     heart = self._characters[cid].heart
                     bath = draw_bath(sleep, heart.bath if heart else "tub", self._random)
+                slots, wake, sleep, bath = reconciled(slots, wake, sleep, bath)
                 if staff and household and bath is not None:
                     bath = self._bath_clear(
                         bath, await self._household_baths(user_id, unit[0], day)
                     )
-                slots, wake, sleep, bath = reconciled(slots, wake, sleep, bath)
+                    sleep = self._sleep_after_bath(sleep, bath)
                 trip, trip_with = trips[cid]
                 await self._schedules.forget(user_id, cid, day)
                 await self._schedules.keep(
