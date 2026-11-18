@@ -35,7 +35,7 @@ import pytest
 
 from eidolon.assembly import Backend
 from eidolon.config import Settings
-from eidolon.engine import REACH_OUT_RULES, WANTS_TO_REACH_OUT
+from eidolon.engine import REACH_OUT_RULES, WANTS_TO_REACH_OUT, _schedule_state
 from eidolon.llm import LLMError
 from tests.browser import Browser
 from tests.conftest import ClientFactory
@@ -54,7 +54,6 @@ from tests.fakes import (
     FakeReranker,
     FakeServiceClients,
     context_of,
-    system_of,
 )
 from tests.test_activity_records import dashboard, health
 from tests.test_admin_users import ADMIN, admin_beside, details, find
@@ -73,6 +72,18 @@ REACH_OUT = ["<ja>[happily] プロデューサーさん！</ja><zh>制作人！<
 REACH_OUTS = "/api/admin/config/reach_outs"
 MIDDLE = 500
 """Where in her tier's range the time is drawn: halfway (`reach_outs.PLACES`)."""
+
+
+def test_what_she_is_doing_now_comes_from_the_schedule():
+    assert _schedule_state(["正在进行的安排：录音准备（进行中）"]) == (
+        "- 你现在正在录音准备（进行中）。"
+    )
+    assert _schedule_state([
+        "正在进行的安排：没有正在进行的安排，现在有空",
+        "刚刚结束的安排：练习（刚刚）",
+        "即将开始的安排：录音准备（10分钟后）",
+    ]) == "- 你刚刚结束了练习（刚刚），马上要进行录音准备（10分钟后）。"
+    assert _schedule_state(["正在进行的安排：没有正在进行的安排，现在有空"]) is None
 
 
 @pytest.fixture
@@ -329,13 +340,12 @@ async def test_she_is_asked_as_in_a_text_turn_but_told_they_are_not_talking(
     await backend_of(client).reach_outs.run_due()
 
     turn, reaching_out = llm.prompts[-2], llm.prompts[-1]
-    assert system_of(reaching_out) == system_of(turn)
-    assert [(m.role, m.content) for m in reaching_out if m.role != "system"] == [
-        ("user", "我去练习了"), ("assistant", "<ja>はい</ja><zh>好的</zh>"),
-        ("user", "今天好累"), ("assistant", "<ja>はい</ja><zh>好的</zh>"),
-        ("user", f"（制作人送给你一份蛋糕。）\n{WANTS_TO_REACH_OUT}"),
-    ]
-    told = context_of(reaching_out)
+    assert turn[0].content == reaching_out[0].content
+    assert turn[1].content == reaching_out[1].content
+    history = "\n".join(m.content for m in reaching_out if m.role == "system")
+    assert "今天好累" in history and "蛋糕" in history
+    assert reaching_out[-1].role == "user" and WANTS_TO_REACH_OUT in reaching_out[-1].content
+    told = "\n".join(m.content for m in reaching_out if m.role == "system")
     assert "你们这会儿没在说话" in told and "正在用文字和你聊天" not in told
     assert "现在是" in told and "非常信赖" in told and FONDNESS["intimate"] in told
     assert REACH_OUT_RULES in told

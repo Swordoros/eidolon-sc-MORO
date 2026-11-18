@@ -822,6 +822,29 @@ def _topic_waiting(line: str) -> str:
         "（自问自答也可以），也可以先说别的——按你的性子来，别把原话重复一遍。"
     )
 
+
+def _schedule_state(lines: Sequence[str]) -> str | None:
+    """Today's schedule as one line about what she is doing now, or what just ended
+    and what starts within half an hour; None without a schedule or a state."""
+    def after(prefix: str) -> str | None:
+        for line in lines:
+            if line.startswith(prefix):
+                return line[len(prefix):].strip().rstrip("。") or None
+        return None
+
+    current = after("正在进行的安排：")
+    if current and not current.startswith("没有正在进行"):
+        return f"- 你现在正在{current}。"
+    recent = after("刚刚结束的安排：")
+    upcoming = after("即将开始的安排：")
+    if recent and upcoming:
+        return f"- 你刚刚结束了{recent}，马上要进行{upcoming}。"
+    if recent:
+        return f"- 你刚刚结束了{recent}。"
+    if upcoming:
+        return f"- 你马上要进行{upcoming}。"
+    return None
+
 WANTS_TO_SEND_TRIP_PHOTO = "（制作人这会儿没在和你说话。你想给他发一张外景的照片。）"
 
 ALONE = "照片里只有你一个人。"
@@ -2199,8 +2222,34 @@ class ConversationEngine:
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
         her_days = known.her_days
-        told = narrations(record, self._gift_catalog, timezone, her_days)
-        told[None] = _since_last_turn(record, self._gift_catalog, timezone, her_days)
+        prompt_history = latest_turns(prompt_messages, self._history_turns())
+        assistant_notes, handled = assistant_event_notes(
+            record, prompt_history, self._gift_catalog, her_days, timezone
+        )
+        notes = history_notes(
+            record, self._gift_catalog, her_days, timezone, skip=handled
+        )
+        anchor = recent_reply(prompt_history, now) if not topic else None
+        compact_history = history_block(
+            prompt_history, notes, now, timezone,
+            japanese=conversation.id in self._japanese_history,
+            assistant_notes=assistant_notes,
+        )
+        relationship = (
+            await self._relationships.prompt(
+                conversation.user_id, conversation.character_id, now, timezone, affinity,
+            )
+            if self._relationships is not None else None
+        )
+        known_schedule = await self._schedule_lines(
+            character, conversation.user_id, now, timezone, last_contact, False, False,
+        )
+        schedule_state = _schedule_state(known_schedule)
+        group_context = None
+        if await self._store.get_cross_chat(conversation.user_id):
+            group_context = await recent_group_context(
+                self._db, conversation.user_id, character.id, self._characters, now
+            )
         memories = await self._memory.for_reaching_out(
             conversation, timezone, last_turn_query(messages)
         )
@@ -2211,12 +2260,15 @@ class ConversationEngine:
             rules = REACH_OUT_RULES_WITH_MOMENTS if moments else REACH_OUT_RULES
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
-            chat_history(prompt_messages, self._history_turns()), told,
+            prompt_history, {},
             [
                 self._now_section(
                     known, "apart", now, timezone, profile, last_contact, tier_prompt(affinity, character.heart, profile.gender == "female"),
                     known_weather,
                 ),
+                *known_schedule,
+                *([f"# 你现在\n{schedule_state}"] if schedule_state else []),
+                *([group_context] if group_context else []),
                 *moments,
                 *promises_due.lines,
                 *_letters_told(read.letters),
@@ -2224,8 +2276,9 @@ class ConversationEngine:
                 *([CALLING_BACK] if _missed_since_last_turn(record) else []),
                 *([_topic_waiting(topic)] if topic else []),
             ],
-            [*([memories] if memories else []), rules],
+            [*([relationship] if relationship else []), *([memories] if memories else []), rules],
             wants, voiced_by,
+            now=now, timezone=timezone, history_block=compact_history, anchor=anchor,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
         parser = ReplyParser(zh_names=self._zh_names)
