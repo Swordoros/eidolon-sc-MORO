@@ -154,7 +154,7 @@ class NotEnoughPCoin(Exception):
     """The user has too few P-Coin to buy the gift."""
 
     def __init__(self) -> None:
-        super().__init__("P-Coin 不足")
+        super().__init__("余额不足")
 
 
 class RetiredGift(Exception):

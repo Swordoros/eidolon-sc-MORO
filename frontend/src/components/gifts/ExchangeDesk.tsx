@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { GiftTile } from "@/components/gifts/GiftTile";
+import { PCoinAmount } from "@/components/gifts/PCoinIcon";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,7 +61,10 @@ export function ExchangeDesk({
     <section aria-label={t.title} className="flex flex-wrap items-center gap-3 rounded-2xl border px-5 py-4">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="text-header">{t.title}</p>
-        <p className="text-subtitle text-muted-foreground">{t.balance(pCoins)}</p>
+        <p className="flex items-center gap-2 text-subtitle text-muted-foreground">
+          {t.balanceLabel}
+          <PCoinAmount amount={pCoins} className="text-header text-foreground" iconClassName="size-5" />
+        </p>
       </div>
       <Button variant="outline" onClick={() => setOpen(true)}>
         {t.sell} / {t.buy}
@@ -157,7 +161,10 @@ function ExchangeDialog({
         <DialogContent className="flex max-h-[80vh] flex-col gap-4 sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t.title}</DialogTitle>
-            <DialogDescription>{t.balance(pCoins)}</DialogDescription>
+            <DialogDescription className="flex items-center gap-2">
+              {t.balanceLabel}
+              <PCoinAmount amount={pCoins} className="text-foreground" />
+            </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2">
             <Button
@@ -201,7 +208,10 @@ function ExchangeDialog({
                         </span>
                       </span>
                       <span className="text-sm tabular-nums">
-                        {t.total(mode === "sell" ? gift.sell_price : gift.buy_price)}
+                        <PCoinAmount
+                          amount={mode === "sell" ? gift.sell_price : gift.buy_price}
+                          iconClassName="size-3.5"
+                        />
                       </span>
                     </button>
                   </li>
@@ -233,7 +243,9 @@ function ExchangeDialog({
                   +
                 </Button>
               </div>
-              <span className="ml-auto text-sm tabular-nums">{t.total(total)}</span>
+              <span className="ml-auto text-sm tabular-nums">
+                <PCoinAmount amount={total} iconClassName="size-3.5" />
+              </span>
               {cannotAfford && <span className="text-meta text-destructive">{t.notEnough}</span>}
               <Button className="w-full" disabled={!canSubmit} onClick={() => setConfirming(true)}>
                 {mode === "sell" ? t.sell : t.buy}
@@ -250,9 +262,17 @@ function ExchangeDialog({
               {mode === "sell" ? t.confirmSell.title : t.confirmBuy.title}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {mode === "sell"
-                ? t.confirmSell.description(chosen?.gift.name ?? "", count, total)
-                : t.confirmBuy.description(chosen?.gift.name ?? "", count, total)}
+              {mode === "sell" ? (
+                <>
+                  出售 {chosen?.gift.name ?? ""} ×{count}，获得{" "}
+                  <PCoinAmount amount={total} />
+                  。
+                </>
+              ) : (
+                <>
+                  花费 <PCoinAmount amount={total} />，兑换 {chosen?.gift.name ?? ""} ×{count}。
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
