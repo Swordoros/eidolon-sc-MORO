@@ -79,6 +79,10 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     getWeather().then(setWeather, () => setWeather(null));
   }, []);
 
+  useEffect(() => {
+    if (account?.id) loadWeather();
+  }, [account?.id, loadWeather]);
+
   useWhileVisible(loadWeather, 15 * 60_000, { atOnceWhenShown: true });
 
   useEffect(() => {
