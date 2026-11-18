@@ -147,6 +147,8 @@ class EscortOffer:
         """What her own schedule says she does."""
         if self.kind == "trip":
             return f"陪同{self.unit}前往{self.where}进行外景拍摄"[:MAX_WHAT]
+        if self.kind == "live":
+            return f"陪同{self.unit}进行LIVE"[:MAX_WHAT]
         what = self._without_unit()
         return (f"陪同{self.unit}进行{what}" if what else f"陪同{self.unit}")[:MAX_WHAT]
 

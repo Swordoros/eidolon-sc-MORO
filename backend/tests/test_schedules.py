@@ -337,6 +337,16 @@ def test_an_escort_does_not_repeat_the_unit_name_in_its_what():
     assert "陪同SHHis进行组合舞蹈练习" in twist
 
 
+def test_a_long_live_escort_is_named_plainly():
+    offer = EscortOffer(
+        "放課後クライマックスガールズ", "live", time(19, 30), time(21),
+        "放课后 climax girls 临时 LIVE", "东京都内的 Live House",
+        ("kaho", "chiyoko", "juri", "natsuha"),
+    )
+
+    assert offer.task() == "陪同放課後クライマックスガールズ进行LIVE"
+
+
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
     offer = EscortOffer(
         "SHHis", "lesson", time(14), time(16), "声乐课", "事务所练习室", ("nichika",)
