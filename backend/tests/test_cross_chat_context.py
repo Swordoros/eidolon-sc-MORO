@@ -72,7 +72,7 @@ def test_group_context_takes_only_latest_five_messages_with_a_producer():
     )
 
     assert result is not None
-    assert result.startswith("# 最近半小时的群聊")
+    assert result.startswith("# 最近三小时的群聊")
     assert "群「测试群」" in result
     assert "第5轮" in result and "第6轮" in result
     assert "第4轮" not in result
@@ -145,6 +145,38 @@ def test_group_context_works_with_fewer_than_five_rounds():
 
     assert result is not None
     assert "第1轮" in result and "第2轮" in result
+
+
+def test_group_context_reads_up_to_three_hours_back():
+    import sqlite3
+
+    now = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
+    connection = sqlite3.connect(":memory:")
+    tables(connection)
+    connection.execute(
+        "INSERT INTO group_chats VALUES ('g', 'u', '测试群', 1, '', NULL, NULL, NULL, NULL)"
+    )
+    connection.execute("INSERT INTO group_members VALUES ('g', 'a')")
+    connection.execute(
+        "INSERT INTO group_topics VALUES ('t', 'g', 'u', 'user', '', '', NULL)"
+    )
+    at = (now - timedelta(hours=2)).isoformat()
+    rows = [(1, "t", "u", "user", "两小时前说的话", "", at)]
+    for n in range(4):
+        rows.append((n + 2, "t", "u", "a", f"回答{n}", f"回答{n}", at))
+    connection.executemany(
+        "INSERT INTO group_messages VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+    )
+
+    result = asyncio.run(
+        recent_group_context(
+            FakeDB(connection), "u", "a",
+            {"a": SimpleNamespace(name="A", name_zh="小A")}, now,
+        )
+    )
+
+    assert result is not None
+    assert "两小时前说的话" in result
 
 
 def test_private_context_only_keeps_chinese_lines_and_five_rounds():

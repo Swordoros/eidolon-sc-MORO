@@ -1,9 +1,11 @@
-"""The last half hour of the other kind of chat, for a turn that may use it.
+"""The last three hours of group chat, or half an hour of private chat, for a turn that may
+use it.
 
 A private chat may hear what was just said in the producer's most recently active group
 that the character is in; a group speaker may hear what she and the producer just said in
-private. Only the last five rounds are carried, only Chinese, and only the speaker of a
-group sees her own private lines.
+private. Group chat carries the last five messages with a producer's line among them;
+private chat carries the last five rounds. Only Chinese, and only the speaker of a group
+sees her own private lines.
 """
 
 import sqlite3
@@ -14,9 +16,11 @@ from eidolon.characters import Character
 from eidolon.data_access import Database
 
 WINDOW = timedelta(minutes=30)
-"""How recently the other chat must have been active."""
+"""How recently the private chat must have been active."""
+GROUP_WINDOW = timedelta(hours=3)
+"""How recently the group chat must have been active."""
 ROUNDS = 5
-"""How many user turns, with what followed them, are carried."""
+"""How many messages or user turns are carried."""
 MAX_CHARS = 600
 """How much of it is carried at most."""
 LIMIT = 80
@@ -28,10 +32,10 @@ async def recent_group_context(
     db: Database, user_id: str, character_id: str, characters: Mapping[str, Character],
     now: datetime,
 ) -> str | None:
-    """The last `ROUNDS` rounds of the producer's most recently active group that
-    `character_id` is in and that was active within `WINDOW`, Chinese only; None if
-    there is none."""
-    cutoff = (now - WINDOW).isoformat()
+    """The last `ROUNDS` messages of the producer's most recently active group that
+    `character_id` is in and that was active within `GROUP_WINDOW`, Chinese only; None if
+    there is none or the last messages have no producer's line."""
+    cutoff = (now - GROUP_WINDOW).isoformat()
     row = await db.read(_latest_group, user_id, character_id, cutoff)
     if row is None:
         return None
@@ -52,7 +56,7 @@ async def recent_group_context(
     if not said:
         return None
     body = _fit(f"群「{name}」：", said)
-    return f"# 最近半小时的群聊\n\n{body}" if body else None
+    return f"# 最近三小时的群聊\n\n{body}" if body else None
 
 
 async def recent_private_context(
