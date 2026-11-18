@@ -147,7 +147,14 @@ class EscortOffer:
         """What her own schedule says she does."""
         if self.kind == "trip":
             return f"陪同{self.unit}前往{self.where}进行外景拍摄"[:MAX_WHAT]
-        return f"陪同{self.unit}进行{self.what}"[:MAX_WHAT]
+        what = self._without_unit()
+        return (f"陪同{self.unit}进行{what}" if what else f"陪同{self.unit}")[:MAX_WHAT]
+
+    def _without_unit(self) -> str:
+        """The task without the unit's name, which the wording may already start with."""
+        if self.what.startswith(self.unit):
+            return self.what[len(self.unit):].lstrip(" 　・-")
+        return self.what
 
 
 def with_escort(slots: Sequence[Slot], offer: EscortOffer) -> list[Slot]:
@@ -521,7 +528,7 @@ class ScheduleWriter:
     def _escort_twist(self, offer: EscortOffer) -> str:
         return (
             f"今天 {offer.start.strftime('%H:%M')}–{offer.end.strftime('%H:%M')}，"
-            f"你要陪同{offer.unit}在{offer.where}进行{offer.what}。"
+            f"你要{offer.task()}，地点是{offer.where}。"
             f"把这段时间排成 work，what 写「{offer.task()}」，where 写「{offer.where}」。"
         )
 

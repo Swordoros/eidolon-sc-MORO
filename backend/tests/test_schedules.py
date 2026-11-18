@@ -279,6 +279,7 @@ def test_staff_schedule_prompt_is_not_an_idol_prompt():
     assert "不是偶像" in STAFF_SCHEDULE_RULES
     assert "陪同" in STAFF_SCHEDULE_RULES
     assert "同组合" not in STAFF_SCHEDULE_RULES
+    assert "おやつ" not in STAFF_SCHEDULE_RULES
 
 
 async def test_staff_household_context_carries_her_sisters_home_hours():
@@ -320,6 +321,20 @@ def test_an_escort_the_model_invents_is_dropped_unless_it_was_drawn():
     offer = EscortOffer("SHHis", "lesson", time(14), time(16), "声乐课", "练习室", ("nichika",))
     chosen = staff_slots(slots, offer)
     assert [slot.what for slot in chosen] == ["整理经费", "陪同SHHis进行声乐课"]
+
+
+def test_an_escort_does_not_repeat_the_unit_name_in_its_what():
+    offer = EscortOffer(
+        "SHHis", "lesson", time(16, 30), time(18, 30),
+        "SHHis组合舞蹈练习", "事务所的练习室", ("nichika",),
+    )
+
+    assert offer.task() == "陪同SHHis进行组合舞蹈练习"
+
+    writer = object.__new__(ScheduleWriter)
+    twist = writer._escort_twist(offer)  # type: ignore[attr-defined]
+    assert "SHHis进行SHHis" not in twist
+    assert "陪同SHHis进行组合舞蹈练习" in twist
 
 
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
