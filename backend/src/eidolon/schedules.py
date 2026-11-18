@@ -38,7 +38,7 @@ KEPT_DAYS = 14
 """How many days a schedule is kept."""
 
 MAX_SLOTS = 8
-MAX_WHAT = 30
+MAX_WHAT = 40
 MAX_WHERE = 30
 DAY_STARTS = time(6)
 """The earliest a slot may begin; the latest it may end is midnight."""
