@@ -6,6 +6,7 @@ says giving it; its picture drawn square, the thing alone, where there is image 
 and drawn later otherwise, all the missing at one go."""
 
 import io
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -540,3 +541,29 @@ async def test_a_given_keepsake_is_also_said_first_in_the_conversation(
     assert announced["zh"] == "这个，送给制作人"
     assert announced["ja"] == "これ、プロデューサーさんに"
     assert given["said"] == [{"ja": announced["ja"], "zh": announced["zh"]}]
+
+
+async def test_a_keepsake_is_announced_soon_after_a_reach_out(
+    make_client: ClientFactory, settings: Settings
+):
+    """The gift is already given; a scheduled reach-out an hour before must not
+    swallow the only line that tells the producer about it."""
+    client, _, conversation = await talked(
+        make_client, settings, GIVES, reach_outs=True,
+    )
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "INSERT INTO reach_outs (conversation_id, ja, zh, segments, created_at, seen)"
+            " VALUES (?, ?, ?, ?, ?, 1)",
+            (conversation, "さっきの話", "刚才的话", "[]", at(11).isoformat()),
+        )
+
+    res = await client.post("/api/keepsakes/give-now", json={"character_id": "mano"})
+    entries = await record(client, conversation)
+
+    assert res.status_code == 201
+    [announced] = [
+        e for e in entries
+        if e.get("type") == "reach_out" and e["zh"] == "这个，送给制作人"
+    ]
+    assert announced["ja"] == "これ、プロデューサーさんに"

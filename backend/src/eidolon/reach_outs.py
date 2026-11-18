@@ -264,9 +264,8 @@ class ReachOuts:
             return False
         if current.last_contact is None or self._clock() - current.last_contact > WINDOW:
             return False
-        last = await self._db.read(_last_reached_out, user_id)
-        if last is not None and self._clock() - last < MIN_GAP:
-            return False
+        # The keepsake is already given; this is the only way its words reach the
+        # conversation, so a recent scheduled reach-out must not hold it back.
         if self._talking(current.conversation.id):
             return False
         recording = self._activity.begin(
