@@ -211,6 +211,7 @@ function ExchangeDialog({
                         <PCoinAmount
                           amount={mode === "sell" ? gift.sell_price : gift.buy_price}
                           iconClassName="size-3.5"
+                          amountClassName="min-w-6"
                         />
                       </span>
                     </button>

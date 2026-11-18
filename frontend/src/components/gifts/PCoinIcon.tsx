@@ -28,16 +28,18 @@ export function PCoinAmount({
   amount,
   className,
   iconClassName,
+  amountClassName,
 }: {
   amount: number;
   className?: string;
   iconClassName?: string;
+  amountClassName?: string;
 }) {
   return (
     <span className={cn("inline-flex items-center gap-1 tabular-nums", className)}>
       <PCoinIcon className={iconClassName} />
       <span className="sr-only">P-Coin </span>
-      {amount}
+      <span className={cn("text-right", amountClassName)}>{amount}</span>
     </span>
   );
 }
