@@ -672,8 +672,7 @@ def history_block(
                 message.photo.tag if message.photo else None,
                 message.photo_failed,
             ) if japanese else _chinese_reply(message)
-            stamp = reply_message_stamp(message.created_at, now, timezone)
-            lines.append(f"角色：{stamp} {said}")
+            lines.append(f"角色：{said}")
             for note in (assistant_notes or {}).get(message.id, ()):
                 lines.append(note)
     for note in notes.get(None, ()):
