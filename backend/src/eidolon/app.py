@@ -66,6 +66,7 @@ from eidolon.producer import (
 )
 from eidolon.account_api import OwnKeysInput, add_account_routes
 from eidolon.cities_api import add_city_routes
+from eidolon.weather_api import add_weather_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.admin_backup_api import add_admin_backup_routes
 from eidolon.dashboard import add_dashboard_routes
@@ -503,6 +504,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_keepsake_routes(app, backend)
     add_relationship_routes(app, backend)
     add_city_routes(app, backend)
+    add_weather_routes(app, backend)
     add_bar_routes(app, backend)
     add_group_routes(app, backend)
     add_photo_routes(app, backend)

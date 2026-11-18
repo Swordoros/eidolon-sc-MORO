@@ -22,7 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
-import type { Character } from "@/lib/api";
+import type { Character, CurrentWeather } from "@/lib/api";
+import { getWeather } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
 import {
   conversationDraftKey, draftsRevision, groupDraftKey, loadDraft, subscribeDrafts,
@@ -40,6 +41,7 @@ import { PreviewText } from "./PreviewText";
 import { ServiceStatusButton } from "./ServiceStatusButton";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
 import { ListFilter } from "./ListFilter";
+import { WeatherNow } from "./WeatherNow";
 import { useCallTime } from "./useCallTime";
 
 const t = copy.conversationList;
@@ -67,10 +69,17 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const [chosen, setChosen] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
   const [groupPins, setGroupPins] = useState<string[]>([]);
+  const [weather, setWeather] = useState<CurrentWeather | null>(null);
 
   const loadGroups = useCallback(() => {
     listGroups().then(setGroups, () => {});
   }, []);
+
+  const loadWeather = useCallback(() => {
+    getWeather().then(setWeather, () => setWeather(null));
+  }, []);
+
+  useWhileVisible(loadWeather, 15 * 60_000, { atOnceWhenShown: true });
 
   useEffect(() => {
     loadGroups();
@@ -189,6 +198,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
         <h1 className="flex-1 text-list-title">{t.title}</h1>
+        <WeatherNow weather={weather} />
         <LetterButton />
         <ServiceStatusButton />
         <Announcements userId={account?.id ?? null} />

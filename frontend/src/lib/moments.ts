@@ -39,7 +39,7 @@ function calendarDaysBetween(at: Date, now: Date): number {
 }
 
 /** 天气每一档的图标。 */
-const WEATHER_ICONS: Record<WeatherKind, LucideIcon> = {
+export const WEATHER_ICONS: Record<WeatherKind, LucideIcon> = {
   clear: Sun,
   cloudy: CloudSun,
   overcast: Cloud,

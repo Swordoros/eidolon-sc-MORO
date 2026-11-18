@@ -855,6 +855,9 @@ export async function getBar(): Promise<BarState> {
 /** Tokyo's weather as a moment came out: one of seven kinds. */
 export type WeatherKind = "clear" | "cloudy" | "overcast" | "fog" | "rain" | "snow" | "thunder";
 
+/** The weather right now: one of the seven kinds, at a whole degree Celsius. */
+export type CurrentWeather = { kind: WeatherKind; temperature: number };
+
 /** A post of hers in the user's moments (GLOSSARY.md「动态」): her Japanese, its subtitle, when it
  * came out (ISO, with its offset), where she was (GLOSSARY.md「地点」), its Japanese name with a
  * link to it on the map the deployer chooses, null for nowhere, and Tokyo's weather then, its kind
@@ -1057,6 +1060,11 @@ export async function getProfile(): Promise<SavedProfile> {
 export async function searchCities(name: string): Promise<City[]> {
   const query = new URLSearchParams({ q: name });
   return (await json<{ cities: City[] }>(await api(`/api/cities?${query}`))).cities;
+}
+
+/** The producer's weather right now, or Tokyo's without a city; null if unknown. */
+export async function getWeather(): Promise<CurrentWeather | null> {
+  return (await json<{ weather: CurrentWeather | null }>(await api("/api/weather"))).weather;
 }
 
 /** The city nearest where the browser says the user is; null if none. The spot is not kept. */
