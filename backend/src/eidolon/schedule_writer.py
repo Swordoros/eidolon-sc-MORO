@@ -153,6 +153,13 @@ def with_escort(slots: Sequence[Slot], offer: EscortOffer) -> list[Slot]:
     return kept[:MAX_SLOTS]
 
 
+def staff_slots(slots: Sequence[Slot], escort: EscortOffer | None) -> list[Slot]:
+    """A staff member's day: her own slots, with every escort the model wrote on its own
+    removed, and only the escort actually drawn put back in."""
+    kept = [slot for slot in slots if "陪同" not in slot.what]
+    return with_escort(kept, escort) if escort is not None else kept
+
+
 def _plan_group(
     members: list[str], names: Mapping[str, str], random: Random
 ) -> tuple[str, TripPlan]:
@@ -546,7 +553,9 @@ class ScheduleWriter:
                     continue
                 slots, wake, sleep = parsed[cid]
                 if staff and escort is not None and cid == unit[0]:
-                    slots = with_escort(slots, escort)
+                    slots = staff_slots(slots, escort)
+                elif staff:
+                    slots = staff_slots(slots, None)
                 if (
                     not live_by.get(cid)
                     and not self._engine.world_live_on(cid, day)

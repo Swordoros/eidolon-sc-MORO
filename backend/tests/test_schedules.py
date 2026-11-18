@@ -32,6 +32,7 @@ from eidolon.schedule_writer import (
     _plan_day_trips,
     _plan_trips,
     granted_live_slots,
+    staff_slots,
     with_escort,
 )
 from eidolon.schedules import (
@@ -278,6 +279,19 @@ def test_staff_schedule_prompt_is_not_an_idol_prompt():
     assert "不是偶像" in STAFF_SCHEDULE_RULES
     assert "陪同" in STAFF_SCHEDULE_RULES
     assert "同组合" not in STAFF_SCHEDULE_RULES
+
+
+def test_an_escort_the_model_invents_is_dropped_unless_it_was_drawn():
+    slots = [
+        Slot(time(9), time(10), "整理经费", "办公室", "work"),
+        Slot(time(13), time(14, 30), "陪同Alstroemeria进行雨天室内拍摄准备", "摄影棚", "work"),
+    ]
+
+    assert [slot.what for slot in staff_slots(slots, None)] == ["整理经费"]
+
+    offer = EscortOffer("SHHis", "lesson", time(14), time(16), "声乐课", "练习室", ("nichika",))
+    chosen = staff_slots(slots, offer)
+    assert [slot.what for slot in chosen] == ["整理经费", "陪同SHHis进行声乐课"]
 
 
 def test_a_staff_escort_replaces_the_ordinary_slot_it_overlaps():
