@@ -8,7 +8,7 @@ import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { copy } from "@/i18n";
-import { setDev } from "@/lib/api";
+import { setDev, setMemoryDebug } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.settings.dev;
@@ -21,6 +21,7 @@ export function DevSettings() {
   const { account, accountChanged } = useDirectory();
   const id = useId();
   const [saving, setSaving] = useState(false);
+  const [savingMemory, setSavingMemory] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
 
   if (!account) return null;
@@ -40,6 +41,20 @@ export function DevSettings() {
     );
   };
 
+  const changeMemory = (next: boolean) => {
+    setFailure(null);
+    setSavingMemory(true);
+    accountChanged((current) => ({ ...current, memory_debug: next }));
+    setMemoryDebug(next).then(
+      () => setSavingMemory(false),
+      (e) => {
+        accountChanged((current) => ({ ...current, memory_debug: account.memory_debug }));
+        setFailure(toFailure(e));
+        setSavingMemory(false);
+      },
+    );
+  };
+
   return (
     <SettingsSection>
       <FieldGroup>
@@ -49,6 +64,18 @@ export function DevSettings() {
             <FieldDescription>{t.hint}</FieldDescription>
           </FieldContent>
           <Switch id={`${id}-on`} checked={on} disabled={saving} onCheckedChange={change} />
+        </Field>
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor={`${id}-memory`}>{t.memoryOn}</FieldLabel>
+            <FieldDescription>{t.memoryHint}</FieldDescription>
+          </FieldContent>
+          <Switch
+            id={`${id}-memory`}
+            checked={on && account.memory_debug}
+            disabled={!on || savingMemory}
+            onCheckedChange={changeMemory}
+          />
         </Field>
         {failure && <FailureNotice failure={failure} />}
       </FieldGroup>

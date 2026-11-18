@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
     banned_at TEXT,
     ban_note TEXT,
     dev INTEGER NOT NULL DEFAULT 0,
+    memory_debug INTEGER NOT NULL DEFAULT 0,
     cross_chat INTEGER NOT NULL DEFAULT 0,
     nsfw INTEGER NOT NULL DEFAULT 0,
     nsfw_voice INTEGER NOT NULL DEFAULT 0,
@@ -625,6 +626,14 @@ class Store:
         """Turn the user's development switch on or off."""
         await self._db.write(_set_dev, user_id, on)
 
+    async def get_memory_debug(self, user_id: str) -> bool:
+        """Whether the user has memory editing on, under the development switch."""
+        return await self._db.read(_memory_debug, user_id)
+
+    async def set_memory_debug(self, user_id: str, on: bool) -> None:
+        """Turn the user's memory-editing switch on or off."""
+        await self._db.write(_set_memory_debug, user_id, on)
+
     async def get_cross_chat(self, user_id: str) -> bool:
         """Whether the user lets group and private chat contexts cross into one another."""
         return await self._db.read(_cross_chat, user_id)
@@ -1013,6 +1022,7 @@ def _open(db: sqlite3.Connection) -> None:
         db.execute("UPDATE users SET name = id")
     _add_missing_columns(db, "users", ("consented_at", "banned_at", "ban_note"), "TEXT")
     _add_missing_columns(db, "users", ("dev",), "INTEGER NOT NULL DEFAULT 0")
+    _add_missing_columns(db, "users", ("memory_debug",), "INTEGER NOT NULL DEFAULT 0")
     _add_missing_columns(db, "users", ("cross_chat",), "INTEGER NOT NULL DEFAULT 0")
     _add_missing_columns(
         db, "users", ("nsfw", "nsfw_voice", "nsfw_photo"), "INTEGER NOT NULL DEFAULT 0"
@@ -1085,6 +1095,17 @@ def _dev(db: sqlite3.Connection, user_id: str) -> bool:
 
 def _set_dev(db: sqlite3.Connection, user_id: str, on: bool) -> None:
     db.execute("UPDATE users SET dev = ? WHERE id = ?", (1 if on else 0, user_id))
+
+
+def _memory_debug(db: sqlite3.Connection, user_id: str) -> bool:
+    row = db.execute("SELECT memory_debug FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def _set_memory_debug(db: sqlite3.Connection, user_id: str, on: bool) -> None:
+    db.execute(
+        "UPDATE users SET memory_debug = ? WHERE id = ?", (1 if on else 0, user_id)
+    )
 
 
 def _cross_chat(db: sqlite3.Connection, user_id: str) -> bool:

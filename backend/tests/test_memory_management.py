@@ -143,6 +143,49 @@ async def test_users_see_and_touch_only_their_own_memories(
     assert [m["text"] for m in await memories(producer)] == [CAT]
 
 
+async def test_editing_a_memory_needs_both_development_switches(
+    make_client: ClientFactory,
+):
+    client = memory_client(make_client, FakeLLM(REPLY), CAT)
+    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
+    [memory] = await memories(client)
+
+    off = await client.put(f"/api/memories/{memory['id']}", json={"text": "制作人养了一只叫小白的猫"})
+    assert off.status_code == 403
+
+    await client.put("/api/account/dev", json={"on": True})
+    no_debug = await client.put(
+        f"/api/memories/{memory['id']}", json={"text": "制作人养了一只叫小白的猫"}
+    )
+    assert no_debug.status_code == 403
+
+    await client.put("/api/account/memory-debug", json={"on": True})
+    edited = await client.put(
+        f"/api/memories/{memory['id']}", json={"text": "制作人养了一只叫小白的猫"}
+    )
+    [again] = await memories(client)
+
+    assert edited.status_code == 200, edited.text
+    assert edited.json() == {"id": memory["id"], "text": "制作人养了一只叫小白的猫"}
+    assert again["text"] == "制作人养了一只叫小白的猫"
+
+
+async def test_editing_a_missing_memory_or_to_nothing_is_refused(
+    make_client: ClientFactory,
+):
+    client = memory_client(make_client, FakeLLM(REPLY), CAT)
+    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
+    [memory] = await memories(client)
+    await client.put("/api/account/dev", json={"on": True})
+    await client.put("/api/account/memory-debug", json={"on": True})
+
+    missing = await client.put("/api/memories/999", json={"text": "制作人的猫叫小白"})
+    blank = await client.put(f"/api/memories/{memory['id']}", json={"text": "   "})
+
+    assert missing.status_code == 404
+    assert blank.status_code == 422
+
+
 async def test_the_memories_api_needs_a_session(make_client: ClientFactory):
     client = make_client(FakeLLM(), user=None)
 

@@ -20,15 +20,25 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { copy } from "@/i18n";
 import {
   ApiError,
   clearMemories,
   deleteMemory,
+  editMemory,
   listMemories,
   setMemoryScope,
   type Memory,
@@ -38,7 +48,7 @@ import {
 import { toFailure, type Failure } from "@/lib/failure";
 import { remainingTime, sortMemories, sourceCharacter, supersededMark, visibleTo } from "@/lib/memories";
 import { cn } from "@/lib/utils";
-import { TrashIcon } from "@/theme/icons";
+import { EditRecordIcon, TrashIcon } from "@/theme/icons";
 
 const t = copy.memories;
 
@@ -78,11 +88,17 @@ export function MemoriesSettings() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // 开发用：只有提示词调试和记忆调试都打开时，才显示编辑。
+  const [editing, setEditing] = useState<Memory | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   // 只用最后一次重新取到的列表：连着删几条时，先发出的那次晚到，会把后删的又列出来。
   const refetches = useRef(0);
   const { memoryCountChanged } = useSettingsValues();
   // 只用来给来源角色配头像；还没载入时照样列出记忆。
-  const characters = useDirectory().characters ?? [];
+  const directory = useDirectory();
+  const characters = directory.characters ?? [];
+  const canEdit = !!directory.account?.dev && !!directory.account?.memory_debug;
   // 按角色查看：只看她现在能想起来的记忆；「全部」是默认。
   const [viewerId, setViewerId] = useState(ALL_VIEWERS);
   const [kindFilter, setKindFilter] = useState<"all" | MemoryKind>("all");
@@ -168,6 +184,30 @@ export function MemoriesSettings() {
       setMemories((list) => list?.map((m) => (m.id === memory.id ? { ...m, scope } : m)) ?? null);
     } catch (e) {
       setFailure(toFailure(e));
+    }
+  }
+
+  function askToEdit(memory: Memory) {
+    setDraft(memory.text);
+    setEditing(memory);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    const text = draft.trim();
+    if (!text) return;
+    setSavingEdit(true);
+    setFailure(null);
+    try {
+      const updated = await editMemory(editing.id, text);
+      setMemories(
+        (list) => list?.map((m) => (m.id === updated.id ? { ...m, text: updated.text } : m)) ?? null,
+      );
+      setEditing(null);
+    } catch (e) {
+      setFailure(toFailure(e));
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -317,6 +357,24 @@ export function MemoriesSettings() {
                       </span>
                     </div>
                   </div>
+                  {canEdit && memory.status === "active" && !memory.superseded && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t.editLabel(memory.text)}
+                            disabled={busy || clearing}
+                            onClick={() => askToEdit(memory)}
+                          />
+                        }
+                      >
+                        <EditRecordIcon />
+                      </TooltipTrigger>
+                      <TooltipContent>{t.edit}</TooltipContent>
+                    </Tooltip>
+                  )}
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -384,6 +442,32 @@ export function MemoriesSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && !savingEdit && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.editTitle}</DialogTitle>
+            <DialogDescription>{t.editDescription}</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={draft}
+            maxLength={200}
+            aria-label={t.editTitle}
+            disabled={savingEdit}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          {!draft.trim() && <p className="text-sm text-destructive">{t.editEmpty}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={savingEdit} onClick={() => setEditing(null)}>
+              {copy.common.cancel}
+            </Button>
+            <Button disabled={!draft.trim() || savingEdit} onClick={saveEdit}>
+              {savingEdit && <Spinner data-icon="inline-start" />}
+              {t.editSave}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SettingsPane>
   );
 }

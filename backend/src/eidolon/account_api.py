@@ -469,6 +469,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "cycles": cycles,
             "moments": moments,
             "dev": await store.get_dev(user_id),
+            "memory_debug": await store.get_memory_debug(user_id),
             "cross_chat": await store.get_cross_chat(user_id),
             "nsfw": nsfw.conversation,
             "nsfw_voice": nsfw.voice,
@@ -511,6 +512,11 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Turn the user's own switch for the development tools on or off (GLOSSARY.md
         「开发」)."""
         await store.set_dev(user_id, body.on)
+
+    @app.put("/api/account/memory-debug", status_code=204)
+    async def switch_memory_debug(body: DevSwitch, user_id: UserId) -> None:
+        """Turn memory editing on or off, under the development switch."""
+        await store.set_memory_debug(user_id, body.on)
 
     @app.put("/api/account/cross-chat", status_code=204)
     async def switch_cross_chat(body: CrossChatSwitch, user_id: UserId) -> None:

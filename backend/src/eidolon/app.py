@@ -143,6 +143,12 @@ class MemoryScopeInput(BaseModel):
     scope: MemoryScope
 
 
+class MemoryEditInput(BaseModel):
+    """The corrected text of one of the user's memories, in development only."""
+
+    text: str = Field(min_length=1, max_length=200)
+
+
 class TurnInput(BaseModel):
     text: str
     listening: str | None = Field(default=None, max_length=120)
@@ -711,6 +717,21 @@ def create_app(backend: Backend) -> FastAPI:
     async def delete_memory(memory_id: int, user_id: UserId) -> None:
         if not await memory.delete(user_id, memory_id):
             raise HTTPException(404, "记忆不存在")
+
+    @app.put("/api/memories/{memory_id}")
+    async def edit_memory(
+        memory_id: int, body: MemoryEditInput, user_id: UserId
+    ) -> dict:
+        """Correct one active memory's text, while both the development and memory-debug
+        switches are on; 403 otherwise, 404 for one the user does not have."""
+        if not await store.get_dev(user_id) or not await store.get_memory_debug(user_id):
+            raise HTTPException(403, "记忆调试没有打开")
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(422, "记忆不能为空")
+        if not await memory.edit(user_id, memory_id, text):
+            raise HTTPException(404, "记忆不存在")
+        return {"id": memory_id, "text": text}
 
     @app.put("/api/memories/{memory_id}/scope", status_code=204)
     async def set_memory_scope(memory_id: int, body: MemoryScopeInput, user_id: UserId) -> None:

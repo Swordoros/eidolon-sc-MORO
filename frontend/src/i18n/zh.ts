@@ -1025,6 +1025,8 @@ export const zh = {
     dev: {
       on: "提示词调试",
       hint: "开发用。打开后，对话页更多菜单里会多一项「上一次生成对话中的全套提示词」，能看到模型实际收到的完整提示词（含你的人设、世界设定和聊天记录）。",
+      memoryOn: "记忆调试",
+      memoryHint: "开发用。打开后，设置 → 记忆里可以手动修改记忆文本，用来修正模型记错的名字或事实。",
     },
     nsfw: {
       /** 对话的成人场景开关。 */
@@ -2867,6 +2869,12 @@ export const zh = {
     date: (year: number, month: number, day: number) => `${year}年${month}月${day}日`,
     remove: "删除",
     removeLabel: (text: string) => `删除记忆：${text}`,
+    edit: "编辑",
+    editLabel: (text: string) => `编辑记忆：${text}`,
+    editTitle: "编辑记忆",
+    editDescription: "只修改记忆文本，不会改写角色已经说过的话。",
+    editSave: "保存修改",
+    editEmpty: "记忆不能为空。",
     removeTitle: "删除这条记忆？",
     removeDescription: (text: string) => `「${text}」删除后，所有角色都不会再想起这件事，无法恢复。`,
     clear: "清空全部记忆",

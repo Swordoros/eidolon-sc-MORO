@@ -554,6 +554,8 @@ export type Account = {
   /** The user's own switch for the development tools (GLOSSARY.md「开发」): shows the last
    * conversation prompt. Default off. */
   dev: boolean;
+  /** Whether the memory debugging tools are on, under `dev`. */
+  memory_debug: boolean;
   /** Whether group and private chat contexts may be shared with one another. Default off. */
   cross_chat: boolean;
   /** The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each default off and
@@ -1092,6 +1094,17 @@ export async function deleteMemory(id: number): Promise<void> {
   await expectNoContent(await api(`/api/memories/${id}`, { method: "DELETE" }));
 }
 
+/** Correct one memory's text, with both development switches on. */
+export async function editMemory(id: number, text: string): Promise<{ id: number; text: string }> {
+  return json(
+    await api(`/api/memories/${id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+}
+
 /** Change how widely one memory is shared (GLOSSARY.md「记忆」). */
 export async function setMemoryScope(id: number, scope: MemoryScope): Promise<void> {
   await expectNoContent(
@@ -1121,6 +1134,17 @@ export async function lastPrompt(characterId: string): Promise<string | null> {
 export async function setDev(on: boolean): Promise<void> {
   await expectNoContent(
     await api("/api/account/dev", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on }),
+    }),
+  );
+}
+
+/** Turn memory debugging on or off, under the development switch. */
+export async function setMemoryDebug(on: boolean): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/memory-debug", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ on }),

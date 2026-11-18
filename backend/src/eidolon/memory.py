@@ -474,6 +474,12 @@ class Memories:
         await self._settle(user_id)
         return await self._db.write(_delete, user_id, memory_id)
 
+    async def edit(self, user_id: str, memory_id: int, text: str) -> bool:
+        """Replace the text of one of the user's active memories; False if they have no such
+        memory. Its embedding is dropped and made again when next searched."""
+        await self._settle(user_id)
+        return await self._db.write(_edit, user_id, memory_id, text[:MAX_MEMORY_LENGTH])
+
     async def set_scope(self, user_id: str, memory_id: int, scope: Scope) -> bool:
         """Change how widely one of the user's memories is shared (GLOSSARY.md「记忆」);
         False if they have no such memory."""
@@ -1651,6 +1657,19 @@ def _apply_consolidations(
             " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
             [(new_id, id_, user_id) for id_ in ids],
         )
+
+
+def _edit(db: sqlite3.Connection, user_id: str, memory_id: int, text: str) -> bool:
+    """Replace an active memory's text and drop its stale embedding."""
+    changed = db.execute(
+        "UPDATE memories SET text = ? WHERE id = ? AND user_id = ?"
+        " AND superseded_by IS NULL AND status = 'active'",
+        (text, memory_id, user_id),
+    ).rowcount
+    if not changed:
+        return False
+    db.execute("DELETE FROM memory_vectors WHERE memory_id = ?", (memory_id,))
+    return True
 
 
 def _delete(db: sqlite3.Connection, user_id: str, memory_id: int) -> bool:
