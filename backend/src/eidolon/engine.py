@@ -566,6 +566,10 @@ def history_notes(
             continue
         if isinstance(entry, ReachOut):
             pending.append(HistoryNote(entry.created_at, "reachout", segments=tuple(entry.segments)))
+        elif entry.kind in ("gift", "keepsake"):
+            pending.append(HistoryNote(
+                entry.created_at, "event", _event_note(entry, gift_catalog, "history"),
+            ))
         else:
             text = _narration(entry, gift_catalog, her_days, timezone)
             pending.append(HistoryNote(
@@ -576,21 +580,43 @@ def history_notes(
     return notes
 
 
+def _event_note(
+    entry: ConversationEvent, gift_catalog: Mapping[str, Gift], when: str,
+) -> str:
+    """A gift or keepsake as one note, in the history's, the current reply's or the previous
+    reply's words (`when`): 旁白：（背景事件：……）."""
+    if entry.kind == "keepsake":
+        name = entry.note or "纪念品"
+        if when == "current":
+            said = f"刚刚你送给了制作人「{name}」"
+        elif when == "previous":
+            said = f"你送给了制作人「{name}」，他已经收下了"
+        else:
+            said = f"你送给了制作人「{name}」"
+    else:
+        assert entry.gift_id is not None
+        name = gift_catalog[entry.gift_id].name
+        if when == "current":
+            said = f"刚刚制作人送了你一份{name}" + ("，你很喜欢" if entry.liked else "")
+        elif when == "previous":
+            said = f"制作人送了你一份{name}，你已经收下了"
+        else:
+            said = f"制作人送了你一份{name}"
+    return f"旁白：（背景事件：{said}）"
+
+
 def assistant_event_notes(
     record: Sequence[Recorded], messages: Sequence[Message], gift_catalog: Mapping[str, Gift],
     her_days: HerDays, timezone: str,
 ) -> tuple[dict[int, list[str]], set[int]]:
-    """The notes of gifts and keepsakes to attach to her replies, by the id of the first
-    and second assistant messages after each event, and the events so attached. An event
-    after the last reply is left to `history_notes` as narration."""
+    """The gifts and keepsakes to attach to the first assistant message after each event,
+    and the events so attached. An event after the last reply is left to `history_notes`."""
     visible = {message.id for message in messages if message.role == "character"}
     assistants = [
         (index, entry) for index, entry in enumerate(record)
         if isinstance(entry, Message) and entry.role == "character"
     ]
-    full: dict[int, list[str]] = {}
-    received: dict[int, list[str]] = {}
-    sent: dict[int, list[str]] = {}
+    notes: dict[int, list[str]] = {}
     handled: set[int] = set()
     for index, entry in enumerate(record):
         if not isinstance(entry, ConversationEvent) or not told_her(entry):
@@ -600,33 +626,41 @@ def assistant_event_notes(
         targets = [
             message for at, message in assistants
             if at > index and message.id in visible
-        ][:2]
+        ][:1]
         if not targets:
             continue
-        text = _narration(entry, gift_catalog, her_days, timezone)
-        text = text.removeprefix("（").removesuffix("）")
-        full.setdefault(targets[0].id, []).append(text)
-        if entry.kind == "gift":
-            gift = gift_catalog[entry.gift_id]
-            if len(targets) > 1:
-                received.setdefault(targets[1].id, []).append(gift.name)
-        elif len(targets) > 1:
-            sent.setdefault(targets[1].id, []).append(entry.note or "纪念品")
+        notes.setdefault(targets[0].id, []).append(
+            _event_note(entry, gift_catalog, "history")
+        )
         handled.add(entry.id)
-    notes: dict[int, list[str]] = {}
-    for message_id in set(full) | set(received) | set(sent):
-        lines: list[str] = []
-        if message_id in full:
-            lines.append("（背景事件：" + "；".join(full[message_id]) + "）")
-        if message_id in received or message_id in sent:
-            short: list[str] = []
-            if message_id in received:
-                short.append("收到" + "、".join(received[message_id]))
-            if message_id in sent:
-                short.append("送出" + "、".join(sent[message_id]))
-            lines.append("（上一轮：" + "；".join(short) + "）")
-        notes[message_id] = lines
     return notes, handled
+
+
+def anchor_event_notes(
+    record: Sequence[Recorded], anchor: Message | None, gift_catalog: Mapping[str, Gift],
+) -> list[str]:
+    """The gifts and keepsakes to remind her of before the repeated last line: the current
+    reply's, or the previous one's."""
+    if anchor is None:
+        return []
+    assistants = [
+        (index, entry) for index, entry in enumerate(record)
+        if isinstance(entry, Message) and entry.role == "character"
+    ]
+    notes: list[str] = []
+    for index, entry in enumerate(record):
+        if not isinstance(entry, ConversationEvent) or not told_her(entry):
+            continue
+        if entry.kind not in ("gift", "keepsake"):
+            continue
+        targets = [message for at, message in assistants if at > index][:2]
+        if not targets:
+            continue
+        if targets[0].id == anchor.id:
+            notes.append(_event_note(entry, gift_catalog, "current"))
+        elif len(targets) > 1 and targets[1].id == anchor.id:
+            notes.append(_event_note(entry, gift_catalog, "previous"))
+    return notes
 
 
 def history_block(
@@ -658,7 +692,7 @@ def history_block(
                 said = "\n".join(s.zh.strip() for s in note.segments if s.zh.strip()) or "……"
             lines.append(f"角色：{said}")
         else:
-            lines.append(f"旁白：{note.text}")
+            lines.append(note.text if note.text.startswith("旁白：") else f"旁白：{note.text}")
 
     for message in messages:
         for note in notes.get(message.id, ()):
@@ -672,9 +706,9 @@ def history_block(
                 message.photo.tag if message.photo else None,
                 message.photo_failed,
             ) if japanese else _chinese_reply(message)
-            lines.append(f"角色：{said}")
             for note in (assistant_notes or {}).get(message.id, ()):
                 lines.append(note)
+            lines.append(f"角色：{said}")
     for note in notes.get(None, ()):
         add_note(note)
     return "\n".join(lines)
@@ -2043,6 +2077,7 @@ class ConversationEngine:
             read.record, self._gift_catalog, her_days, timezone, skip=handled
         )
         anchor = recent_reply(prompt_history, now)
+        anchor_notes = anchor_event_notes(read.record, anchor, self._gift_catalog)
         compact_history = history_block(
             prompt_history, notes, now, timezone,
             japanese=conversation.id in self._japanese_history,
@@ -2077,6 +2112,7 @@ class ConversationEngine:
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, anchor=anchor, now_state=schedule_state,
+            anchor_notes=anchor_notes,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2722,6 +2758,7 @@ class ConversationEngine:
         history_block: str | None = None,
         anchor: Message | None = None,
         now_state: str | None = None,
+        anchor_notes: Sequence[str] = (),
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2769,7 +2806,9 @@ class ConversationEngine:
             note = anchor_note(anchor, now)
             if note is not None:
                 prompt.append(ChatMessage("system", note))
-            prompt.append(ChatMessage("assistant", anchored(anchor, now, timezone)))
+            prompt.append(ChatMessage(
+                "assistant", "\n".join([*anchor_notes, anchored(anchor, now, timezone)])
+            ))
         current = (
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None else ""
