@@ -620,6 +620,7 @@ def build(
     schedule_writer = ScheduleWriter(
         daily, store, engine, characters, config, activity, clock,
         random or secure_random, settings.schedules,
+        weathers=weathers,
     )
     moments = Moments(
         database, characters, config, affinities, activity, memories, her_now, clock,

@@ -39,9 +39,11 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.engine import ConversationEngine
 from eidolon.features import AllOn, Switches
+from eidolon.her_weather import WAIT as WEATHER_WAIT
 from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
+from eidolon.weather import NAMES as WEATHER_NAMES, TOKYO, Weathers
 from eidolon.schedules import (
     JOINT_TRIP_ODDS,
     MAX_SLOTS,
@@ -281,6 +283,7 @@ class ScheduleWriter:
         features: Switches = AllOn(),
         date_on: Callable[[str, str, date], Awaitable[str | None]] = _no_date,
         favors_on: Callable[[str, str, date], Awaitable[list[str]]] = _no_favors,
+        weathers: Weathers | None = None,
     ) -> None:
         """`date_on` says what she is to do with the producer on a day, if anything
         (GLOSSARY.md「邀约」); `favors_on`, what the producer's favors have her do that day
@@ -297,6 +300,7 @@ class ScheduleWriter:
         self._clock = clock
         self._random = random
         self._enabled = enabled
+        self._weathers = weathers
 
     async def keep_writing(self) -> None:
         """`run_due` at every `TICK`, until cancelled."""
@@ -404,7 +408,7 @@ class ScheduleWriter:
         return found
 
     def _twists(self) -> list[str]:
-        left = list(TWISTS)
+        left = [t for t in TWISTS if "原本在外面" not in t]
         drawn = []
         for _ in range(self._random(MAX_TWISTS + 1)):
             drawn.append(left.pop(self._random(len(left))))
@@ -674,6 +678,22 @@ class ScheduleWriter:
             for cid in unit:
                 if context := self._dinner_context(cid, day, dinner):
                     households[cid] = context
+        weather_by: dict[str, str] = {}
+        if self._weathers is not None and any(trips[cid][0] for cid in unit):
+            today = await self._weathers.today(TOKYO, WEATHER_WAIT)
+            if today is not None:
+                weather = (
+                    f"# 今天的天气\n东京今天：{WEATHER_NAMES[today.now.kind]}，"
+                    f"{today.now.temperature}°C。\n今天有外景行程。"
+                )
+                if today.now.wet:
+                    weather += (
+                        "\n今天下雨或下雪，只影响外景：可以改室内、缩短或取消；"
+                        "不要因此修改学校、课程、室内练习或在家安排。"
+                    )
+                for cid in unit:
+                    if trips[cid][0] is not None:
+                        weather_by[cid] = weather
         recording = self._activity.begin("schedule", user_id, unit[0], own_llm=False, exempt=False)
         lease = self._config.lease()
         try:
@@ -686,7 +706,7 @@ class ScheduleWriter:
                 else:
                     answer = await self._engine.write_schedules(
                         unit, lease.keys.chat_llm, day, twists, yesterday, live_by,
-                        households,
+                        households, weather_by,
                     )
             if staff:
                 slots = parse_schedule(answer, self._characters)

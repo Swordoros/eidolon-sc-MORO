@@ -1111,12 +1111,13 @@ SCHEDULE_RULES = """# 写今天的行程
 {"wake": "08:00", "sleep": "00:30", "slots": [{"start": "09:00", "end": "12:00", "what": "舞蹈课", "where": "事务所的练习室", "kind": "lesson", "with": []}]}
 - wake 是你今天几点起床（07:00 到 09:00），sleep 是你今天晚上几点睡（23:00 以后；过了午夜就写 00:30 这样，最晚 03:00）。照你的作息习惯排，每天可以有一点出入；第二天要早起就早点睡，今天有 live 或者累了的话也可以早点睡或者睡得晚一些。
 - 一天排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
-- 所有 slots 都要在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；外景当天来回的，回程排完再睡，回程晚就把 sleep 往后排。
+- 所有 slots 都要在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；今天有外景行程时，回程排完再睡，回程晚就把 sleep 往后排。
 - kind 只能是 work（工作、拍摄）、lesson（课程、练习）、school（上学）、live、rest（在家休息）、private（自己的安排）之一。
 - with 写和你一起的偶像的标识（只写下面世界设定里有的同伴），没有就写 []。
 - what 不超过 30 个字，where 不超过 30 个字。
 - **what 和 where 一律用简体中文写。** 即使你的人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。地点、车站、店名也写中文，例如「東京駅」写「东京站」。LIVE 和组合名可以保留原文。
-- 人设里明确是学生、或在读的：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE、外景，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 人设里明确是学生、或在读的：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 今天没有抽到外景行程时，不要写「外景」「出外景」「外景拍摄」，也不要因为天气改学校、课程、室内练习或在家安排。
 - 照你的人设排；世界设定里你今天有 live 的，一定排进去。
 - 不要编原作里的大事：组合的变动、和别的偶像起冲突、家里的变故都不写。
 - 写到制作人时称「制作人」。"""
@@ -1128,18 +1129,19 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 只输出一个 JSON 对象，每位偶像一个键，键用下面给的标识（一个不多、一个不少），格式为
 {"<标识>": {"wake": "08:00", "sleep": "00:30", "slots": [{"start": "09:00", "end": "12:00", "what": "舞蹈课", "where": "事务所的练习室", "kind": "lesson", "with": []}]}}
 - 每位都排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
-- 每位都：所有 slots 在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；外景当天来回的，回程排完再睡，回程晚就把 sleep 往后排。
+- 每位都：所有 slots 在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；今天有外景行程时，回程排完再睡，回程晚就把 sleep 往后排。
 - wake 是几点起床（07:00 到 09:00），sleep 是晚上几点睡（23:00 以后；过了午夜写 00:30 这样，最晚 03:00）。照各自作息习惯排。
 - kind 只能是 work、lesson、school、live、rest、private 之一。
 - with 写和她一起的偶像的标识（只写世界设定里有的同伴），没有就写 []。
 - what 不超过 30 个字，where 不超过 30 个字。
 - **what 和 where 一律用简体中文写。** 即使人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。地点、车站、店名也写中文，例如「東京駅」写「东京站」。LIVE 和组合名可以保留原文。
-- 人设里明确是学生、或在读的成员：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE、外景，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 人设里明确是学生、或在读的成员：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 今天没有抽到外景行程时，不要写「外景」「出外景」「外景拍摄」，也不要因为天气改学校、课程、室内练习或在家安排。
 - 照各自的人设排；世界设定里今天有 live 的一定排进去。
 - 不要编原作里的大事。
 - 写到制作人时称「制作人」。"""
 
-WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。学生成员周一到周五白天先排学校；只有 LIVE、外景或必须参加的工作与学校冲突时才调整。）"
+WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。学生成员周一到周五白天先排学校；只有 LIVE 或必须参加的工作与学校冲突时才调整。没有外景行程时不要写外景。）"
 
 STAFF_SCHEDULE_RULES = """# 写今天的事务员日程
 你是 283 事务所的事务员，不是偶像。你要给自己排一份今天大概的安排，只输出 JSON，格式为
@@ -1461,6 +1463,7 @@ class ConversationEngine:
         twists: Sequence[str],
         yesterday: str | None,
         live: str | None = None,
+        weather: str | None = None,
     ) -> str:
         """Her schedule for `day`, as the model writes it on `llm`: from her sheet and the
         world setting, what the day is, her lives on it, her schedule the day before, her
@@ -1489,6 +1492,8 @@ class ConversationEngine:
             told.append(NO_LIVE)
         if yesterday:
             told.append(f"你昨天的安排：{yesterday}")
+        if weather:
+            told.append(weather)
         habit = character.heart.sleep if character.heart is not None else None
         if habit:
             told.append(f"你的作息习惯：{habit}")
@@ -1564,6 +1569,7 @@ class ConversationEngine:
         yesterday: Mapping[str, str | None],
         lives: Mapping[str, str | None] | None = None,
         households: Mapping[str, str] | None = None,
+        weathers: Mapping[str, str] | None = None,
     ) -> str:
         """The schedules of the `unit`'s members for `day`, written together on `llm` so
         that they do not conflict: from each member's sheet and the world setting, the day,
@@ -1598,6 +1604,8 @@ class ConversationEngine:
                 own.append(f"你昨天的安排：{before}")
             if household := (households or {}).get(character_id):
                 own.append(household)
+            if weather := (weathers or {}).get(character_id):
+                own.append(weather)
             own_twists = twists.get(character_id, ())
             own.append(
                 "今天的小变数（要真的影响当天的安排）："
