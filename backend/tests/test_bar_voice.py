@@ -28,6 +28,21 @@ async def test_her_line_is_voiced_on_the_deployers_key(make_client: ClientFactor
     assert fish.requests[0]["key"] == DEPLOYER_FISH_KEY
 
 
+async def test_her_line_is_voiced_a_sentence_at_a_time_without_a_pause(make_client: ClientFactory):
+    fish = FakeFishAudio()
+    client = make_client(FakeLLM(), fish_transport=faked(fish))
+
+    res = await tts(client, "mano", "こんばんは。今日も来てくれてありがとう。")
+
+    assert res.status_code == 200
+    assert [request["text"] for request in fish.requests] == [
+        "こんばんは。", "今日も来てくれてありがとう。",
+    ]
+    assert res.content == b"".join(
+        FakeFishAudio.audio(request["text"], "mano-voice") for request in fish.requests
+    )
+
+
 async def test_a_character_the_bar_has_not_is_refused(make_client: ClientFactory):
     client = make_client(FakeLLM())
 

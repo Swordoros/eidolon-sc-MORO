@@ -11,7 +11,9 @@ use is); any visit but the user's under way (410 `visit_gone`); serving while sh
 waiting for a drink (409 `not_waiting`), or what is none of the drinks (422
 `broken_drink`); trying again while no call failed (409 `not_failed`)."""
 
+import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from typing import Literal
 
@@ -95,7 +97,10 @@ def add_bar_routes(app: FastAPI, backend: Backend) -> None:
     @app.post("/api/bar/tts")
     async def tts(body: TtsInput, user_id: UserId) -> Response:
         """`text` said in the character's voice, as mp3; 422 for a character the bar has not,
-        or nothing said; 503 when this deployment has no speech synthesis."""
+        or nothing said; 503 when this deployment has no speech synthesis.
+
+        Her line is voiced a sentence at a time and the mp3s joined, so a long line is not
+        one unbroken breath; no pause is added between them."""
         character = bar.character(body.character_id)
         if character is None or not body.text.strip() or not character.voice_id.strip():
             raise HTTPException(422, "要说的哪位角色、说什么")
@@ -104,14 +109,17 @@ def add_bar_routes(app: FastAPI, backend: Backend) -> None:
             if lease.keys.tts is None:
                 raise HTTPException(503, "这个部署没配语音合成")
             try:
-                audio = await backend.read_aloud.said_on_deployers(
-                    lease.keys.tts, lease.keys.tts_model, character.voice_id, body.text
-                )
+                parts = await asyncio.gather(*(
+                    backend.read_aloud.said_on_deployers(
+                        lease.keys.tts, lease.keys.tts_model, character.voice_id, sentence,
+                    )
+                    for sentence in _sentences(body.text)
+                ))
             except ReadAloudFailed:
                 raise HTTPException(502, "语音合成失败，过一会儿再试") from None
         finally:
             lease.release()
-        return Response(audio, media_type="audio/mpeg")
+        return Response(b"".join(parts), media_type="audio/mpeg")
 
     @app.post("/api/bar/visits")
     async def enter(
@@ -134,6 +142,12 @@ def add_bar_routes(app: FastAPI, backend: Backend) -> None:
     async def leave(visit_id: str, user_id: UserId) -> None:
         """The visit left: over, and not to be come back to."""
         await bar.leave(user_id, visit_id)
+
+
+def _sentences(text: str) -> list[str]:
+    """`text` cut after Japanese sentence punctuation, keeping the punctuation; no pause is
+    added, the pieces are joined back into one mp3."""
+    return [part.strip() for part in re.split(r"(?<=[。！？!?])\s*", text.strip()) if part.strip()]
 
 
 def _brought(own_keys: OwnKeysInput | None) -> BroughtKeys:
