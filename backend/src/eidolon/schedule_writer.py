@@ -142,6 +142,69 @@ TripPlan = tuple[
     dict[str, list[str]], dict[str, tuple[str | None, tuple[str, ...]]]
 ]
 
+Transport = Literal["rail", "car", "plane"]
+
+TRANSPORT_WEIGHTS: dict[str, dict[Transport, int]] = {
+    "横滨": {"rail": 70, "car": 30},
+    "长野": {"rail": 70, "car": 30},
+    "名古屋": {"rail": 100},
+    "京都": {"rail": 100},
+    "大阪": {"rail": 100},
+    "神户": {"rail": 100},
+    "仙台": {"rail": 100},
+    "金泽": {"rail": 100},
+    "福冈": {"plane": 70, "rail": 30},
+    "广岛": {"plane": 60, "rail": 40},
+    "北海道": {"plane": 100},
+    "冲绳": {"plane": 100},
+}
+"""How a unit may get to each trip place, weighted among the ways that can work."""
+
+DRIVERS = frozenset({"natsuha"})
+"""Characters who can drive a trip's van; another driver may be added here."""
+CAR_CAPACITY = 5
+"""How many members one trip's car can carry."""
+
+
+def _trip_transport(
+    place: str, members: Sequence[str], names: Mapping[str, str], random: Random,
+) -> str | None:
+    """The trip's one shared way there, and its sentence for every member's schedule."""
+    weights = dict(TRANSPORT_WEIGHTS.get(place, {"rail": 100}))
+    if "car" in weights and (
+        len(members) > CAR_CAPACITY or not DRIVERS.intersection(members)
+    ):
+        del weights["car"]
+    if not weights:
+        weights = {"rail": 100}
+    if len(weights) == 1:
+        kind = next(iter(weights))
+    else:
+        total = sum(weights.values())
+        pick = random(total) + 1
+        kind = "rail"
+        for candidate, weight in weights.items():
+            pick -= weight
+            if pick <= 0:
+                kind = candidate
+                break
+    if kind == "rail":
+        return (
+            f"今天外景的交通方式：全员一起乘坐新干线前往{place}，"
+            "去程和回程都写新干线；不要写开车、飞机或自己前往。"
+        )
+    if kind == "plane":
+        return (
+            f"今天外景的交通方式：全员一起乘飞机前往{place}，"
+            "去程和回程都写飞机；不要写新干线、开车或自己前往。"
+        )
+    driver = next(cid for cid in members if cid in DRIVERS)
+    return (
+        f"今天外景的交通方式：由{names.get(driver, driver)}开车载全员前往{place}，"
+        "去程和回程都写同一辆车；其他人不要写新干线、飞机或自己前往。"
+    )
+
+
 
 @dataclass(frozen=True)
 class EscortOffer:
@@ -214,6 +277,9 @@ def _plan_group(
             ))
     else:
         twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
+    if transport := _trip_transport(place, members, names, random):
+        for cid in members:
+            twists.setdefault(cid, []).append(transport)
     trips: dict[str, tuple[str | None, tuple[str, ...]]] = {
         cid: (None, ()) for cid in members
     }
