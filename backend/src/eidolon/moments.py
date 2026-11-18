@@ -154,7 +154,10 @@ from eidolon.producer import ProducerProfile, effective_timezone, is_birthday, l
 from eidolon.randomness import Random
 from eidolon.recent_moments import picture_note, read_switched_on
 from eidolon.reply_format import format_reply
-from eidolon.schedules import Schedule, Schedules as DailySchedules, rest as schedule_rest
+from eidolon.schedules import (
+    Schedule, Schedules as DailySchedules, lines as schedule_lines,
+    rest as schedule_rest,
+)
 from eidolon.store import (
     Conversation,
     InTouch,
@@ -811,7 +814,7 @@ class Moments:
             if _slot_bounds(plan.day, slot, zone)[1] <= now
         ] if plan.kind == "work" else []
         material = await self._material(
-            plan, character, now, weather, jobs, slots, last, timezone
+            plan, character, now, weather, jobs, slots, last, timezone, schedule
         )
         recording = self._activity.begin(
             "moment", plan.user_id, plan.character_id, own_llm=False, exempt=False
@@ -1068,6 +1071,7 @@ class Moments:
         slots: Sequence,
         last,
         timezone: str,
+        schedule: Schedule | None,
     ) -> PostMaterial:
         """What she posts the moment planned with: of `jobs`, the work, lessons and lives
         already done today, else her everyday; the current work, if any, as it is now."""
@@ -1100,7 +1104,12 @@ class Moments:
         work_status = None
         if last is not None:
             start, end = _slot_bounds(plan.day, last, zone)
-            if now < end:
+            if now < start:
+                work_status = (
+                    f"接下来 {last.start:%H:%M}–{last.end:%H:%M} 你才要{last.what}"
+                    f"（{last.where}），现在还没开始。"
+                )
+            elif now < end:
                 work_status = (
                     f"你正在{last.what}（{last.start:%H:%M}–{last.end:%H:%M}，"
                     f"{last.where}）。工作还没有结束。"
@@ -1110,6 +1119,11 @@ class Moments:
                     f"你刚结束今天的最后一项工作：{last.what}"
                     f"（{last.start:%H:%M}–{last.end:%H:%M}，{last.where}）。"
                 )
+        names = {c.id: c.name_zh or c.name for c in self._characters.values()}
+        schedule_told = (
+            schedule_lines(schedule, now.astimezone(zone), names)
+            if schedule is not None else []
+        )
         circle = self._circle(character, local_date(now, timezone), plan.birthday)
         image = self._config.image_settings
         compositions = draw_compositions(
@@ -1134,6 +1148,7 @@ class Moments:
             circle,
             compositions,
             work_status,
+            schedule_told,
         )
 
     def _circle(self, character: Character, day: date, birthday: bool) -> list[Member]:

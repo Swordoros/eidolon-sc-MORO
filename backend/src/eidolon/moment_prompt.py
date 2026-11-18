@@ -75,6 +75,7 @@ POST_RULES = """# 发朋友圈
 - 可以提到「プロデューサーさん」，但关系再亲近也不写成情侣的口吻。
 - 「此刻」里没写天气时，正文别提天气和冷热。
 - 正文要符合「此刻」的时间：现在是傍晚，就别写「睡到中午」「吃早饭」这类早上的事；写的是已经过去的事，要写明「今天早上」「昨天」之类，别让人当成现在。
+- 照「今天的安排」里的状态写：标着「接下来」的还没开始，不能写成已经做完、刚刚结束或正在做；标着「进行中」的才可以写成现在正在做。
 - 地点只能从「地点候选」里挑一个，写它的 id；在家、在宿舍，或者候选里没有合适的，写 none。
 - 正文里提不提地名随你，要提就用日语自然地写。
 - 标了「你的卡面在这里拍过」的候选，只借那里的景，不说「这是我那张卡拍的地方」。
@@ -255,6 +256,7 @@ class PostMaterial:
     circle: Sequence[Member] = ()
     compositions: Sequence[Composition] = ()
     work_status: str | None = None
+    schedule: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -326,6 +328,8 @@ def post_prompt(material: PostMaterial) -> list[ChatMessage]:
     """The prompt she posts a moment with, from `material`."""
     shared = [*always_known(material.character, material.world_prompt), POST_RULES]
     told = ["\n".join(material.now)]
+    if material.schedule:
+        told.append("\n".join(material.schedule))
     if material.birthday:
         told.append(HER_BIRTHDAY)
     if material.work_status:
