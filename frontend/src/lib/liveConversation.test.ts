@@ -1216,6 +1216,23 @@ describe("LiveConversation: what can be done", () => {
   );
 });
 
+describe("LiveConversation: a refused call", () => {
+  it("shows a missed-call event returned with the refusal at once", async () => {
+    const { live, attempts } = await conversation();
+    const event: ConversationEvent = {
+      type: "event", id: 9, kind: "missed_call", created_at: "2026-10-13T03:00:00Z",
+      affinity: null,
+    };
+
+    await failing(live, attempts, new ApiError("她在洗澡，没接到你的电话", 409, {
+      code: "no_answer", event,
+    }));
+
+    expect(live.snapshot().entries.at(-1)).toMatchObject({ kind: "event", event: "missed_call" });
+    expect(live.snapshot().call).toMatchObject({ phase: "ended" });
+  });
+});
+
 describe("LiveConversation: a cooldown", () => {
   // GLOSSARY.md「冷却」：她暂时不想说话，到解除时刻自己恢复；页面上的时钟停在 NOW。
   const until = new Date(NOW + 60_000).toISOString();

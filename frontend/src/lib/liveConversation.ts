@@ -650,6 +650,12 @@ export class LiveConversation {
       }, asmr);
     } catch (e) {
       if (!current()) return;
+      // A refusal may have recorded an event as it happened (a missed call in the tub):
+      // show it now, not only after the page is reloaded.
+      if (e instanceof ApiError && e.event) {
+        this.apply({ type: "event", event: e.event });
+        this.ports.onListChanged();
+      }
       if (e instanceof ApiError && e.cooldownUntil !== null) {
         // Refused for a cooldown begun elsewhere: no end to show, the page shows the cooldown.
         this.ended(null);

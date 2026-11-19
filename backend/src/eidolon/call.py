@@ -150,7 +150,7 @@ from eidolon.producer import ProducerProfile, effective_timezone
 from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.store import Conversation, NotFound, Store
+from eidolon.store import Conversation, ConversationEvent, NotFound, Store
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.turn_taking import (
     ClearVoice,
@@ -254,8 +254,9 @@ class NoAnswer(Exception):
     """She did not answer the call: she is in the bath (GLOSSARY.md「洗澡」). It never began,
     and counts towards nothing."""
 
-    def __init__(self) -> None:
+    def __init__(self, event: ConversationEvent | None = None) -> None:
         super().__init__("她在洗澡，没接到你的电话")
+        self.event = event
 
 
 @dataclass(frozen=True)

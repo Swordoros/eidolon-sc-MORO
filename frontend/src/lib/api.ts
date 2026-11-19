@@ -397,6 +397,9 @@ export class ApiError extends Error {
   /** Refused for a limit used up until this time (ISO, the 429's `retry_at`); null for any
    * other refusal, or one with no time to wait for. */
   readonly retryAt: string | null;
+  /** An event the refusal already recorded, such as a missed call, so the page can show it
+   * without rereading the conversation; null when there is none. */
+  readonly event: ConversationEvent | null;
 
   constructor(
     message: string,
@@ -407,12 +410,14 @@ export class ApiError extends Error {
       scheduleClosed = false,
       code = null,
       retryAt = null,
+      event = null,
     }: {
       cooldownUntil?: string | null;
       giftsClosed?: boolean;
       scheduleClosed?: boolean;
       code?: string | null;
       retryAt?: string | null;
+      event?: ConversationEvent | null;
     } = {},
   ) {
     super(message);
@@ -421,6 +426,7 @@ export class ApiError extends Error {
     this.scheduleClosed = scheduleClosed;
     this.code = code;
     this.retryAt = retryAt;
+    this.event = event;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -465,7 +471,8 @@ export async function json<T>(res: Response): Promise<T> {
     const scheduleClosed = res.status === CONFLICT && body?.schedule_closed === true;
     const code = typeof body?.code === "string" ? body.code : null;
     const retryAt = res.status === OVER_LIMIT && typeof body?.retry_at === "string" ? body.retry_at : null;
-    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, scheduleClosed, code, retryAt });
+    const event = body?.event && typeof body.event === "object" ? (body.event as ConversationEvent) : null;
+    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, scheduleClosed, code, retryAt, event });
   }
   return res.json();
 }

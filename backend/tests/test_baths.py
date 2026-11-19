@@ -207,6 +207,7 @@ async def test_in_the_bath_she_does_not_answer_and_it_is_kept(
     await send_turn(client, conversation, "刚才怎么没接")
 
     assert res.status_code == 409 and res.json()["code"] == "no_answer"
+    assert res.json()["event"]["kind"] == "missed_call"
     events = [e for e in await record(client, conversation) if e.get("type") == "event"]
     assert [e["kind"] for e in events] == ["missed_call"]
 

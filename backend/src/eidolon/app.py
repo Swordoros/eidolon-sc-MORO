@@ -452,8 +452,12 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.exception_handler(NoAnswer)
     async def no_answer(_: Request, e: NoAnswer) -> JSONResponse:
-        """She did not pick up (GLOSSARY.md「洗澡」); told apart from the other refusals' 409."""
-        return JSONResponse({"detail": str(e), "code": "no_answer"}, status_code=409)
+        """She did not pick up (GLOSSARY.md「洗澡」); told apart from the other refusals' 409.
+        Carries the missed-call event so the browser can add it without rereading the record."""
+        body = {"detail": str(e), "code": "no_answer"}
+        if e.event is not None:
+            body["event"] = e.event.shown()
+        return JSONResponse(body, status_code=409)
 
     async def conversation_or_404(conversation_id: str, user_id: str) -> Conversation:
         conversation = await store.get_conversation(conversation_id)
@@ -551,8 +555,8 @@ def create_app(backend: Backend) -> FastAPI:
 
         async def answering() -> None:
             if await engine.phone(conversation, device_timezone) == "away":  # GLOSSARY.md「洗澡」
-                await store.miss_call(conversation.id)
-                raise NoAnswer()
+                event = await store.miss_call(conversation.id)
+                raise NoAnswer(event)
 
         return await calls.start(
             user_id,
