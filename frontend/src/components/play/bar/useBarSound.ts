@@ -154,27 +154,27 @@ export function useBarSound(base: string | null) {
 
   /** 放一段现成的音频（她的台词合成出来的 mp3）：解码后接在同一个 AudioContext 上，先停掉上一句。 */
   const say = useCallback(
-    (blob: Blob) => {
+    async (blob: Blob): Promise<void> => {
       if (!context.current && navigator.userActivation?.hasBeenActive) start();
       const ctx = context.current;
       if (!ctx) return;
-      void blob
-        .arrayBuffer()
-        .then((data) => ctx.decodeAudioData(data))
-        .then((decoded) => {
-          if (context.current !== ctx) return;
-          stopSay();
-          const source = sourceOf(decoded, false);
-          saying.current = source;
-          setSaying(true);
-          source.onended = () => {
-            if (saying.current === source) {
-              saying.current = null;
-              setSaying(false);
-            }
-          };
-        })
-        .catch(() => {});
+      try {
+        const data = await blob.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(data);
+        if (context.current !== ctx) return;
+        stopSay();
+        const source = sourceOf(decoded, false);
+        saying.current = source;
+        setSaying(true);
+        source.onended = () => {
+          if (saying.current === source) {
+            saying.current = null;
+            setSaying(false);
+          }
+        };
+      } catch {
+        // The sound could not be decoded: the text still goes on.
+      }
     },
     [start, stopSay],
   );

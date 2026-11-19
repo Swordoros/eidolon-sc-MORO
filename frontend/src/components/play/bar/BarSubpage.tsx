@@ -125,17 +125,9 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
     serve: current.serve,
   });
 
-  const voice = isFailed ? null : typingVoice(scene, now);
-  // 嘴型优先跟语音；没有语音时（TTS 没开、还在等合成）退回逐字打字的节奏。
-  const isMouthMoving = !isFailed && (sound.isSaying || isSpeaking(scene, now));
-  const { loop } = sound;
-  useEffect(() => {
-    loop(voice && TYPING_SOUND[voice]);
-  }, [voice, loop]);
-
-  // 她在酒吧里的台词也有声音：提前把队列里她的日语合成好，轮到时用酒吧的 AudioContext 播。
   const her = characters?.find((c) => c.id === current.guest?.characterId) ?? null;
-  useBarVoice({
+  // 她在酒吧里的台词也有声音：提前把队列里她的日语合成好，轮到时用酒吧的 AudioContext 播。
+  const voice = useBarVoice({
     line: scene.shown?.line ?? null,
     queue: scene.queue,
     characterId: her?.id ?? null,
@@ -143,6 +135,22 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
     say: sound.say,
     stopSay: sound.stopSay,
   });
+  // Her line waits for its voice: nothing is typed or tapped until the audio has
+  // decoded and started, so text and voice appear together.
+  const spoken = scene.shown?.line;
+  const voiceKey = spoken?.speaker === "her" && her && spoken.ja.trim()
+    ? `${her.id}:${spoken.ja}`
+    : null;
+  const waitingForVoice =
+    !isFailed && voiceKey !== null && voice.readyKey !== voiceKey;
+  const textNow = now;
+  const typing = isFailed || waitingForVoice ? null : typingVoice(scene, textNow);
+  // 嘴型优先跟语音；没有语音时（TTS 没开、还在等合成）退回逐字打字的节奏。
+  const isMouthMoving = !isFailed && (sound.isSaying || isSpeaking(scene, textNow));
+  const { loop } = sound;
+  useEffect(() => {
+    loop(typing && TYPING_SOUND[typing]);
+  }, [typing, loop]);
 
   if (bar && !bar.enabled) notFound();
   if (!bar && !failed) return <div className="bar-layer absolute inset-0" style={{ background: BAR_INK.ground }} />;
@@ -173,11 +181,11 @@ export function BarSubpage({ audioBase }: { audioBase: string | null }) {
         <>
           <BarCounter mixer={scene.mixer} isCounterOpen={isCounterUnlocked} counter={counter} />
           <BarTextBox
-            text={shownText(scene, now)}
+            text={waitingForVoice ? null : shownText(scene, textNow)}
             herColor={her?.color ?? BAR_INK.text}
-            isArrowShown={isArrowShown(scene, now)}
-            isNextCursor={scene.shown !== null && !isMixing}
-            onTap={current.tap}
+            isArrowShown={!waitingForVoice && isArrowShown(scene, textNow)}
+            isNextCursor={!waitingForVoice && scene.shown !== null && !isMixing}
+            onTap={waitingForVoice ? () => {} : current.tap}
             memo={mixingMemo(scene)}
             failure={state.failure === null ? null : { message: state.failure, isRetrying: state.isRetrying, onRetry: retry }}
           />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SceneLine } from "@/lib/barScene";
 
@@ -13,6 +13,7 @@ type QueuedPage = { line: SceneLine };
  *
  * - **提前合成**：台词还在队列里（`queue`）时就先把它们的 mp3 要过来，轮到她这句时直接播，没有等合成的延迟。
  * - **逐句播**：只有当前显示的这一句（`line`）会播；同一句分了多页时声音跨页继续，只有**换句**（`line` 变了）才停。
+ * - **等声音**：当前这句的声音解码并真正开始播放后，才把 `ready` 交给文本框，让文字和声音一起出现。
  * - 同一句按角色 + 原文缓存，不重复合成、不重复播放。
  */
 export function useBarVoice({
@@ -27,11 +28,17 @@ export function useBarVoice({
   queue: QueuedPage[];
   characterId: string | null;
   enabled: boolean;
-  say: (blob: Blob) => void;
+  say: (blob: Blob) => Promise<void> | void;
   stopSay: () => void;
 }) {
   const cache = useRef(new Map<string, Promise<Blob | null>>());
   const played = useRef<string | null>(null);
+  /** Whether the current line's voice is ready to be shown together with its text. */
+  const [ready, setReady] = useState(true);
+  /** When the current line's voice came ready, for the text box to start typing then. */
+  const [readyAt, setReadyAt] = useState<number | null>(null);
+  /** Which line the ready state belongs to. */
+  const [readyKey, setReadyKey] = useState<string | null>(null);
 
   const load = useCallback(
     (text: string): Promise<Blob | null> => {
@@ -64,17 +71,35 @@ export function useBarVoice({
   useEffect(() => {
     // 换了一句：先把上一句的声音停掉；同一句只翻页时不动它，声音接着放。
     stopSay();
-    if (!enabled || !characterId || !line || line.speaker !== "her") return;
-    if (!line.ja.trim()) return;
+    setReadyAt(null);
+    if (!enabled || !characterId || !line || line.speaker !== "her" || !line.ja.trim()) {
+      setReadyKey(null);
+      setReady(true);
+      return;
+    }
     const key = `${characterId}:${line.ja}`;
-    if (played.current === key) return;
+    if (played.current === key) {
+      setReadyKey(key);
+      setReady(true);
+      return;
+    }
     played.current = key;
+    setReadyKey(null);
+    setReady(false);
     let cancelled = false;
-    void load(line.ja).then((blob) => {
-      if (!cancelled && blob) say(blob);
+    void load(line.ja).then(async (blob) => {
+      if (cancelled) return;
+      if (blob) await say(blob);
+      if (!cancelled) {
+        setReadyAt(performance.now());
+        setReadyKey(key);
+        setReady(true);
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [enabled, characterId, line, say, stopSay, load]);
+
+  return { ready, readyAt, readyKey };
 }
