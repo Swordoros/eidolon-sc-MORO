@@ -3,10 +3,9 @@ from datetime import UTC, datetime
 from eidolon.engine import (
     anchor_event_notes,
     assistant_event_notes,
-    gift_after_reply,
     history_block,
     history_notes,
-    HistoryNote,
+    tail_event_notes,
 )
 from eidolon.gift_catalog import Gift
 from eidolon.reply_format import Segment
@@ -58,7 +57,7 @@ def test_a_gift_is_attached_once_to_the_next_assistant_message():
     assert block.index("（背景事件：制作人送了你一份蛋糕）") < block.index("角色：嗯")
 
 
-def test_a_gift_before_the_current_user_is_shown_before_that_turn():
+def test_a_gift_before_the_current_user_becomes_a_tail_note_not_history():
     record = [
         user(1, "2026-11-17T19:50:00+00:00"),
         her(2, "2026-11-17T19:51:00+00:00"),
@@ -70,30 +69,17 @@ def test_a_gift_before_the_current_user_is_shown_before_that_turn():
     catalog = {"cake": Gift("cake", "蛋糕", "food", "common")}
     history = [message for message in record[:2] if isinstance(message, Message)]
 
-    notes = history_notes(record, catalog, lambda *_: None, "UTC")
+    tail, handled = tail_event_notes(record, catalog, NOW, "UTC")
+    notes = history_notes(record, catalog, lambda *_: None, "UTC", skip=handled)
 
-    assert notes[3] == [HistoryNote(
-        record[2].created_at, "event", "旁白：（背景事件：制作人送了你一份蛋糕）",
-    )]
-    block = history_block(history, notes, NOW, "UTC")
-
-    assert block is not None
-    assert "（背景事件：制作人送了你一份蛋糕）" in block
-    assert block.rstrip().endswith("（背景事件：制作人送了你一份蛋糕）")
-
-
-def test_a_reply_before_a_gift_is_not_repeated_as_the_last_line():
-    record = [
-        user(1, "2026-11-17T19:50:00+00:00"),
-        her(2, "2026-11-17T19:52:00+00:00"),
-        ConversationEvent(
-            100, "gift", "2026-11-17T19:53:00+00:00", gift_id="cake", liked=True
-        ),
-        user(3, "2026-11-17T19:54:00+00:00"),
+    assert handled == {100}
+    assert tail == [
+        "[今天 晚上 19:52]\n旁白：（背景事件：刚刚制作人送了你一份蛋糕）"
     ]
-
-    assert gift_after_reply(record, her(2, "2026-11-17T19:52:00+00:00"))
-    assert not gift_after_reply(record, None)
+    assert notes.get(3, []) == []
+    block = history_block(history, notes, NOW, "UTC")
+    assert block is not None
+    assert "（背景事件：制作人送了你一份蛋糕）" not in block
 
 
 def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
@@ -115,7 +101,7 @@ def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
     assert previous == ["旁白：（背景事件：制作人送了你一份蛋糕，你已经收下了）"]
 
 
-def test_an_event_after_the_last_assistant_stays_narration():
+def test_an_event_after_the_last_assistant_becomes_a_tail_note():
     record = [
         user(1, "2026-11-17T19:50:00+00:00"),
         her(2, "2026-11-17T19:51:00+00:00"),
@@ -127,7 +113,12 @@ def test_an_event_after_the_last_assistant_stays_narration():
         record, [m for m in record if isinstance(m, Message)],
         catalog, lambda *_: None, "UTC",
     )
-    narration = history_notes(record, catalog, lambda *_: None, "UTC")
+    tail, tail_handled = tail_event_notes(record, catalog, NOW, "UTC")
+    history = history_notes(
+        record, catalog, lambda *_: None, "UTC", skip=handled | tail_handled,
+    )
 
     assert notes == {} and handled == set()
-    assert "制作人送了你一份蛋糕" in narration[None][0].text
+    assert tail_handled == {100}
+    assert "制作人送了你一份蛋糕" in tail[0]
+    assert all(not values for values in history.values())

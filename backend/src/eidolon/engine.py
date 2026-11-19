@@ -680,20 +680,38 @@ def anchor_event_notes(
     return notes
 
 
-def gift_after_reply(record: Sequence[Recorded], anchor: Message | None) -> bool:
-    """Whether a gift or keepsake happened after `anchor`, so the anchor is no longer the
-    last thing before the current user and must not be repeated as her last line."""
-    if anchor is None:
-        return False
-    seen = False
-    for entry in record:
-        if isinstance(entry, Message) and entry.id == anchor.id:
-            seen = True
+TAIL_EVENT_CURRENT = timedelta(minutes=10)
+"""How recent a gift after her last reply may be to be called just now."""
+
+
+def tail_event_notes(
+    record: Sequence[Recorded], gift_catalog: Mapping[str, Gift],
+    now: datetime, timezone: str,
+) -> tuple[list[str], set[int]]:
+    """Gifts and keepsakes after her last reply, with the time each happened: the latest
+    events, to go after the repeated last line and before the user's current words. Their
+    ids are not also put in the history block."""
+    last_reply = -1
+    for index, entry in enumerate(record):
+        if isinstance(entry, Message) and entry.role == "character":
+            last_reply = index
+    notes: list[str] = []
+    handled: set[int] = set()
+    for index, entry in enumerate(record):
+        if index <= last_reply:
             continue
-        if seen and isinstance(entry, ConversationEvent) and told_her(entry):
-            if entry.kind in ("gift", "keepsake"):
-                return True
-    return False
+        if not isinstance(entry, ConversationEvent) or not told_her(entry):
+            continue
+        if entry.kind not in ("gift", "keepsake"):
+            continue
+        at = datetime.fromisoformat(entry.created_at)
+        when = "current" if now - at <= TAIL_EVENT_CURRENT else "history"
+        notes.append(
+            f"{history_stamp(entry.created_at, now, timezone)}\n"
+            f"{_event_note(entry, gift_catalog, when)}"
+        )
+        handled.add(entry.id)
+    return notes, handled
 
 
 def history_block(
@@ -2112,15 +2130,17 @@ class ConversationEngine:
             if self._relationships is not None else None
         )
         prompt_history = latest_turns(prompt_messages, turns)
+        tail_notes, tail_handled = tail_event_notes(
+            read.record, self._gift_catalog, now, timezone,
+        )
         assistant_notes, handled = assistant_event_notes(
             read.record, prompt_history, self._gift_catalog, her_days, timezone
         )
         notes = history_notes(
-            read.record, self._gift_catalog, her_days, timezone, skip=handled
+            read.record, self._gift_catalog, her_days, timezone,
+            skip=handled | tail_handled,
         )
         anchor = recent_reply(prompt_history, now)
-        if gift_after_reply(read.record, anchor):
-            anchor = None
         anchor_notes = anchor_event_notes(read.record, anchor, self._gift_catalog)
         compact_history = history_block(
             prompt_history, notes, now, timezone,
@@ -2156,7 +2176,7 @@ class ConversationEngine:
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, anchor=anchor, now_state=schedule_state,
-            anchor_notes=anchor_notes,
+            anchor_notes=anchor_notes, tail_notes=tail_notes,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2847,6 +2867,7 @@ class ConversationEngine:
         anchor: Message | None = None,
         now_state: str | None = None,
         anchor_notes: Sequence[str] = (),
+        tail_notes: Sequence[str] = (),
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2897,6 +2918,8 @@ class ConversationEngine:
             prompt.append(ChatMessage(
                 "assistant", "\n".join([*anchor_notes, anchored(anchor, now, timezone)])
             ))
+        if tail_notes:
+            prompt.append(ChatMessage("system", "\n".join(tail_notes)))
         current = (
             f"{current_message_stamp(now, timezone)} "
             if stamp_user and now is not None else ""
