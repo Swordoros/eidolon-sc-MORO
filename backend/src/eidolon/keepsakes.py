@@ -60,7 +60,7 @@ from eidolon.producer import effective_timezone, is_birthday
 from eidolon.promises import Promise
 from eidolon.randomness import Random
 from eidolon.reply_format import Segment
-from eidolon.schedules import Schedule, Schedules, rest
+from eidolon.schedules import Schedule, Schedules, has_trip, rest
 from eidolon.store import Store, give_keepsake
 
 log = logging.getLogger(__name__)
@@ -358,17 +358,30 @@ class Keepsakes:
                                      "", now)
             if self._schedules is not None and await self._features.on(user_id, "schedules"):
                 duty = await self._schedules.of(user_id, character_id, today)
-                if duty is not None and duty.trip:
+                if duty is not None and duty.trip and has_trip(duty.slots, duty.trip):
                     await self._put_down(
                         user_id, character_id, f"souvenir:{today}", "souvenir", duty.trip,
                         _trip_end(duty, zone),
                     )
+                elif duty is not None and duty.trip:
+                    await self._db.write(
+                        _drop_souvenir, user_id, character_id, f"souvenir:{today}",
+                    )
                 yesterday = await self._schedules.of(
                     user_id, character_id, today - timedelta(days=1)
                 )
-                if yesterday is not None and yesterday.trip:
-                    await self._put_down(user_id, character_id, f"souvenir:{yesterday.day}",
-                                         "souvenir", yesterday.trip, now)
+                if yesterday is not None and yesterday.trip and has_trip(
+                    yesterday.slots, yesterday.trip
+                ):
+                    await self._put_down(
+                        user_id, character_id, f"souvenir:{yesterday.day}",
+                        "souvenir", yesterday.trip, now,
+                    )
+                elif yesterday is not None and yesterday.trip:
+                    await self._db.write(
+                        _drop_souvenir, user_id, character_id,
+                        f"souvenir:{yesterday.day}",
+                    )
 
     # Giving them.
 
@@ -713,6 +726,17 @@ def _keep(
     if conversation_id is not None:
         give_keepsake(db, conversation_id, cursor.lastrowid, draft.name)
     return cursor.lastrowid
+
+
+def _drop_souvenir(
+    db: sqlite3.Connection, user_id: str, character_id: str, key: str,
+) -> None:
+    """Forget a souvenir planned for a day whose schedule has no actual trip slot."""
+    db.execute(
+        "DELETE FROM keepsake_due WHERE user_id = ? AND character_id = ?"
+        " AND key = ? AND done_at IS NULL",
+        (user_id, character_id, key),
+    )
 
 
 def _drop_stale_souvenirs(

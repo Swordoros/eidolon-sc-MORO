@@ -439,7 +439,7 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
     )
     messages = without_emotions(messages)
 
-    assert spoken_text == ["ほわっ", "今日"]
+    assert spoken_text == ["ほわっ"]  # the half-written second segment is never voiced
     assert kinds(messages) == ["user", "done", "ended"]  # it counts as a turn
     assert (messages[-2]["message"]["ja"], messages[-2]["message"]["zh"]) == ("ほわっ", "哇")
     assert await mano_call.record() == [

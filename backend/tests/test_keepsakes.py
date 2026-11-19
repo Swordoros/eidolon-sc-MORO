@@ -427,6 +427,41 @@ async def test_a_day_now_and_then_has_a_trip_away_from_tokyo(
     assert written["twists"] == [TRIP_TWIST.format(place="北海道")]
 
 
+async def test_a_trip_without_an_actual_slot_brings_no_souvenir(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock(at(10))
+    client, _, conversation = await talked(
+        make_client, settings, GIVES, clock=clock, schedules=True,
+    )
+    last_contact(settings.database_path, conversation, at(9))
+    me = user_id(settings.database_path, "producer")
+    await backend_of(client).daily.keep(
+        me, "mano", TODAY - timedelta(days=1),
+        [Slot(time(10), time(12), "练习", "事务所", "work")], [], trip="大阪",
+    )
+
+    await backend_of(client).keepsakes.run_due()
+
+    assert (await cabinet(client))["keepsakes"] == []
+
+
+async def test_a_keepsake_is_announced_even_after_a_long_silence(
+    make_client: ClientFactory, settings: Settings
+):
+    client, _, conversation = await talked(
+        make_client, settings, GIVES, reach_outs=True,
+    )
+    last_contact(settings.database_path, conversation, at(9) - timedelta(days=9))
+
+    res = await client.post("/api/keepsakes/give-now", json={"character_id": "mano"})
+    entries = await record(client, conversation)
+
+    assert res.status_code == 201
+    assert any(e.get("type") == "reach_out" for e in entries)
+
+
+
 async def test_with_its_pictures_switched_off_it_still_comes_without_one_and_none_are_missing(
     make_client: ClientFactory, settings: Settings
 ):

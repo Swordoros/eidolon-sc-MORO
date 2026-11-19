@@ -7,7 +7,7 @@ import httpx
 
 from eidolon.llm import ChatMessage
 from eidolon.characters import EXTRA_NAME_TRANSLATIONS
-from eidolon.engine import FORMAT_CORRECTION
+from eidolon.engine import SEGMENT_CORRECTION
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, names_instructions
 from tests.conftest import MANO_SHEET, ClientFactory
 from tests.fakes import FakeLLM, system_of
@@ -177,7 +177,7 @@ async def test_reply_that_ignores_the_format_is_asked_to_write_it_again(
     assert events[-1]["message"]["ja"] == "えっと、ありがとうございますっ"
     assert events[-1]["message"]["zh"] == "那个，谢谢您"
     assert len(llm.prompts) == 2
-    assert FORMAT_CORRECTION in llm.prompts[1][-1].content
+    assert SEGMENT_CORRECTION.split("{", 1)[0] in llm.prompts[1][-1].content
 
 
 async def test_reply_with_only_a_chinese_subtitle_is_asked_to_write_it_again(
@@ -214,10 +214,10 @@ async def test_empty_correction_falls_back_to_the_original_prompt(
     assert events[-1]["message"]["zh"] == "中文字幕"
     assert len(llm.prompts) == 3
     assert llm.prompts[1][-1].role == "user"
-    assert FORMAT_CORRECTION in llm.prompts[1][-1].content
+    assert SEGMENT_CORRECTION.split("{", 1)[0] in llm.prompts[1][-1].content
 
 
-async def test_two_broken_attempts_keep_the_first_readable_text(
+async def test_two_broken_attempts_show_no_invalid_text(
     make_client: ClientFactory,
 ):
     llm = FakeLLM(
@@ -229,7 +229,54 @@ async def test_two_broken_attempts_keep_the_first_readable_text(
 
     events = await send_turn(client, conversation_id, "测试")
 
-    assert events[-1]["message"]["zh"] == "至少这段中文还可以读"
+    assert events[-1]["type"] == "error"
+    assert "至少这段中文还可以读" not in str(events)
+
+
+async def test_a_broken_segment_is_shown_readable_after_its_repair_fails(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<ja>第一句</ja><zh>第一句</zh><ja>坏句</ja><zh></zh>"],
+        ["这不是可用的单段回复"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "测试")
+
+    shown = "".join(e["text"] for e in events if e["type"] == "delta")
+    speech = "".join(e["text"] for e in events if e["type"] == "speech-delta")
+    assert "第一句" in shown and "坏句" in shown
+    assert "坏句" not in speech
+    assert events[-1]["message"]["segments"] == [
+        {"ja": "第一句", "zh": "第一句"},
+        {"ja": "坏句", "zh": ""},
+    ]
+    assert len(llm.prompts) == 2  # no whole-reply retry after a valid prefix
+
+
+async def test_a_broken_middle_segment_is_repaired_without_replaying_the_first(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<ja>第一句</ja><zh>第一句</zh><ja>坏句</ja><zh></zh>"],
+        ["<ja>修好的第二句</ja><zh>修好的第二句</zh>"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "测试")
+
+    shown = "".join(e["text"] for e in events if e["type"] == "delta")
+    assert "第一句" in shown
+    assert "修好的第二句" in shown
+    assert "坏句" not in shown
+    assert events[-1]["message"]["segments"] == [
+        {"ja": "第一句", "zh": "第一句"},
+        {"ja": "修好的第二句", "zh": "修好的第二句"},
+    ]
+    assert len(llm.prompts) == 2
 
 
 async def test_both_sides_of_a_turn_are_kept_in_the_conversation_record(

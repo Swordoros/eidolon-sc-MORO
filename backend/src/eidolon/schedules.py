@@ -233,6 +233,12 @@ def _bath_before(
     return None
 
 
+def has_trip(slots: Sequence[Slot], place: str) -> bool:
+    """Whether the day's kept slots actually take her to `place`: the trip field alone is
+    not enough, as a model may write a trip day without putting one in its slots."""
+    return any(place in f"{slot.where} {slot.what}" for slot in slots)
+
+
 @dataclass(frozen=True)
 class Schedule:
     day: date

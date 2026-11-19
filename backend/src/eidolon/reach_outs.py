@@ -262,7 +262,10 @@ class ReachOuts:
         )
         if current is None or current.ended or not current.has_turns:
             return False
-        if current.last_contact is None or self._clock() - current.last_contact > WINDOW:
+        # A keepsake is an event that has already happened, not a scheduled reach-out
+        # into a silence: a longer quiet spell must not lose the only line that tells
+        # the producer about it.
+        if current.last_contact is None:
             return False
         # The keepsake is already given; this is the only way its words reach the
         # conversation, so a recent scheduled reach-out must not hold it back.

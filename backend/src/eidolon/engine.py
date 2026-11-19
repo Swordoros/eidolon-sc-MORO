@@ -387,6 +387,18 @@ FORMAT_CORRECTION = """你上一条回复格式不完整。
 请把上一条回复按这个格式重写。"""
 """Told to the model once when its reply did not parse into complete segments."""
 
+SEGMENT_CORRECTION = """你上一条回复里有一段格式不完整。
+只重写这一段，保持它的意思和前后衔接，不要重写其他段。
+
+原段：
+<ja>{ja}</ja><zh>{zh}</zh>
+
+只输出一段，严格写成：
+<ja>日语原文</ja><zh>中文字幕</zh>
+
+不要解释，不要角色名，不要输出标签外的文字，不要写照片标签。"""
+"""Told to the model when one segment, not the whole reply, is malformed."""
+
 
 def _segments_valid(segments: Sequence[Segment], raw: str) -> bool:
     """Whether every segment has both its Japanese and its Chinese subtitle, and the raw
@@ -420,6 +432,87 @@ def _insert_before_reply(
                 at = index
                 break
     prompt.insert(at, ChatMessage("system", text))
+
+
+class _SegmentGate:
+    """Hold each segment until it is complete and valid, and repair only a broken one.
+
+    Nothing of a segment is shown or voiced before its ``SegmentComplete``; a segment
+    that comes out without both sides is dropped and rewritten in place, while segments
+    already accepted and later segments waiting behind it keep their order."""
+
+    def __init__(
+        self,
+        parser: ReplyParser,
+        repair: Callable[[Segment], Awaitable[Segment | None]],
+    ) -> None:
+        self._parser = parser
+        self._repair = repair
+        self._waiting: list[TurnEvent] = []
+        self.segments: list[Segment] = []
+        self.failed = False
+
+    async def feed(self, event: TurnEvent) -> AsyncIterator[TurnEvent]:
+        if isinstance(event, PhotoTagged):
+            yield event
+            return
+        if isinstance(event, (SegmentDelta, SpeechDelta)):
+            self._waiting.append(event)
+            return
+        if not isinstance(event, SegmentComplete):
+            return
+        index = event.segment
+        segment = self._parser.complete[index]
+        if _segment_valid(segment):
+            for waiting in self._waiting:
+                yield waiting
+            self._waiting.clear()
+            self.segments.append(segment)
+            yield event
+            return
+        self._waiting.clear()
+        repaired = await self._repair(segment)
+        if repaired is None:
+            # A valid prefix has already been shown: keep the broken segment readable
+            # rather than making the whole reply disappear. No TTS: it never passed.
+            if self.segments:
+                fallback = _fallback_events(index, segment)
+                if fallback:
+                    self.segments.append(segment)
+                    for event in fallback:
+                        yield event
+            self.failed = True
+            return
+        self.segments.append(repaired)
+        for event in _repaired_events(index, repaired):
+            yield event
+
+
+def _segment_valid(segment: Segment) -> bool:
+    return bool(segment.ja.strip() and segment.zh.strip())
+
+
+def _repaired_events(index: int, segment: Segment) -> list[TurnEvent]:
+    """The events a repaired segment is sent as: its words, its voice, its subtitle."""
+    return [
+        SegmentDelta(index, "ja", without_cues(segment.ja)),
+        SpeechDelta(index, segment.ja),
+        SegmentDelta(index, "zh", segment.zh),
+        SegmentComplete(index),
+    ]
+
+
+def _fallback_events(index: int, segment: Segment) -> list[TurnEvent]:
+    """What a broken segment is shown as once its repair has failed: its readable side or
+    sides, as text only, never as speech."""
+    events: list[TurnEvent] = []
+    if segment.ja.strip():
+        events.append(SegmentDelta(index, "ja", without_cues(segment.ja)))
+    if segment.zh.strip():
+        events.append(SegmentDelta(index, "zh", segment.zh))
+    if events:
+        events.append(SegmentComplete(index))
+    return events
 
 
 class _Stopped(Exception):
@@ -2261,7 +2354,13 @@ class ConversationEngine:
         tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
         parser = ReplyParser(zh_names=self._zh_names)
         raw = ""
-        finish_reason: str | None = None
+
+        async def repair_segment(segment: Segment) -> Segment | None:
+            return await self._repair_segment(
+                prompt, gate.segments, segment, llms.chat, stop,
+            )
+
+        gate = _SegmentGate(parser, repair_segment)
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
                 # The last round offers the same tools, as some models drop what they thought
@@ -2281,7 +2380,6 @@ class ConversationEngine:
                             reasoning.append(item)
                             continue
                         if isinstance(item, Finish):
-                            finish_reason = item.reason
                             continue
                         said += item
                         raw += item
@@ -2295,15 +2393,21 @@ class ConversationEngine:
                                         photo_asked.adult,
                                     )
                                 continue
-                            yield event
+                            async for shown in gate.feed(event):
+                                yield shown
+                        if gate.failed:
+                            break
                 finally:
                     if (close := getattr(stream, "aclose", None)) is not None:
                         await close()  # a stream left part-way lets go of its connection
+                if gate.failed:
+                    break
                 for event in parser.finish():
                     if not isinstance(event, PhotoTagged):  # never: a tag closes as it is fed
-                        yield event
+                        async for shown in gate.feed(event):
+                            yield shown
                 # A call to a tool not offered, or made when forbidden, goes unanswered.
-                if not calls or not tools or forbidden:
+                if gate.failed or not calls or not tools or forbidden:
                     break
                 prompt = [
                     *prompt,
@@ -2318,72 +2422,49 @@ class ConversationEngine:
         except _Stopped:
             pass
 
-        first_segments = parser.complete
-        first_raw = raw
-        first_finish = finish_reason
-
-        async def retry_with(prompt_to_send: list[ChatMessage]) -> list[TurnEvent]:
-            nonlocal parser, raw, finish_reason
+        # Nothing was shown yet: a whole reply may be tried once more if every segment
+        # failed. Once any segment has been accepted, this is never done.
+        if gate.failed and not gate.segments and (stop is None or not stop.is_set()):
             parser = ReplyParser(zh_names=self._zh_names)
-            raw = ""
-            finish_reason = None
-            events: list[TurnEvent] = []
-            stream = llms.chat.stream(prompt_to_send, [], forbid_calls=True)
+            gate = _SegmentGate(parser, repair_segment)
+            stream = llms.chat.stream(prompt, [], forbid_calls=True)
             try:
                 while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
                     if isinstance(item, Finish):
-                        finish_reason = item.reason
                         continue
-                    if not isinstance(item, str):
-                        continue
-                    raw += item
-                    for event in parser.feed(item):
+                    if isinstance(item, str):
+                        raw += item
+                        for event in parser.feed(item):
+                            if not isinstance(event, PhotoTagged):
+                                async for shown in gate.feed(event):
+                                    yield shown
+                    if gate.failed:
+                        break
+                if not gate.failed:
+                    for event in parser.finish():
                         if not isinstance(event, PhotoTagged):
-                            events.append(event)
+                            async for shown in gate.feed(event):
+                                yield shown
             except _Stopped:
                 pass
             finally:
                 if (close := getattr(stream, "aclose", None)) is not None:
                     await close()
-            for event in parser.finish():
-                if not isinstance(event, PhotoTagged):
-                    events.append(event)
-            return events
 
-        if first_segments and not _segments_valid(first_segments, first_raw) and (
-            stop is None or not stop.is_set()
-        ):
-            # The model did not write complete <ja>/<zh> pairs. Ask once more, as a user
-            # correction, rather than record or show a bare line.
-            for event in await retry_with([
-                *prompt, ChatMessage("user", FORMAT_CORRECTION),
-            ]):
-                yield event
-            correction_raw = raw
-            correction_finish = finish_reason
-            if not correction_raw.strip() and (stop is None or not stop.is_set()):
-                # A correction that came back empty is not a format error to keep: ask the
-                # original prompt once more, without replaying anything already voiced.
-                for event in await retry_with(prompt):
-                    yield event
-        else:
-            correction_raw = correction_finish = None
-
-        segments = parser.complete
-        if not _segments_valid(segments, raw):
+        segments = gate.segments
+        if gate.failed:
             log.warning(
-                "reply format failed: first_finish=%r first_raw=%r "
-                "correction_finish=%r correction_raw=%r",
-                first_finish, first_raw[:1000], correction_finish,
-                (correction_raw or "")[:1000],
+                "reply segment repair failed; keeping %s accepted segment(s): raw=%r",
+                len(segments), raw[:1000],
             )
-            segments = _fallback_segments(first_segments, first_raw)
-            if not segments:
-                self._japanese_history.add(conversation.id)
-                raise EmptyReply("对话模型没有按格式回复")
+        if not segments:
+            self._japanese_history.add(conversation.id)
+            raise EmptyReply("对话模型没有按格式回复")
+        if gate.failed:
             self._japanese_history.add(conversation.id)
         else:
             self._japanese_history.discard(conversation.id)
+
 
         typed = (
             None if in_call is not None
@@ -2753,6 +2834,49 @@ class ConversationEngine:
         if self._photos is None:
             return None
         return await self._photos.came_out(photo_id, user_id)
+
+    async def _repair_segment(
+        self,
+        prompt: Sequence[ChatMessage],
+        accepted: Sequence[Segment],
+        segment: Segment,
+        llm: ChatLLM,
+        stop: asyncio.Event | None,
+    ) -> Segment | None:
+        """Rewrite only `segment`, keeping the accepted segments as context."""
+        repair = [
+            *prompt,
+            *([ChatMessage("assistant", format_reply(accepted))] if accepted else []),
+            ChatMessage(
+                "user",
+                SEGMENT_CORRECTION.format(ja=segment.ja, zh=segment.zh),
+            ),
+        ]
+        stream = llm.stream(repair, [], forbid_calls=True)
+        said = ""
+        try:
+            while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
+                if isinstance(item, Finish):
+                    continue
+                if isinstance(item, str):
+                    said += item
+        except _Stopped:
+            return None
+        except Exception:
+            log.warning("repairing a reply segment failed", exc_info=True)
+            return None
+        finally:
+            if (close := getattr(stream, "aclose", None)) is not None:
+                await close()
+        fixed = ReplyParser(zh_names=self._zh_names)
+        for event in fixed.feed(said):
+            if isinstance(event, PhotoTagged):
+                return None
+        fixed.finish()
+        if len(fixed.complete) != 1 or not _segment_valid(fixed.complete[0]):
+            log.warning("segment repair returned no usable segment: %r", said[:1000])
+            return None
+        return fixed.complete[0]
 
     async def _plan_photo(
         self,
