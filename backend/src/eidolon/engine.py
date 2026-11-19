@@ -2160,6 +2160,9 @@ class ConversationEngine:
             japanese=conversation.id in self._japanese_history,
             assistant_notes=assistant_notes,
         )
+        scene_text = scene_prompt(
+            scene, character.heart, profile.gender == "female",
+        ) if scene else None
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             prompt_history,
@@ -2181,7 +2184,6 @@ class ConversationEngine:
                 *promises_due.lines,
                 *_moments_told(known, now, timezone, affinity),
                 *_letters_told(read.letters),
-                *([scene_prompt(scene, character.heart, profile.gender == "female")] if scene else []),
                 *([about_photo] if about_photo else []),
                 *([asmr_rules(voiced_by)] if in_call is not None and in_call.asmr else []),
             ],
@@ -2189,7 +2191,7 @@ class ConversationEngine:
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, anchor=anchor, now_state=schedule_state,
-            anchor_notes=anchor_notes, tail_notes=tail_notes,
+            anchor_notes=anchor_notes, tail_notes=tail_notes, scene=scene_text,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2955,6 +2957,7 @@ class ConversationEngine:
         now_state: str | None = None,
         anchor_notes: Sequence[str] = (),
         tail_notes: Sequence[str] = (),
+        scene: str | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -2998,6 +3001,8 @@ class ConversationEngine:
         prompt.append(ChatMessage("system", "\n\n".join(context)))
         if now_state:
             prompt.append(ChatMessage("system", f"# 你现在\n{now_state}"))
+        if scene:
+            prompt.append(ChatMessage("system", scene))
         if anchor is not None and history_block is not None:
             note = anchor_note(anchor, now)
             if note is not None:
