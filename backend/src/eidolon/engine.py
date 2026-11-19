@@ -709,6 +709,15 @@ def history_block(
             for note in (assistant_notes or {}).get(message.id, ()):
                 lines.append(note)
             lines.append(f"角色：{said}")
+    # An event between the last shown turn and the user's current words is keyed to that
+    # current user message, which is passed separately and so is not in `messages`; show it
+    # at the end of the history, immediately before the current turn.
+    shown = {message.id for message in messages}
+    for message_id, pending in notes.items():
+        if message_id is None or message_id in shown:
+            continue
+        for note in pending:
+            add_note(note)
     for note in notes.get(None, ()):
         add_note(note)
     return "\n".join(lines)

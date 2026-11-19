@@ -5,6 +5,7 @@ from eidolon.engine import (
     assistant_event_notes,
     history_block,
     history_notes,
+    HistoryNote,
 )
 from eidolon.gift_catalog import Gift
 from eidolon.reply_format import Segment
@@ -54,6 +55,30 @@ def test_a_gift_is_attached_once_to_the_next_assistant_message():
     assert block is not None
     assert block.count("（背景事件：制作人送了你一份蛋糕）") == 1
     assert block.index("（背景事件：制作人送了你一份蛋糕）") < block.index("角色：嗯")
+
+
+def test_a_gift_before_the_current_user_is_shown_before_that_turn():
+    record = [
+        user(1, "2026-11-17T19:50:00+00:00"),
+        her(2, "2026-11-17T19:51:00+00:00"),
+        ConversationEvent(
+            100, "gift", "2026-11-17T19:52:00+00:00", gift_id="cake", liked=False
+        ),
+        user(3, "2026-11-17T19:53:00+00:00"),
+    ]
+    catalog = {"cake": Gift("cake", "蛋糕", "food", "common")}
+    history = [message for message in record[:2] if isinstance(message, Message)]
+
+    notes = history_notes(record, catalog, lambda *_: None, "UTC")
+
+    assert notes[3] == [HistoryNote(
+        record[2].created_at, "event", "旁白：（背景事件：制作人送了你一份蛋糕）",
+    )]
+    block = history_block(history, notes, NOW, "UTC")
+
+    assert block is not None
+    assert "（背景事件：制作人送了你一份蛋糕）" in block
+    assert block.rstrip().endswith("（背景事件：制作人送了你一份蛋糕）")
 
 
 def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
