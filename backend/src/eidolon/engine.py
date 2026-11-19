@@ -2123,7 +2123,8 @@ class ConversationEngine:
             )
             if eligibility is not None else None
         )
-        about_photo = CANNOT_SEND if eligibility is None else photo_asked and photo_asked.prompt
+        about_photo = CANNOT_SEND if eligibility is None else None
+        photo_text = photo_asked.prompt if photo_asked and photo_asked.prompt else None
         scene = await self._scene(conversation) if judging else None
         promises_due = await self._promises_due(character, conversation.user_id, now, timezone)
         known_schedule = await self._schedule_lines(
@@ -2192,6 +2193,7 @@ class ConversationEngine:
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, anchor=anchor, now_state=schedule_state,
             anchor_notes=anchor_notes, tail_notes=tail_notes, scene=scene_text,
+            photo=photo_text,
         )
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
@@ -2958,6 +2960,7 @@ class ConversationEngine:
         anchor_notes: Sequence[str] = (),
         tail_notes: Sequence[str] = (),
         scene: str | None = None,
+        photo: str | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -3003,6 +3006,8 @@ class ConversationEngine:
             prompt.append(ChatMessage("system", f"# 你现在\n{now_state}"))
         if scene:
             prompt.append(ChatMessage("system", scene))
+        if photo:
+            prompt.append(ChatMessage("system", photo))
         if anchor is not None and history_block is not None:
             note = anchor_note(anchor, now)
             if note is not None:
