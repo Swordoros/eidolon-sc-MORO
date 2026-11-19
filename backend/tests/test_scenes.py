@@ -189,6 +189,7 @@ def test_at_intimates_door_an_adult_may_tell_her_love_a_minor_never():
     assert "可以完全信赖的人" in minor and "不是恋爱" in minor and "说制作人很重要。" in minor
     assert "不是恋爱" in unknown  # without her age, never romance
     assert "可以说真心话" in adult_close and "第 3 轮" in adult_close and "嘴硬地开口。" in adult_close
+    assert "这一轮必须围绕「重要的一幕」推进" in adult_close
     assert "不是恋爱" not in adult_close  # as her tier says
 
 

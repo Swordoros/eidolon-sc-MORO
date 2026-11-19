@@ -762,6 +762,7 @@ def scene_prompt(scene: "Scene", heart: "Heart | None", female_producer: bool) -
     elif heart is None or not heart.adult:
         lines.append(_NOT_ROMANCE)
     lines.append(_SCENE_OWN_WAY)
+    lines.append("这一轮必须围绕「重要的一幕」推进；不要转去聊练习、吃饭、日程等无关内容。")
     return "\n".join(lines)
 
 
