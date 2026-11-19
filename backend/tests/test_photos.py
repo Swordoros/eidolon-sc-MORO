@@ -104,7 +104,7 @@ async def test_asked_she_sends_one_before_her_words_and_it_is_kept_with_her_repl
     picture = await client.get(f"/api/photos/{photo['id']}/image")
     record = (await client.get(f"/api/conversations/{conversation}/messages")).json()
 
-    assert "# 照片规划" in llm.planner_prompts[0][-1].content
+    assert any("# 照片规划" in m.content for m in llm.planner_prompts[0])
     assert "照片由系统发送" in context_of(llm.prompts[0])
     assert [e["type"] for e in events][:3] == ["user", "photo", "delta"]
     assert photo == {"type": "photo", "id": photo["id"], "status": "pending"}
@@ -387,6 +387,22 @@ async def test_the_planner_can_say_she_does_not_want_to_send_a_photo(
     assert photo_events(events) == []
     assert "制作人在要照片，但你这轮不想发" in context_of(llm.prompts[0])
     assert events[-1]["type"] == "done"
+    assert image.requests == []
+
+
+async def test_a_planner_that_cannot_write_json_falls_back_to_a_refusal(
+    make_client: ClientFactory,
+):
+    image = FakeImageService()
+    llm = FakeLLM([WORDS], planner="这不是 JSON")
+    client = make_client(llm, clients=asking(), image_transport=image.transport())
+    conversation = await start_conversation(client)
+
+    events = await send_turn(client, conversation, "发张自拍给我看看")
+
+    assert photo_events(events) == []
+    assert len(llm.planner_prompts) == 2
+    assert "制作人在要照片，但你这轮不想发" in context_of(llm.prompts[0])
     assert image.requests == []
 
 

@@ -201,7 +201,10 @@ class FakeLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        if messages and messages[-1].role == "system" and messages[-1].content.startswith("# 照片规划"):
+        if any(
+            message.role == "system" and message.content.startswith("# 照片规划")
+            for message in messages
+        ):
             self.planner_prompts.append(list(messages))
             yield self._planner or self._planned_from_next()
             return

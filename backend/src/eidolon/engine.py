@@ -152,7 +152,15 @@ from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.photo_prompt import SCENE_MARK, keepsake_words
-from eidolon.photo_plan import PLANNER, PhotoPlan, parse_plan, refused_prompt, sent_prompt
+from eidolon.photo_plan import (
+    FINAL_ASK,
+    PLANNER,
+    PhotoPlan,
+    parse_plan,
+    planner_context,
+    refused_prompt,
+    sent_prompt,
+)
 from eidolon.producer import (
     ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
     history_stamp, local_date, producer_prompt, reply_message_stamp,
@@ -2141,7 +2149,9 @@ class ConversationEngine:
             if eligibility is not None else None
         )
         about_photo = CANNOT_SEND if eligibility is None else None
-        old_photo_text = photo_asked.prompt if photo_asked and photo_asked.prompt else None
+        old_photo_text = (
+            photo_asked.prompt if photo_asked and not photo_asked.keeps_tag else None
+        )
         photo_text: str | None = None
         scene = await self._scene(conversation) if judging else None
         promises_due = await self._promises_due(character, conversation.user_id, now, timezone)
@@ -2216,17 +2226,30 @@ class ConversationEngine:
 
         planned_photo = False
         if photo_asked and photo_asked.keeps_tag and (stop is None or not stop.is_set()):
-            plan = await self._plan_photo(prompt, llms.chat, photo_asked.adult)
-            if plan is not None:
-                planned_photo = True
-                photo_text = sent_prompt(plan) if plan.send else refused_prompt(plan)
-                _insert_before_reply(prompt, photo_text, anchor)
-                if plan.send:
-                    yield self._begin_photo(
-                        character, plan.tag, conversation.user_id, photo, photo_asked.adult,
+            recent = []
+            for message in messages[-8:]:
+                if message.role == "user":
+                    recent.append(f"制作人：{message.text or ''}")
+                else:
+                    recent.append(
+                        f"角色：{format_reply(message.segments, message.photo.tag if message.photo else None, message.photo_failed)}"
                     )
+            plan = await self._plan_photo(
+                character, recent, text, now, timezone, schedule_state, scene_text,
+                affinity.tier if affinity is not None else None, photo_asked.adult, llms.chat,
+            )
+            planned_photo = True
+            if plan is not None and plan.send:
+                photo_text = sent_prompt(plan)
+                _insert_before_reply(prompt, photo_text, anchor)
+                yield self._begin_photo(
+                    character, plan.tag, conversation.user_id, photo, photo_asked.adult,
+                )
             else:
-                photo_text = old_photo_text
+                # Planning is the only way a typed turn sends a photo now: when it cannot
+                # say what to send, she refuses rather than falling back to the old tag.
+                reason = plan.reason if plan is not None and plan.reason else "这次先不拍"
+                photo_text = refused_prompt(PhotoPlan(False, reason=reason))
                 _insert_before_reply(prompt, photo_text, anchor)
         else:
             photo_text = old_photo_text
@@ -2732,26 +2755,69 @@ class ConversationEngine:
         return await self._photos.came_out(photo_id, user_id)
 
     async def _plan_photo(
-        self, prompt: Sequence[ChatMessage], llm: ChatLLM, adult: bool,
+        self,
+        character: Character,
+        recent: Sequence[str],
+        said_text: str,
+        now: datetime,
+        timezone: str,
+        doing: str | None,
+        scene: str | None,
+        tier: str | None,
+        adult: bool,
+        llm: ChatLLM,
     ) -> PhotoPlan | None:
-        """Ask the text model, apart from her reply, whether she sends a photo and what it
-        is; None if it cannot say."""
-        stream = llm.stream([*prompt, ChatMessage("system", PLANNER)], [], forbid_calls=True)
-        said = ""
-        try:
-            async for item in stream:
-                if isinstance(item, str):
-                    said += item
-        except Exception:
-            log.warning("photo planning failed", exc_info=True)
-            return None
-        finally:
-            if (close := getattr(stream, "aclose", None)) is not None:
-                await close()
-        plan = parse_plan(said, adult)
-        if plan is None:
-            log.warning("photo planning returned no usable plan: %r", said[:1000])
-        return plan
+        """Ask a small planning prompt, apart from her roleplay prompt, whether she sends a
+        photo and what it is; None if it cannot say twice."""
+        context = planner_context(
+            name=character.name,
+            intro=character.intro,
+            sheet=character.sheet,
+            now=now.astimezone(ZoneInfo(timezone)).strftime("%Y年%m月%d日 %H:%M"),
+            doing=doing,
+            scene=scene,
+            recent=list(recent),
+            said=said_text,
+            tier=tier,
+            adult=adult,
+        )
+        messages = [
+            ChatMessage("system", PLANNER),
+            ChatMessage("system", context),
+            ChatMessage("user", FINAL_ASK),
+        ]
+        last = ""
+        for attempt in range(2):
+            stream = llm.stream(messages, [], forbid_calls=True)
+            parts: list[str] = []
+            try:
+                async for item in stream:
+                    if isinstance(item, str):
+                        parts.append(item)
+            except Exception:
+                log.warning("photo planning failed", exc_info=True)
+                return None
+            finally:
+                if (close := getattr(stream, "aclose", None)) is not None:
+                    await close()
+            last = "".join(parts)
+            plan = parse_plan(last, adult)
+            if plan is not None:
+                return plan
+            log.warning(
+                "photo planning returned no usable plan (attempt %s): %r",
+                attempt + 1, last[:1000],
+            )
+            if attempt == 0:
+                messages = [
+                    *messages,
+                    ChatMessage("assistant", last[:2000]),
+                    ChatMessage(
+                        "user",
+                        "上一次输出不是合法 JSON。只输出 JSON 对象，不要解释，不要扮演角色。",
+                    ),
+                ]
+        return None
 
     def _begin_photo(
         self, character: Character, tag: str, user_id: str, photo: _Photo, adult: bool = False

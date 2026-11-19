@@ -27,7 +27,7 @@ class PhotoPlan:
 
 PLANNER = """\
 # 照片规划
-你现在不负责和制作人说话，只负责判断这一轮要不要发照片，以及发一张什么样的照片。
+你是照片规划器，不是角色本人。你只判断这一轮要不要发照片，以及发一张什么样的照片。
 
 只输出一个 JSON 对象，不要写 <ja>、<zh>、<photo>，不要解释，不要 Markdown 代码块。
 
@@ -59,6 +59,42 @@ PLANNER = """\
 - 如果她不想发，send 为 false，reason 用一句中文说明她为什么推掉。
 - note 是一句中文，说明这张照片是什么样子。
 """
+
+FINAL_ASK = "只判断这一轮，按上面的格式输出 JSON。不要扮演角色，不要写台词。"
+
+
+def planner_context(
+    *,
+    name: str,
+    intro: str,
+    sheet: str,
+    now: str,
+    doing: str | None,
+    scene: str | None,
+    recent: list[str],
+    said: str,
+    tier: str | None,
+    adult: bool,
+) -> str:
+    """The small, self-contained context the planning call sees, apart from the roleplay
+    prompt: who she is, where and when this is, what was just said."""
+    lines = [
+        f"# 角色\n{name}：{intro}",
+        f"\n# 她的性格与说话方式\n{sheet[:3500]}",
+        f"\n# 此刻\n- 现在：{now}",
+    ]
+    if doing:
+        lines.append(doing)
+    if scene:
+        lines.append(f"- 当前关系场景：\n{scene}")
+    if tier:
+        lines.append(f"- 和制作人的关系：{tier}")
+    lines.append(f"- 成人照片：{'允许' if adult else '不允许'}")
+    if recent:
+        lines.append("\n# 最近对话\n" + "\n".join(recent[-8:]))
+    lines.append(f"\n# 制作人刚才说\n{said}")
+    return "\n".join(lines)
+
 
 
 def parse_plan(text: str, adult: bool = False) -> PhotoPlan | None:
