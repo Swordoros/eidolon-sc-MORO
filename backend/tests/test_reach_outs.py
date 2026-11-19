@@ -145,6 +145,22 @@ async def talked(
     return client, llm, clock, conversation
 
 
+async def test_a_reach_out_with_only_chinese_is_rewritten_once(
+    make_client: ClientFactory, settings: Settings
+):
+    client, llm, clock, conversation = await talked(
+        make_client, ["<zh>只有中文字幕</zh>"], REACH_OUT, random=FakeRandom(MIDDLE)
+    )
+    last_contact(settings.database_path, conversation, clock.now - timedelta(hours=28))
+
+    await backend_of(client).reach_outs.run_due()
+
+    [said] = reach_outs(await record(client, conversation))
+    assert said["ja"] == "プロデューサーさん！レッスン終わったよ"
+    assert said["zh"] == "制作人！练习结束了哦"
+    assert len(llm.prompts) == 3  # the turn, the malformed reach-out, and its correction
+
+
 async def test_once_her_time_comes_she_says_something_first_the_lists_last_line_till_a_turn(
     make_client: ClientFactory, settings: Settings
 ):

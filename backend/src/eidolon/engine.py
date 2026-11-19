@@ -371,6 +371,23 @@ class EmptyReply(RuntimeError):
     pass
 
 
+FORMAT_CORRECTION = """你上一条回复格式不完整。
+必须严格输出成对的 <ja>日语原文</ja><zh>中文字幕</zh>。
+每个 <ja> 都必须有对应的 <zh>，每个 <zh> 都必须有对应的 <ja>；
+标签是 <ja>，不是 <jp>；不要输出标签外的解释、角色名或单独的中文。
+请把上一条回复按这个格式重写。"""
+"""Told to the model once when its reply did not parse into complete segments."""
+
+
+def _segments_valid(segments: Sequence[Segment], raw: str) -> bool:
+    """Whether every segment has both its Japanese and its Chinese subtitle, and the raw
+    reply actually carried complete <ja> and <zh> tags (the parser closes an unclosed tag
+    when the stream ends, which is not a complete pair)."""
+    return bool(segments) and bool(
+        re.search(r"<ja>.*?</ja>", raw, re.S) and re.search(r"<zh>.*?</zh>", raw, re.S)
+    ) and all(segment.ja.strip() and segment.zh.strip() for segment in segments)
+
+
 class _Stopped(Exception):
     """The turn was told to stop."""
 
@@ -2129,6 +2146,7 @@ class ConversationEngine:
         # many services) opens every turn's prompt alike, for the service to cache it.
         tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
         parser = ReplyParser(zh_names=self._zh_names)
+        raw = ""
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
                 # The last round offers the same tools, as some models drop what they thought
@@ -2148,6 +2166,7 @@ class ConversationEngine:
                             reasoning.append(item)
                             continue
                         said += item
+                        raw += item
                         for event in parser.feed(item):
                             if isinstance(event, PhotoTagged):
                                 if photo_asked and photo_asked.keeps_tag:
@@ -2179,14 +2198,36 @@ class ConversationEngine:
         except _Stopped:
             pass
 
-        if not parser.complete or any(
-            not segment.ja.strip() or not segment.zh.strip() for segment in parser.complete
+        if parser.complete and not _segments_valid(parser.complete, raw) and (
+            stop is None or not stop.is_set()
         ):
+            # The model did not write complete <ja>/<zh> pairs. Ask once more, with the
+            # correction after the same prompt, rather than record or show a bare line.
+            parser = ReplyParser(zh_names=self._zh_names)
+            raw = ""
+            retry_prompt = [*prompt, ChatMessage("system", FORMAT_CORRECTION)]
+            stream = llms.chat.stream(retry_prompt, [], forbid_calls=True)
+            try:
+                while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
+                    if not isinstance(item, str):
+                        continue
+                    raw += item
+                    for event in parser.feed(item):
+                        if not isinstance(event, PhotoTagged):
+                            yield event
+            except _Stopped:
+                pass
+            finally:
+                if (close := getattr(stream, "aclose", None)) is not None:
+                    await close()
+            for event in parser.finish():
+                if not isinstance(event, PhotoTagged):
+                    yield event
+
+        if not _segments_valid(parser.complete, raw):
             self._japanese_history.add(conversation.id)
-        else:
-            self._japanese_history.discard(conversation.id)
-        if not parser.complete:
-            raise EmptyReply("对话模型没有返回任何内容")
+            raise EmptyReply("对话模型没有按格式回复")
+        self._japanese_history.discard(conversation.id)
         typed = (
             None if in_call is not None
             else Typed(
@@ -2361,10 +2402,12 @@ class ConversationEngine:
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
         parser = ReplyParser(zh_names=self._zh_names)
         tag: str | None = None
+        raw = ""
         stream = llm.stream(prompt)
         try:
             async for item in stream:
                 if isinstance(item, str):
+                    raw += item
                     for event in parser.feed(item):
                         if isinstance(event, PhotoTagged):
                             tag = event.tag
@@ -2372,8 +2415,26 @@ class ConversationEngine:
             if (close := getattr(stream, "aclose", None)) is not None:
                 await close()
         parser.finish()
-        if not parser.complete:
-            raise EmptyReply("对话模型没有返回任何内容")
+        if parser.complete and not _segments_valid(parser.complete, raw):
+            # One correction attempt: a reach-out with no complete pair would otherwise be
+            # stored as a bare Chinese line under her name.
+            parser = ReplyParser(zh_names=self._zh_names)
+            raw = ""
+            retry_prompt = [*prompt, ChatMessage("system", FORMAT_CORRECTION)]
+            stream = llm.stream(retry_prompt)
+            try:
+                async for item in stream:
+                    if isinstance(item, str):
+                        raw += item
+                        for event in parser.feed(item):
+                            if isinstance(event, PhotoTagged):
+                                tag = event.tag
+            finally:
+                if (close := getattr(stream, "aclose", None)) is not None:
+                    await close()
+            parser.finish()
+        if not _segments_valid(parser.complete, raw):
+            raise EmptyReply("对话模型没有按格式回复")
         await self._promises_told(promises_due, now, timezone)
         return parser.complete, tag
 

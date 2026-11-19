@@ -7,6 +7,7 @@ import httpx
 
 from eidolon.llm import ChatMessage
 from eidolon.characters import EXTRA_NAME_TRANSLATIONS
+from eidolon.engine import FORMAT_CORRECTION
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, names_instructions
 from tests.conftest import MANO_SHEET, ClientFactory
 from tests.fakes import FakeLLM, system_of
@@ -161,14 +162,39 @@ async def test_finished_segments_are_streamed_only_when_the_page_asks(
     ]
 
 
-async def test_reply_that_ignores_the_format_is_kept_as_japanese(make_client: ClientFactory):
-    client = make_client(FakeLLM(["えっと、", "ありがとうございますっ"]))
+async def test_reply_that_ignores_the_format_is_asked_to_write_it_again(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["えっと、", "ありがとうございますっ"],
+        ["<ja>えっと、ありがとうございますっ</ja><zh>那个，谢谢您</zh>"],
+    )
+    client = make_client(llm)
     conversation_id = await start_conversation(client)
 
     events = await send_turn(client, conversation_id, "谢谢")
 
     assert events[-1]["message"]["ja"] == "えっと、ありがとうございますっ"
-    assert events[-1]["message"]["zh"] == ""
+    assert events[-1]["message"]["zh"] == "那个，谢谢您"
+    assert len(llm.prompts) == 2
+    assert FORMAT_CORRECTION in llm.prompts[1][-1].content
+
+
+async def test_reply_with_only_a_chinese_subtitle_is_asked_to_write_it_again(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<zh>只有中文字幕</zh>"],
+        ["<ja>日本語だけ</ja><zh>只有中文字幕</zh>"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "测试")
+
+    assert events[-1]["message"]["ja"] == "日本語だけ"
+    assert events[-1]["message"]["zh"] == "只有中文字幕"
+    assert len(llm.prompts) == 2
 
 
 async def test_both_sides_of_a_turn_are_kept_in_the_conversation_record(
@@ -261,10 +287,13 @@ async def test_unknown_character_or_conversation_is_rejected(make_client: Client
     assert res.status_code == 404
 
 
-async def test_reply_cut_off_inside_a_closing_tag_keeps_only_the_text(
+async def test_reply_cut_off_inside_a_closing_tag_is_asked_to_write_it_again(
     make_client: ClientFactory,
 ):
-    client = make_client(FakeLLM(["<ja>はいっ</ja><zh>好的</z"]))
+    client = make_client(FakeLLM(
+        ["<ja>はいっ</ja><zh>好的</z"],
+        ["<ja>はいっ</ja><zh>好的</zh>"],
+    ))
     conversation_id = await start_conversation(client)
 
     events = await send_turn(client, conversation_id, "好吗")
