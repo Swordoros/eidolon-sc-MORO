@@ -877,6 +877,17 @@ class Store:
         is none such."""
         return await self._db.read(_photo_image, photo_id, user_id)
 
+    async def photo_conversation(
+        self, photo_id: str, user_id: str
+    ) -> Conversation | None:
+        """The conversation a reply's photo belongs to, if it is the user's; None otherwise."""
+        return await self._db.read(_photo_conversation, photo_id, user_id)
+
+    async def retry_photo(self, photo_id: str, user_id: str) -> bool:
+        """Mark a failed reply photo as being generated again, if it is the user's and is
+        still failed; True when it did."""
+        return await self._db.write(_retry_photo, photo_id, user_id)
+
     async def reply_said(self, conversation_id: str, message_id: int) -> list[Segment] | None:
         """The segments of her reply `message_id`, as the model wrote them, delivery cues and
         all; None unless it is a reply of hers in the conversation."""
@@ -1784,6 +1795,27 @@ def _photo(db: sqlite3.Connection, photo_id: str, user_id: str) -> Photo | None:
             (photo_id, user_id),
         ).fetchone()
     return Photo(**row) if row else None
+
+
+def _photo_conversation(
+    db: sqlite3.Connection, photo_id: str, user_id: str
+) -> Conversation | None:
+    row = by_name(db).execute(
+        "SELECT c.* FROM photos p JOIN conversations c ON c.id = p.conversation_id"
+        " WHERE p.id = ? AND c.user_id = ?",
+        (photo_id, user_id),
+    ).fetchone()
+    return Conversation(**row) if row else None
+
+
+def _retry_photo(db: sqlite3.Connection, photo_id: str, user_id: str) -> bool:
+    changed = db.execute(
+        "UPDATE photos SET status = 'pending', reason = NULL, image = NULL, updated_at = ?"
+        " WHERE id = ? AND status = 'failed'"
+        " AND conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)",
+        (_now(), photo_id, user_id),
+    ).rowcount
+    return changed > 0
 
 
 def _photo_image(db: sqlite3.Connection, photo_id: str, user_id: str) -> bytes | None:

@@ -14,6 +14,7 @@ service faked at its transport, where every request it is sent is seen."""
 
 import asyncio
 import io
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -22,7 +23,7 @@ import pytest
 from PIL import Image
 
 from eidolon.config import ImageSettings, Settings
-from eidolon.photos import CAN_SEND, CANNOT_SEND, NOT_NOW
+from eidolon.photos import CANNOT_SEND, NOT_NOW
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FAKE_JUDGE,
@@ -103,7 +104,8 @@ async def test_asked_she_sends_one_before_her_words_and_it_is_kept_with_her_repl
     picture = await client.get(f"/api/photos/{photo['id']}/image")
     record = (await client.get(f"/api/conversations/{conversation}/messages")).json()
 
-    assert CAN_SEND in context_of(llm.prompts[0])
+    assert "# 照片规划" in llm.planner_prompts[0][-1].content
+    assert "照片由系统发送" in context_of(llm.prompts[0])
     assert [e["type"] for e in events][:3] == ["user", "photo", "delta"]
     assert photo == {"type": "photo", "id": photo["id"], "status": "pending"}
     shown = [e["text"] for e in events if e["type"] == "delta"]
@@ -369,6 +371,46 @@ async def test_only_a_first_tag_at_the_front_is_kept_and_any_other_left_out_of_h
     assert "selfie" in image.requests[0]["body"]["input"]
 
 
+async def test_the_planner_can_say_she_does_not_want_to_send_a_photo(
+    make_client: ClientFactory,
+):
+    image = FakeImageService()
+    llm = FakeLLM(
+        [WORDS],
+        planner=json.dumps({"send": False, "reason": "现在手上都是材料"}, ensure_ascii=False),
+    )
+    client = make_client(llm, clients=asking(), image_transport=image.transport())
+    conversation = await start_conversation(client)
+
+    events = await send_turn(client, conversation, "发张自拍给我看看")
+
+    assert photo_events(events) == []
+    assert "制作人在要照片，但你这轮不想发" in context_of(llm.prompts[0])
+    assert events[-1]["type"] == "done"
+    assert image.requests == []
+
+
+async def test_a_failed_photo_can_be_asked_for_again_from_its_saved_tag(
+    make_client: ClientFactory,
+):
+    image = FakeImageService()
+    image.status = 500
+    llm = FakeLLM(REPLY)
+    client = make_client(llm, clients=asking(), image_transport=image.transport())
+    conversation = await start_conversation(client)
+
+    [photo] = photo_events(await send_turn(client, conversation, "发张自拍给我看看"))
+    assert await settled(client, photo["id"]) == {"status": "failed", "reason": "service_error"}
+
+    image.status = None
+    retried = await client.post(f"/api/photos/{photo['id']}/retry")
+    assert retried.status_code == 200
+    assert retried.json() == {"status": "pending", "reason": None}
+    assert await settled(client, photo["id"]) == {"status": "ready", "reason": None}
+    assert len(image.requests) == 2
+    assert "white shirt, cardigan" in image.requests[-1]["body"]["input"]
+
+
 async def test_her_later_turns_carry_her_tag_where_the_judge_model_never_reads_it(
     make_client: ClientFactory,
 ):
@@ -382,8 +424,9 @@ async def test_her_later_turns_carry_her_tag_where_the_judge_model_never_reads_i
     await settled(client, photo["id"])
     await send_turn(client, conversation, "好可爱")
 
-    replies = [m.content for m in llm.prompts[1] if m.role == "assistant"]
-    assert replies == [f"<photo>{SELFIE}</photo>{WORDS}"]
+    replies = [m.content for m in llm.prompts[-1] if m.role == "assistant"]
+    assert len(replies) == 1
+    assert SELFIE.strip() in replies[0] and WORDS in replies[0]
     told = clients.judge.states[-1]["上文"]
     assert not any("<photo>" in line or "selfie" in line for line in told)
 

@@ -329,6 +329,31 @@ class Photos:
         task.add_done_callback(self._tasks.discard)
         return photo_id
 
+    async def retry(
+        self,
+        photo: Photo,
+        character: Character,
+        user_id: str,
+        own: ImageSettings | None = None,
+        adult: bool = False,
+    ) -> bool:
+        """Begin a failed reply's photo again, from its stored tag. False if it is not
+        failed, is already being generated, or is not the user's."""
+        if photo.status != "failed" or photo.id in self._generating:
+            return False
+        if not await self._store.retry_photo(photo.id, user_id):
+            return False
+        # A tag with something all-age reading had to strip came from an adult photo.
+        adult = adult or bool(read_tag(photo.tag).stripped)
+        self._generating[photo.id] = _Generating(recorded=True)
+        until = asyncio.get_running_loop().time() + TIME_LIMIT
+        task = asyncio.create_task(
+            self._generate(photo.id, character, photo.tag, user_id, own, until, None, adult)
+        )
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return True
+
     async def recorded(self, photo_id: str) -> None:
         """Her reply is recorded with the photo, being generated: it is kept as it comes out,
         or now, if it has."""

@@ -172,11 +172,14 @@ class FakeLLM:
         *replies: Sequence[Streamed | object] | LLMError,
         delay: float = 0,
         tokens: tuple[int, int] | tuple[int, int, int] | None = None,
+        planner: str | None = None,
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay
         self._tokens = tokens
+        self._planner = planner
         self.prompts: list[list[ChatMessage]] = []
+        self.planner_prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
         self.forbidden: list[bool] = []
         self.keys: list[str] = []
@@ -198,6 +201,10 @@ class FakeLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
+        if messages and messages[-1].role == "system" and messages[-1].content.startswith("# 照片规划"):
+            self.planner_prompts.append(list(messages))
+            yield self._planner or self._planned_from_next()
+            return
         self.prompts.append(list(messages))
         self.tools.append(list(tools))
         self.forbidden.append(forbid_calls)
@@ -221,6 +228,32 @@ class FakeLLM:
             yield chunk
         if self._tokens is not None:
             bill("tokens", *self._tokens)
+
+    def _planned_from_next(self) -> str:
+        """A photo plan matching the next scripted reply's front tag, for tests that are
+        about the reply rather than the planning call."""
+        if not self._replies:
+            return json.dumps({"send": False})
+        reply = self._replies[0]
+        if isinstance(reply, LLMError):
+            return json.dumps({"send": False})
+        first = next((chunk for chunk in reply if isinstance(chunk, str) and chunk.strip()), "")
+        if not first.lstrip().startswith("<photo>"):
+            return json.dumps({"send": False})
+        found = re.search(r"<photo>(.*?)</photo>", first, re.DOTALL)
+        if found is None:
+            return json.dumps({"send": False})
+        fields: dict[str, Any] = {"send": True}
+        for line in found.group(1).splitlines():
+            name, colon, value = line.partition(":")
+            if not colon:
+                continue
+            key = name.strip().lower()
+            if key in {"shot", "framing", "note"}:
+                fields[key] = value.strip()
+            elif key in {"place", "outfit", "action"}:
+                fields[key] = [part.strip() for part in value.split(",") if part.strip()]
+        return json.dumps(fields, ensure_ascii=False)
 
     async def aclose(self) -> None:
         pass

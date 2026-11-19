@@ -76,7 +76,7 @@ async def test_a_photo_is_a_call_under_its_turn_billed_one_picture_though_the_tu
     board = await dashboard(admin)
 
     assert "image" not in before
-    assert after["chat_llm"] == [turn]
+    assert after["chat_llm"] == [turn, turn]  # the photo plan, then her reply
     assert after["image"] == [turn]
     image_row = health(board, "image")
     assert image_row is not None

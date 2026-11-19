@@ -114,8 +114,9 @@ async def test_her_later_turns_carry_a_photo_not_sent_marked_failed_and_she_is_t
 
     first, later = llm.prompts[0], llm.prompts[1]
     replies = [m.content for m in later if m.role == "assistant"]
-    assert replies == [f'<photo status="failed">{SELFIE}</photo>{WORDS}']
-    assert NOT_RECEIVED in context_of(later)
+    assert len(replies) == 1
+    assert f'<photo status="failed">{SELFIE}</photo>{WORDS}' in replies[0]
+    assert any(NOT_RECEIVED in m.content for m in later if m.role == "system")
     assert NOT_RECEIVED not in context_of(first)
 
 
@@ -130,7 +131,8 @@ async def test_a_photo_sent_or_still_being_generated_carries_no_mark(make_client
     await send_turn(client, conversation, "还没好吗")
 
     replies = [m.content for m in llm.prompts[1] if m.role == "assistant"]
-    assert replies == [f"<photo>{SELFIE}</photo>{WORDS}"]
+    assert len(replies) == 1
+    assert f"<photo>{SELFIE}</photo>{WORDS}" in replies[0]
     assert NOT_RECEIVED not in context_of(llm.prompts[1])
     image.gate.set()
 

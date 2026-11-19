@@ -152,6 +152,7 @@ from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.photo_prompt import SCENE_MARK, keepsake_words
+from eidolon.photo_plan import PLANNER, PhotoPlan, parse_plan, refused_prompt, sent_prompt
 from eidolon.producer import (
     ProducerProfile, current_message_stamp, earlier_message_stamp, effective_timezone,
     history_stamp, local_date, producer_prompt, reply_message_stamp,
@@ -395,6 +396,22 @@ def _fallback_segments(segments: Sequence[Segment], raw: str) -> list[Segment]:
         return list(segments)
     text = re.sub(r"</?(?:ja|zh|photo)[^>]*>", "", raw).strip()
     return [Segment(text, "")] if text else []
+
+
+def _insert_before_reply(
+    prompt: list[ChatMessage], text: str | None, anchor: Message | None
+) -> None:
+    """Put a system note before the reply being written (and its anchor), not after the
+    user's current words."""
+    if not text:
+        return
+    at = len(prompt) - 1
+    if anchor is not None:
+        for index in range(len(prompt) - 1, -1, -1):
+            if prompt[index].role == "assistant":
+                at = index
+                break
+    prompt.insert(at, ChatMessage("system", text))
 
 
 class _Stopped(Exception):
@@ -2124,7 +2141,8 @@ class ConversationEngine:
             if eligibility is not None else None
         )
         about_photo = CANNOT_SEND if eligibility is None else None
-        photo_text = photo_asked.prompt if photo_asked and photo_asked.prompt else None
+        old_photo_text = photo_asked.prompt if photo_asked and photo_asked.prompt else None
+        photo_text: str | None = None
         scene = await self._scene(conversation) if judging else None
         promises_due = await self._promises_due(character, conversation.user_id, now, timezone)
         known_schedule = await self._schedule_lines(
@@ -2193,8 +2211,26 @@ class ConversationEngine:
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, anchor=anchor, now_state=schedule_state,
             anchor_notes=anchor_notes, tail_notes=tail_notes, scene=scene_text,
-            photo=photo_text,
+            photo=None,
         )
+
+        planned_photo = False
+        if photo_asked and photo_asked.keeps_tag and (stop is None or not stop.is_set()):
+            plan = await self._plan_photo(prompt, llms.chat, photo_asked.adult)
+            if plan is not None:
+                planned_photo = True
+                photo_text = sent_prompt(plan) if plan.send else refused_prompt(plan)
+                _insert_before_reply(prompt, photo_text, anchor)
+                if plan.send:
+                    yield self._begin_photo(
+                        character, plan.tag, conversation.user_id, photo, photo_asked.adult,
+                    )
+            else:
+                photo_text = old_photo_text
+                _insert_before_reply(prompt, photo_text, anchor)
+        else:
+            photo_text = old_photo_text
+            _insert_before_reply(prompt, photo_text, anchor)
         self._last_prompt[(conversation.user_id, conversation.character_id)] = _dump_prompt(prompt)
 
         # Offered on every turn, so that what goes before the history (the tools, with
@@ -2228,6 +2264,8 @@ class ConversationEngine:
                         raw += item
                         for event in parser.feed(item):
                             if isinstance(event, PhotoTagged):
+                                if planned_photo:
+                                    continue
                                 if photo_asked and photo_asked.keeps_tag:
                                     yield self._begin_photo(
                                         character, event.tag, conversation.user_id, photo,
@@ -2692,6 +2730,28 @@ class ConversationEngine:
         if self._photos is None:
             return None
         return await self._photos.came_out(photo_id, user_id)
+
+    async def _plan_photo(
+        self, prompt: Sequence[ChatMessage], llm: ChatLLM, adult: bool,
+    ) -> PhotoPlan | None:
+        """Ask the text model, apart from her reply, whether she sends a photo and what it
+        is; None if it cannot say."""
+        stream = llm.stream([*prompt, ChatMessage("system", PLANNER)], [], forbid_calls=True)
+        said = ""
+        try:
+            async for item in stream:
+                if isinstance(item, str):
+                    said += item
+        except Exception:
+            log.warning("photo planning failed", exc_info=True)
+            return None
+        finally:
+            if (close := getattr(stream, "aclose", None)) is not None:
+                await close()
+        plan = parse_plan(said, adult)
+        if plan is None:
+            log.warning("photo planning returned no usable plan: %r", said[:1000])
+        return plan
 
     def _begin_photo(
         self, character: Character, tag: str, user_id: str, photo: _Photo, adult: bool = False

@@ -178,6 +178,11 @@ export async function getPhoto(id: string): Promise<PhotoStatus> {
   return json(await api(`/api/photos/${encodeURIComponent(id)}`));
 }
 
+/** Ask for a failed photo to be generated again, from the tag already kept with it. */
+export async function retryPhoto(id: string): Promise<PhotoStatus> {
+  return json(await api(`/api/photos/${encodeURIComponent(id)}/retry`, { method: "POST" }));
+}
+
 /** The kinds of conversation event (GLOSSARY.md「对话事件」): she hung up on the user; the user
  * gave her a gift; she ended the conversation, which can then only be read (GLOSSARY.md「已结束的对话」);
  * she seems unwell, for the user alone. */

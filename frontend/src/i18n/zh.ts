@@ -480,6 +480,8 @@ export const zh = {
         used_up: "这一小时的照片用完了",
       },
       toOwnKeys: "去设置自带密钥",
+      retry: "重新发送",
+      retrying: "正在重新发送…",
       /** 照片用完时她那条回复后面的胶囊；`time` 是 HH:MM。 */
       usedUp: (time: string) => `这一小时的照片用完了，${time} 以后可以再要`,
     },

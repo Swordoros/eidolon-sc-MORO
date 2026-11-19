@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ShellLink } from "@/components/app/ShellLink";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { photoImageUrl, type Photo } from "@/lib/api";
+import {
+  getPhoto,
+  photoImageUrl,
+  retryPhoto,
+  type Photo,
+  type PhotoStatus,
+} from "@/lib/api";
 import { photoFailureNote } from "@/lib/photoFailure";
 import { settingsHref } from "@/lib/settingsCategory";
 import { PhotoFailedIcon, PhotoIcon } from "@/theme/icons";
@@ -17,11 +23,37 @@ const t = copy.conversation.photo;
 /**
  * 她那条回复的第一块：她发来的照片（GLOSSARY.md「照片」，DESIGN.md「Chat bubbles · 照片」）。
  * 宽 192px，按 832×1216 等比；生成中是同样大小的占位，到了直接换上，位置不跳。点开整屏放大。
- * 没发出来时换成同宽的一块矮说明：「照片没发出来」和原因，自带的生图密钥没能用时多一行「去设置自带密钥」。
+ * 没发出来时换成同宽的一块矮说明：「照片没发出来」和原因，可以重新请求生成；
+ * 自带的生图密钥没能用时多一行「去设置自带密钥」。
  */
 export function PhotoBlock({ photo }: { photo: Photo }) {
   const [viewing, setViewing] = useState(false);
-  if (photo.status === "pending") {
+  const [local, setLocal] = useState<PhotoStatus | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const current = local ?? photo;
+
+  useEffect(() => {
+    if (!local || local.status !== "pending") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+      try {
+        const next = await getPhoto(photo.id);
+        if (stopped) return;
+        setLocal(next);
+        if (next.status === "pending") timer = setTimeout(check, 1000);
+      } catch {
+        if (!stopped) setLocal({ status: "failed", reason: "service_error" });
+      }
+    };
+    void check();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [local?.status, photo.id]);
+
+  if (current.status === "pending") {
     return (
       <div
         role="status"
@@ -33,7 +65,29 @@ export function PhotoBlock({ photo }: { photo: Photo }) {
       </div>
     );
   }
-  if (photo.status === "failed") return <PhotoNotSent reason={photo.reason} />;
+  if (current.status === "failed") {
+    const onRetry = async () => {
+      setRetrying(true);
+      try {
+        setLocal(await retryPhoto(photo.id));
+      } catch {
+        try {
+          setLocal(await getPhoto(photo.id));
+        } catch {
+          setLocal({ status: "failed", reason: "service_error" });
+        }
+      } finally {
+        setRetrying(false);
+      }
+    };
+    return (
+      <PhotoNotSent
+        reason={current.reason}
+        retrying={retrying}
+        onRetry={() => void onRetry()}
+      />
+    );
+  }
   const src = photoImageUrl(photo.id);
   return (
     <>
@@ -50,7 +104,15 @@ export function PhotoBlock({ photo }: { photo: Photo }) {
   );
 }
 
-function PhotoNotSent({ reason }: { reason: string | null }) {
+function PhotoNotSent({
+  reason,
+  retrying,
+  onRetry,
+}: {
+  reason: string | null;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
   const note = photoFailureNote(reason);
   return (
     <div role="note" className="flex w-48 gap-2 rounded-bubble bg-foreground/5 px-4 py-3 text-muted-foreground">
@@ -58,6 +120,15 @@ function PhotoNotSent({ reason }: { reason: string | null }) {
       <div className="flex min-w-0 flex-col gap-0.5 text-sm">
         <p>{t.failed}</p>
         <p className="text-meta">{note.reason}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-meta font-medium text-foreground outline-none hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+        >
+          {retrying && <Spinner className="size-3" />}
+          {retrying ? t.retrying : t.retry}
+        </button>
         {note.toOwnKeys && (
           <p className="text-meta">
             <ShellLink href={settingsHref("own-keys")} isStandalone>

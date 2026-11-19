@@ -216,7 +216,7 @@ async def test_on_a_trip_she_sends_one_photo_from_there_once_its_time_comes(
     picture = await client.get(f"/api/photos/{sent['photo']['id']}/image")
 
     assert too_early == 1 and len(llm.prompts) == 2  # once
-    assert llm.prompts[-1][-1].content == WANTS_TO_SEND_TRIP_PHOTO
+    assert llm.prompts[-1][-1].content.endswith(WANTS_TO_SEND_TRIP_PHOTO)
     assert "你今天在京都出外景" in str(llm.prompts[-1])
     assert sent["segments"] == [{"ja": "見て、紅葉です", "zh": "你看，是红叶"}]
     assert sent["photo"]["status"] == "ready" and picture.status_code == 200

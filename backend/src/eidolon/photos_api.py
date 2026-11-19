@@ -27,6 +27,29 @@ def add_photo_routes(app: FastAPI, backend: Backend) -> None:
             raise HTTPException(404, NOT_FOUND)
         return {"status": photo.status, "reason": photo.reason}
 
+    @app.post("/api/photos/{photo_id}/retry")
+    async def retry_photo(photo_id: str, user_id: UserId) -> dict:
+        """Try a failed photo again, from the tag already kept with it."""
+        photo = await store.photo(photo_id, user_id)
+        if photo is None:
+            raise HTTPException(404, NOT_FOUND)
+        if photo.status == "pending":
+            return {"status": "pending", "reason": None}
+        if photo.status != "failed":
+            raise HTTPException(409, "这张照片已经发出来了")
+        conversation = await store.photo_conversation(photo_id, user_id)
+        if conversation is None:
+            raise HTTPException(404, NOT_FOUND)
+        character = backend.characters.get(conversation.character_id)
+        if character is None:
+            raise HTTPException(404, NOT_FOUND)
+        if not await backend.photos.retry(photo, character, user_id):
+            current = await store.photo(photo_id, user_id)
+            if current is not None and current.status == "pending":
+                return {"status": "pending", "reason": None}
+            raise HTTPException(409, "这张照片现在不能重试")
+        return {"status": "pending", "reason": None}
+
     @app.get("/api/photos/{photo_id}/image")
     async def read_photo_image(photo_id: str, user_id: UserId) -> Response:
         image = await store.photo_image(photo_id, user_id)
