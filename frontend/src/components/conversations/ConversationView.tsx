@@ -35,6 +35,7 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "@/components/ui/message-scroller";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -728,6 +729,7 @@ function Messages({
   const tabStop = reading?.canRead ? entries.findLast((e) => herLineIn(reading, e))?.key : undefined;
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+      <FollowNewEvents entries={entries} />
       <MessageScroller>
         <MessageScrollerViewport>
           <MessageScrollerContent className="gap-1 px-3 pt-2 pb-4">
@@ -785,6 +787,23 @@ function Messages({
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+/** A missed call is a new line the user should see at once, even when the call layer had
+ * covered the log while it was recorded. */
+function FollowNewEvents({ entries }: { entries: Entry[] }) {
+  const { scrollToEnd } = useMessageScroller();
+  const lastKey = useRef<string | null>(entries.at(-1)?.key ?? null);
+
+  useEffect(() => {
+    const last = entries.at(-1);
+    if (last?.key !== lastKey.current && last?.kind === "event" && last.event === "missed_call") {
+      scrollToEnd({ behavior: "auto" });
+    }
+    lastKey.current = last?.key ?? null;
+  }, [entries, scrollToEnd]);
+
+  return null;
 }
 
 /** 一条对话事件：两边细线，中间图标、一句话和时间；不用她的颜色。 */
