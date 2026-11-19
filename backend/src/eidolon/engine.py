@@ -680,6 +680,22 @@ def anchor_event_notes(
     return notes
 
 
+def gift_after_reply(record: Sequence[Recorded], anchor: Message | None) -> bool:
+    """Whether a gift or keepsake happened after `anchor`, so the anchor is no longer the
+    last thing before the current user and must not be repeated as her last line."""
+    if anchor is None:
+        return False
+    seen = False
+    for entry in record:
+        if isinstance(entry, Message) and entry.id == anchor.id:
+            seen = True
+            continue
+        if seen and isinstance(entry, ConversationEvent) and told_her(entry):
+            if entry.kind in ("gift", "keepsake"):
+                return True
+    return False
+
+
 def history_block(
     messages: Sequence[Message], notes: Mapping[int | None, Sequence[HistoryNote]],
     now: datetime, timezone: str, japanese: bool = False,
@@ -2103,6 +2119,8 @@ class ConversationEngine:
             read.record, self._gift_catalog, her_days, timezone, skip=handled
         )
         anchor = recent_reply(prompt_history, now)
+        if gift_after_reply(read.record, anchor):
+            anchor = None
         anchor_notes = anchor_event_notes(read.record, anchor, self._gift_catalog)
         compact_history = history_block(
             prompt_history, notes, now, timezone,

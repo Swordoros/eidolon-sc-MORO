@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from eidolon.engine import (
     anchor_event_notes,
     assistant_event_notes,
+    gift_after_reply,
     history_block,
     history_notes,
     HistoryNote,
@@ -79,6 +80,20 @@ def test_a_gift_before_the_current_user_is_shown_before_that_turn():
     assert block is not None
     assert "（背景事件：制作人送了你一份蛋糕）" in block
     assert block.rstrip().endswith("（背景事件：制作人送了你一份蛋糕）")
+
+
+def test_a_reply_before_a_gift_is_not_repeated_as_the_last_line():
+    record = [
+        user(1, "2026-11-17T19:50:00+00:00"),
+        her(2, "2026-11-17T19:52:00+00:00"),
+        ConversationEvent(
+            100, "gift", "2026-11-17T19:53:00+00:00", gift_id="cake", liked=True
+        ),
+        user(3, "2026-11-17T19:54:00+00:00"),
+    ]
+
+    assert gift_after_reply(record, her(2, "2026-11-17T19:52:00+00:00"))
+    assert not gift_after_reply(record, None)
 
 
 def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
