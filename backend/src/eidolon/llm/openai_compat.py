@@ -10,6 +10,7 @@ from eidolon.billing import bill
 from eidolon.config import ReasoningEffort
 from eidolon.llm import (
     ChatMessage,
+    Finish,
     LLMError,
     Reasoning,
     Streamed,
@@ -76,6 +77,7 @@ class OpenAICompatLLM:
         calls: dict[int, dict[str, Any]] = {}  # index → id, name and arguments so far
         reasoning = ""
         usage: dict[str, Any] | None = None
+        finish_reason: str | None = None
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async for event in stream_events(self._client, self._url, body, headers):
             if event.get("error"):
@@ -83,6 +85,7 @@ class OpenAICompatLLM:
             if isinstance(event.get("usage"), dict):  # some services send it as it grows
                 usage = event["usage"]
             for choice in event.get("choices") or []:
+                finish_reason = choice.get("finish_reason") or finish_reason
                 delta = choice.get("delta") or {}
                 if content := delta.get("content"):
                     yield content
@@ -121,6 +124,7 @@ class OpenAICompatLLM:
             yield Reasoning(to_send_back)
         for call_id, call in assembled:
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))
+        yield Finish(finish_reason)
 
     async def aclose(self) -> None:
         await self._client.aclose()

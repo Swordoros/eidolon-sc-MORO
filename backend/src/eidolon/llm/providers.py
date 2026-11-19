@@ -10,7 +10,7 @@ from eidolon.config import (
     LLMSettings,
     ReasoningEffort,
 )
-from eidolon.llm import ChatLLM, ChatMessage, ChatModels, LLMError, Reasoning, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, ChatModels, Finish, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -158,7 +158,7 @@ async def _probe(
             calls.append(item)
         elif isinstance(item, Reasoning):
             reasoning.append(item)
-        else:
+        elif not isinstance(item, Finish):
             said += item
     if not calls:
         return

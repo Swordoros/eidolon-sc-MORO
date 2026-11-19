@@ -31,7 +31,15 @@ class Reasoning:
     data: Mapping[str, Any]
 
 
-Streamed = str | ToolCall | Reasoning
+@dataclass(frozen=True)
+class Finish:
+    """How the service ended the stream, when it says: `stop`, `length`, `tool_calls`,
+    and so on; None when it did not say."""
+
+    reason: str | None
+
+
+Streamed = str | ToolCall | Reasoning | Finish
 
 
 @dataclass(frozen=True)

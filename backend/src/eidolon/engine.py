@@ -147,7 +147,7 @@ from eidolon.her_now import HerNow, KnownNow, Occasion
 from eidolon.her_weather import KnownWeather
 from eidolon.judge import JudgeError
 from eidolon.letter_prompt import Earlier, letters_section, read_earlier
-from eidolon.llm import ChatLLM, ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
+from eidolon.llm import ChatLLM, ChatMessage, Finish, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
@@ -386,6 +386,15 @@ def _segments_valid(segments: Sequence[Segment], raw: str) -> bool:
     return bool(segments) and bool(
         re.search(r"<ja>.*?</ja>", raw, re.S) and re.search(r"<zh>.*?</zh>", raw, re.S)
     ) and all(segment.ja.strip() and segment.zh.strip() for segment in segments)
+
+
+def _fallback_segments(segments: Sequence[Segment], raw: str) -> list[Segment]:
+    """The readable part of a reply whose formatting stayed broken: its parsed segments,
+    or, if nothing parsed, the raw words without the tags."""
+    if any(segment.ja.strip() or segment.zh.strip() for segment in segments):
+        return list(segments)
+    text = re.sub(r"</?(?:ja|zh|photo)[^>]*>", "", raw).strip()
+    return [Segment(text, "")] if text else []
 
 
 class _Stopped(Exception):
@@ -2189,6 +2198,7 @@ class ConversationEngine:
         tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
         parser = ReplyParser(zh_names=self._zh_names)
         raw = ""
+        finish_reason: str | None = None
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
                 # The last round offers the same tools, as some models drop what they thought
@@ -2206,6 +2216,9 @@ class ConversationEngine:
                             continue
                         if isinstance(item, Reasoning):
                             reasoning.append(item)
+                            continue
+                        if isinstance(item, Finish):
+                            finish_reason = item.reason
                             continue
                         said += item
                         raw += item
@@ -2240,23 +2253,28 @@ class ConversationEngine:
         except _Stopped:
             pass
 
-        if parser.complete and not _segments_valid(parser.complete, raw) and (
-            stop is None or not stop.is_set()
-        ):
-            # The model did not write complete <ja>/<zh> pairs. Ask once more, with the
-            # correction after the same prompt, rather than record or show a bare line.
+        first_segments = parser.complete
+        first_raw = raw
+        first_finish = finish_reason
+
+        async def retry_with(prompt_to_send: list[ChatMessage]) -> list[TurnEvent]:
+            nonlocal parser, raw, finish_reason
             parser = ReplyParser(zh_names=self._zh_names)
             raw = ""
-            retry_prompt = [*prompt, ChatMessage("system", FORMAT_CORRECTION)]
-            stream = llms.chat.stream(retry_prompt, [], forbid_calls=True)
+            finish_reason = None
+            events: list[TurnEvent] = []
+            stream = llms.chat.stream(prompt_to_send, [], forbid_calls=True)
             try:
                 while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
+                    if isinstance(item, Finish):
+                        finish_reason = item.reason
+                        continue
                     if not isinstance(item, str):
                         continue
                     raw += item
                     for event in parser.feed(item):
                         if not isinstance(event, PhotoTagged):
-                            yield event
+                            events.append(event)
             except _Stopped:
                 pass
             finally:
@@ -2264,12 +2282,44 @@ class ConversationEngine:
                     await close()
             for event in parser.finish():
                 if not isinstance(event, PhotoTagged):
-                    yield event
+                    events.append(event)
+            return events
 
-        if not _segments_valid(parser.complete, raw):
+        if first_segments and not _segments_valid(first_segments, first_raw) and (
+            stop is None or not stop.is_set()
+        ):
+            # The model did not write complete <ja>/<zh> pairs. Ask once more, as a user
+            # correction, rather than record or show a bare line.
+            for event in await retry_with([
+                *prompt, ChatMessage("user", FORMAT_CORRECTION),
+            ]):
+                yield event
+            correction_raw = raw
+            correction_finish = finish_reason
+            if not correction_raw.strip() and (stop is None or not stop.is_set()):
+                # A correction that came back empty is not a format error to keep: ask the
+                # original prompt once more, without replaying anything already voiced.
+                for event in await retry_with(prompt):
+                    yield event
+        else:
+            correction_raw = correction_finish = None
+
+        segments = parser.complete
+        if not _segments_valid(segments, raw):
+            log.warning(
+                "reply format failed: first_finish=%r first_raw=%r "
+                "correction_finish=%r correction_raw=%r",
+                first_finish, first_raw[:1000], correction_finish,
+                (correction_raw or "")[:1000],
+            )
+            segments = _fallback_segments(first_segments, first_raw)
+            if not segments:
+                self._japanese_history.add(conversation.id)
+                raise EmptyReply("对话模型没有按格式回复")
             self._japanese_history.add(conversation.id)
-            raise EmptyReply("对话模型没有按格式回复")
-        self._japanese_history.discard(conversation.id)
+        else:
+            self._japanese_history.discard(conversation.id)
+
         typed = (
             None if in_call is not None
             else Typed(
@@ -2284,7 +2334,7 @@ class ConversationEngine:
         # turn is told it is the one.
         photo.handed_in = True
         keeping = asyncio.ensure_future(self._keep(
-            conversation, text, said_at, parser.complete, judged, affinity, typed,
+            conversation, text, said_at, segments, judged, affinity, typed,
             ends_conversation, slot_talk, photo, her_day,
         ))
         try:
@@ -2445,10 +2495,13 @@ class ConversationEngine:
         parser = ReplyParser(zh_names=self._zh_names)
         tag: str | None = None
         raw = ""
+        finish_reason: str | None = None
         stream = llm.stream(prompt)
         try:
             async for item in stream:
-                if isinstance(item, str):
+                if isinstance(item, Finish):
+                    finish_reason = item.reason
+                elif isinstance(item, str):
                     raw += item
                     for event in parser.feed(item):
                         if isinstance(event, PhotoTagged):
@@ -2457,16 +2510,22 @@ class ConversationEngine:
             if (close := getattr(stream, "aclose", None)) is not None:
                 await close()
         parser.finish()
-        if parser.complete and not _segments_valid(parser.complete, raw):
+        first_segments = parser.complete
+        first_raw = raw
+        first_finish = finish_reason
+        if first_segments and not _segments_valid(first_segments, first_raw):
             # One correction attempt: a reach-out with no complete pair would otherwise be
             # stored as a bare Chinese line under her name.
             parser = ReplyParser(zh_names=self._zh_names)
             raw = ""
-            retry_prompt = [*prompt, ChatMessage("system", FORMAT_CORRECTION)]
+            finish_reason = None
+            retry_prompt = [*prompt, ChatMessage("user", FORMAT_CORRECTION)]
             stream = llm.stream(retry_prompt)
             try:
                 async for item in stream:
-                    if isinstance(item, str):
+                    if isinstance(item, Finish):
+                        finish_reason = item.reason
+                    elif isinstance(item, str):
                         raw += item
                         for event in parser.feed(item):
                             if isinstance(event, PhotoTagged):
@@ -2475,7 +2534,31 @@ class ConversationEngine:
                 if (close := getattr(stream, "aclose", None)) is not None:
                     await close()
             parser.finish()
+            if not raw.strip():
+                # The correction came back empty: try the original prompt once more.
+                parser = ReplyParser(zh_names=self._zh_names)
+                raw = ""
+                finish_reason = None
+                stream = llm.stream(prompt)
+                try:
+                    async for item in stream:
+                        if isinstance(item, Finish):
+                            finish_reason = item.reason
+                        elif isinstance(item, str):
+                            raw += item
+                            for event in parser.feed(item):
+                                if isinstance(event, PhotoTagged):
+                                    tag = event.tag
+                finally:
+                    if (close := getattr(stream, "aclose", None)) is not None:
+                        await close()
+                parser.finish()
         if not _segments_valid(parser.complete, raw):
+            log.warning(
+                "reach-out format failed: first_finish=%r first_raw=%r "
+                "last_finish=%r last_raw=%r",
+                first_finish, first_raw[:1000], finish_reason, raw[:1000],
+            )
             raise EmptyReply("对话模型没有按格式回复")
         await self._promises_told(promises_due, now, timezone)
         return parser.complete, tag

@@ -197,6 +197,41 @@ async def test_reply_with_only_a_chinese_subtitle_is_asked_to_write_it_again(
     assert len(llm.prompts) == 2
 
 
+async def test_empty_correction_falls_back_to_the_original_prompt(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<zh>只有中文字幕</zh>"],
+        ["  "],
+        ["<ja>原文</ja><zh>中文字幕</zh>"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "测试")
+
+    assert events[-1]["message"]["ja"] == "原文"
+    assert events[-1]["message"]["zh"] == "中文字幕"
+    assert len(llm.prompts) == 3
+    assert llm.prompts[1][-1].role == "user"
+    assert FORMAT_CORRECTION in llm.prompts[1][-1].content
+
+
+async def test_two_broken_attempts_keep_the_first_readable_text(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<zh>至少这段中文还可以读</zh>"],
+        ["<ja>日文</ja><zh></zh>"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "测试")
+
+    assert events[-1]["message"]["zh"] == "至少这段中文还可以读"
+
+
 async def test_both_sides_of_a_turn_are_kept_in_the_conversation_record(
     make_client: ClientFactory,
 ):
