@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from eidolon.config import GptImageSettings, Settings
-from eidolon.engine import EmptyReply, WANTS_TO_GIVE, read_keepsake
+from eidolon.engine import EmptyReply, WANTS_TO_GIVE, keepsake_rules, read_keepsake
 from eidolon.keepsakes import PER_DAY
 from eidolon.photo_prompt import keepsake_prompt
 from eidolon.promises import Promise
@@ -42,6 +42,17 @@ GPT = GptImageSettings("gpt-key", "https://api.openai.test/v1")
 
 def at(hour: int, minute: int = 0, day: date = TODAY) -> datetime:
     return datetime.combine(day, time(hour, minute), UTC)
+
+
+def test_keepsake_rules_do_not_push_everything_toward_handmade():
+    rules = keepsake_rules(
+        "gift", "一块布丁", True, ["手作的四叶草书签", "手作的押花挂件"],
+    )
+
+    assert "不必总是手作" in rules
+    assert "手作的小东西" not in rules
+    assert "例如 草莓蛋糕" not in rules
+    assert "别送一样的，也尽量换一类" in rules
 
 
 def test_what_she_gives_is_read_from_its_tag_and_what_she_says_after_it():

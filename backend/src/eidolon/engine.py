@@ -1147,20 +1147,25 @@ def diary_rules(moments: Sequence[str]) -> str:
 
 KEEPSAKE_RULES = """# 送制作人一件东西
 {occasion}
+
 先写一个标签，再用 <ja>…</ja><zh>…</zh> 写送的时候对制作人说的话（一到两段）：
 <keepsake>
-name: 东西的名字，中文，十五个字以内，例如「手作的四叶草书签」
+name: 东西的名字，中文，十五个字以内；直接写这件东西本身，具体到能看出是什么，不要写「礼物」「纪念品」这种泛称
 look: 这件东西的样子，中文一两句
 emoji: 一个最能代表它的 emoji
 what: 它是什么，一到三个英文单词的普通名词，画得出来的那种，例如 bird figurine、bookmark、strawberry daifuku
-tags: 3–5 个英文 tag，补充它的样子、材质、颜色，可以加一个放置的地方（例如 on wooden table）；不写人，不用比喻，颜色用纯颜色词
+tags: 3–5 个英文 tag，补充它的样子、材质、颜色，可以加一个放置的地方（例如 on the table）；不写人，不用比喻，颜色用纯颜色词
 scene: 一句英文，把这件东西完整地描述一遍：是什么、什么做的、什么颜色和形状、放在哪里，例如 A small round pigeon figurine made of light blue washi paper sits on a wooden desk。主语就是这件东西，不写否定，不用比喻
 words: （可以不写这一行）东西上写着的字，一个完整的词或短语，日语或英语都可以，越短越稳，最好四个字以内，例如 ありがとう、Thanks；卡片、包装、点心上真的会写字时才写。不要写数字、页码、编号、「1 2 3 4」这类没有意义的字；拿不准就不写 words 和 words_on
 words_on: 有 words 时写这段字在哪里，英文短语，例如 the card、the ribbon、the chocolate plate
 </keepsake>
-- 照你的性格、喜好和你们最近聊过的事来挑，要是你真的会送、也送得起的东西：手作的小东西、日常小物、吃的、你喜欢的东西的周边……不送贵重的东西、钱和礼券。
+- 从你的性格、喜好、你们最近聊过的事和这次由头出发，选一件你真的会送、也送得起的东西。
+- 可以是一件实用的小物、日常用品、吃的、你喜欢的东西的周边、旅行地带回的东西，或者你自己做的东西；不必总是手作。
+- 名字直接写物品本身，只有你真的亲手做了的礼物，才写「手作的」。
+- 日常、朴素、和这次由头有关即可；不送贵重的东西、钱和礼券。
+- 不要照搬提示词里的示例物品；物品要贴合角色性格、经历和对话历史。
 - {limits}
-- 物品要单独放在桌面、架子或纯色平面上；不要拿在手里，不要放在手掌上，也不要有手、手指或身体入画。
+- 物品要单独放在桌面、架子或纯色平面上；不要拿在手里，不要放在手掌上，也不要有身体入画。
 - 说的话照你的性格和口吻，自然地说说为什么送它；不写方括号里的语气提示。
 - 不附照片，也不说要给制作人打电话。{before}"""
 """How she is to choose and give the producer a keepsake (GLOSSARY.md「纪念品」)."""
@@ -1191,7 +1196,7 @@ def keepsake_rules(occasion: str, about: str, adult: bool, before: Sequence[str]
         if adult else
         "不送戒指、情侣用品这类有恋爱意味的东西，也不送酒、烟和贴身的东西。"
     )
-    given = f"\n- 你之前送过：{'、'.join(before)}。别送一样的。" if before else ""
+    given = f"\n- 你之前送过：{'、'.join(before)}。别送一样的，也尽量换一类。" if before else ""
     return KEEPSAKE_RULES.format(
         occasion=KEEPSAKE_OCCASIONS[occasion].format(about=about), limits=limits, before=given
     )
