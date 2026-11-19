@@ -160,7 +160,7 @@ async def test_the_image_service_is_sent_her_tag_cleaned_within_fixed_prompts(
     selfie = """
 shot: Selfie
 framing: full body
-place: Cafe, {indoors}, 1.2::sunlight::, afternoon, window
+place: Cafe, {indoors}, 1.2::sunlight::, afternoon
 outfit: White_Shirt, white shirt, "cardigan"
 action: peace sign, [smile], looking at viewer
 note: 自拍
@@ -168,6 +168,8 @@ note: 自拍
     other = """
 shot: other
 framing: cowboy shot
+place: practice room, indoors
+outfit: casual wear
 action: sitting, smile
 """
     image = FakeImageService()
@@ -197,7 +199,7 @@ action: sitting, smile
         f" white shirt, cardigan, peace sign, smile, {tail}"
     )
     assert second["body"]["input"] == (
-        f"{head}, cowboy shot, indoors, casual, sitting, smile, looking at viewer, {tail}"
+        f"{head}, cowboy shot, practice room, indoors, casual, sitting, smile, looking at viewer, {tail}"
     )
     for request in image.requests:
         body = request["body"]

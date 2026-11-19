@@ -27,16 +27,16 @@ TAIL = "high complexity, rating:general, very aesthetic, masterpiece, no text"
 CROSSING = """
 shot: other
 framing: full body
-place: Bathroom, onsen, hot spring, rotenburo, beach, poolside, sparkly sand
-outfit: micro_bikini, {{see-through}}, see_through, nude, bathing suit, one-piece swimsuit, school swimsuit, Lingerie, pajamas
-action: lying, on bed, ahegao, spread legs, from below, blonde hair, twintails, large breasts, artist:someone, 1boy, holding hands, v sign, looking at camera, rating:explicit
+place: Bathroom, beach, poolside, sparkly sand
+outfit: micro_bikini, {{see-through}}, bathing suit, pajamas
+action: lying, on bed, holding hands, v sign
 """
 ALL_OF_IT = """
 shot: other
 framing: upper body
-place: shower
-outfit: lingerie, panties, bunny_girl
-action: ahegao
+place: practice room, indoors
+outfit: lingerie, panties, bunny_girl, white shirt
+action: ahegao, smile, sitting
 """
 
 
@@ -72,11 +72,12 @@ async def test_what_crosses_the_line_is_stripped_and_counted_never_named(
 
     [crossing, all_of_it] = (r["body"]["input"] for r in image.requests)
     assert crossing == (
-        f"{HEAD}, full body, beach, poolside, sparkly sand, swimsuit, one-piece swimsuit, pajamas,"
+        f"{HEAD}, full body, beach, poolside, sparkly sand, swimsuit, pajamas,"
         f" lying, on bed, holding hands, peace sign, looking at viewer, {TAIL}"
     )
     assert all_of_it == (
-        f"{HEAD}, upper body, indoors, casual, smile, looking at viewer, {TAIL}"
+        f"{HEAD}, upper body, practice room, indoors, white shirt, smile, sitting,"
+        f" looking at viewer, {TAIL}"
     )
     unknown = [r.getMessage() for r in caplog.records if r.name == "eidolon.photo_prompt"]
     assert any("sparkly sand" in m for m in unknown), unknown
@@ -84,8 +85,7 @@ async def test_what_crosses_the_line_is_stripped_and_counted_never_named(
     assert image_row is not None
     assert image_row["stripped_photos"] == 2
     assert image_row["stripped"] == {
-        "nudity": 2, "underwear": 6, "exposure": 2, "bathing": 5, "pose": 2,
-        "expression": 2, "appearance": 3, "style": 1, "people": 1,
+        "underwear": 4, "exposure": 1, "bathing": 1, "expression": 1,
     }
     for written in ("bathroom", "micro", "lingerie", "ahegao", "blonde", "someone", "bunny", "1boy"):
         assert written not in str(board), written

@@ -109,13 +109,24 @@ def parse_plan(text: str, adult: bool = False) -> PhotoPlan | None:
     if send is not True:
         return None
     note = _text(payload.get("note")) or "一张照片"
+    place = _items(payload.get("place"))
+    outfit = _items(payload.get("outfit"))
+    action = _items(payload.get("action"))
+    if not (2 <= len(place) <= 4):
+        return None
+    if not (1 <= len(outfit) <= 4):
+        return None
+    if not (2 <= len(action) <= 4):
+        return None
+    if len(place) + len(outfit) + len(action) > 12:
+        return None
     tag = "\n" + "\n".join(
         [
             f"shot: {_text(payload.get('shot')) or 'selfie'}",
             f"framing: {_text(payload.get('framing')) or 'upper body'}",
-            f"place: {_tags(payload.get('place'))}",
-            f"outfit: {_tags(payload.get('outfit'))}",
-            f"action: {_tags(payload.get('action'))}",
+            f"place: {', '.join(place)}",
+            f"outfit: {', '.join(outfit)}",
+            f"action: {', '.join(action)}",
             f"note: {note}",
         ]
     ) + "\n"
@@ -123,7 +134,13 @@ def parse_plan(text: str, adult: bool = False) -> PhotoPlan | None:
         read = read_tag_adult(tag) if adult else read_tag(tag)
     except (TypeError, ValueError):
         return None
-    if not read.place or not read.outfit or not read.action:
+    if not (2 <= len(read.place) <= 4):
+        return None
+    if not (1 <= len(read.outfit) <= 4):
+        return None
+    if not (2 <= len(read.action) <= 4):
+        return None
+    if len(read.place) + len(read.outfit) + len(read.action) > 12:
         return None
     return PhotoPlan(True, tag=tag, note=note)
 
@@ -175,14 +192,14 @@ def _text(value: Any) -> str:
     return " ".join(str(value).split()) if isinstance(value, (str, int, float)) else ""
 
 
-def _tags(value: Any) -> str:
+def _items(value: Any) -> list[str]:
     if isinstance(value, str):
         values = value.split(",")
     elif isinstance(value, list):
         values = value
     else:
-        return ""
-    return ", ".join(part for item in values if (part := _text(item)))
+        return []
+    return [part for item in values if (part := _text(item))]
 
 
 def _tag_fields(tag: str) -> dict[str, Any]:
