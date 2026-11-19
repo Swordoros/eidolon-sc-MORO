@@ -27,7 +27,7 @@ TAIL = "high complexity, rating:general, very aesthetic, masterpiece, no text"
 CROSSING = """
 shot: other
 framing: full body
-place: Bathroom, beach, poolside, sparkly sand
+place: Bathroom, beach, sparkly sand
 outfit: micro_bikini, {{see-through}}, bathing suit, pajamas
 action: lying, on bed, holding hands, v sign
 """
@@ -72,7 +72,7 @@ async def test_what_crosses_the_line_is_stripped_and_counted_never_named(
 
     [crossing, all_of_it] = (r["body"]["input"] for r in image.requests)
     assert crossing == (
-        f"{HEAD}, full body, beach, poolside, sparkly sand, swimsuit, pajamas,"
+        f"{HEAD}, full body, beach, sparkly sand, swimsuit, pajamas,"
         f" lying, on bed, holding hands, peace sign, looking at viewer, {TAIL}"
     )
     assert all_of_it == (

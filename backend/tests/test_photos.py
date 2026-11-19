@@ -50,7 +50,7 @@ IMAGE = ImageSettings("nai-key", "https://image.novelai.test")
 SELFIE = """
 shot: selfie
 framing: upper body
-place: cafe, indoors, afternoon, sunlight
+place: cafe, indoors, sunlight
 outfit: white shirt, cardigan
 action: peace sign, smile
 note: 在咖啡店给他拍的自拍
@@ -160,7 +160,7 @@ async def test_the_image_service_is_sent_her_tag_cleaned_within_fixed_prompts(
     selfie = """
 shot: Selfie
 framing: full body
-place: Cafe, {indoors}, 1.2::sunlight::, afternoon
+place: Cafe, {indoors}, 1.2::sunlight::
 outfit: White_Shirt, white shirt, "cardigan"
 action: peace sign, [smile], looking at viewer
 note: 自拍
@@ -195,7 +195,7 @@ action: sitting, smile
     )
     [first, second] = image.requests
     assert first["body"]["input"] == (
-        f"{head}, selfie, looking at viewer, upper body, cafe, indoors, sunlight, day,"
+        f"{head}, selfie, looking at viewer, upper body, cafe, indoors, sunlight,"
         f" white shirt, cardigan, peace sign, smile, {tail}"
     )
     assert second["body"]["input"] == (

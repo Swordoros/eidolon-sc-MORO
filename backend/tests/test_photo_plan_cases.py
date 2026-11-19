@@ -15,7 +15,7 @@ CASES = [
   "send": true,
   "shot": "selfie",
   "framing": "upper body",
-  "place": ["dorm room", "indoors", "night", "warm light"],
+  "place": ["dorm room", "indoors", "night"],
   "outfit": ["casual clothes"],
   "action": ["holding hairpin", "gentle smile"],
   "note": "在宿舍房间里，拿着刚做好的簪子微笑着展示给制作人看"
@@ -31,7 +31,7 @@ CASES = [
         False,
     ),
     (
-        "等待对方拍好，被误送进 planner",
+        "等待对方拍好，被误送进 planner（place 超量会被截断）",
         """{
   "send": true,
   "shot": "selfie",
@@ -41,7 +41,7 @@ CASES = [
   "action": ["holding craft project", "smiling", "looking at camera"],
   "note": "深夜在宿舍房间，给制作人看她正在做的手工作品"
 }""",
-        None,
+        True,
     ),
 ]
 

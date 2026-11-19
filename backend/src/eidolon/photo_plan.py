@@ -36,7 +36,7 @@ PLANNER = """\
   "send": true,
   "shot": "selfie",
   "framing": "upper body",
-  "place": ["practice room", "indoors", "day", "sunlight"],
+  "place": ["practice room", "indoors", "day"],
   "outfit": ["white blouse", "cardigan"],
   "action": ["holding hairpin", "smile"],
   "note": "在练习室给制作人看她刚做好的簪子"
@@ -51,7 +51,7 @@ PLANNER = """\
 规则：
 - shot 只能是 selfie 或 other。
 - framing 只能是 portrait、upper body、cowboy shot、full body；自拍只能 portrait 或 upper body。
-- place、outfit、action 都是英文 tag 数组；合起来不超过 12 个。照片里只有她一个人。
+- place 1–3 个英文 tag，outfit 1–4 个，action 2–4 个；合起来不超过 12 个。照片里只有她一个人。
 - 不写发色、瞳色、发型、身材，不写画风或画师。
 - 按当前时间、地点、穿着和正在聊的事来拍；制作人指定了地点或服装时，在全年龄范围内照办。
 - 全年龄：不拍裸露或半裸、内衣和情趣服装、透视、走光、洗澡，也不拍性感的姿势、表情和镜头。泳装、睡衣、躺在床上可以拍。
@@ -109,14 +109,10 @@ def parse_plan(text: str, adult: bool = False) -> PhotoPlan | None:
     if send is not True:
         return None
     note = _text(payload.get("note")) or "一张照片"
-    place = _items(payload.get("place"))
-    outfit = _items(payload.get("outfit"))
-    action = _items(payload.get("action"))
-    if not (2 <= len(place) <= 4):
-        return None
-    if not (1 <= len(outfit) <= 4):
-        return None
-    if not (2 <= len(action) <= 4):
+    place = _items(payload.get("place"))[:3]
+    outfit = _items(payload.get("outfit"))[:4]
+    action = _items(payload.get("action"))[:4]
+    if not place or not outfit or len(action) < 2:
         return None
     if len(place) + len(outfit) + len(action) > 12:
         return None
@@ -134,7 +130,7 @@ def parse_plan(text: str, adult: bool = False) -> PhotoPlan | None:
         read = read_tag_adult(tag) if adult else read_tag(tag)
     except (TypeError, ValueError):
         return None
-    if not (2 <= len(read.place) <= 4):
+    if not (1 <= len(read.place) <= 3):
         return None
     if not (1 <= len(read.outfit) <= 4):
         return None
