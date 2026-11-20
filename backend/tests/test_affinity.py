@@ -10,13 +10,13 @@ changes, is told apart from it."""
 
 import sqlite3
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
 
-from eidolon.affinity import Judged, hurt
+from eidolon.affinity import Judged, decayed_hurt, hurt
 from eidolon.config import JevSettings, Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, START, FakeClock, FakeIdentityProvider, FakeLLM
@@ -28,6 +28,26 @@ UNAVAILABLE = (
     ".env 里没有配置判断模型，好感度要靠它判断，在启动时就关掉了；"
     "要启用，请在 .env 里配置判断模型后重启"
 )
+
+
+def test_hurt_fades_by_one_a_whole_hour_after_the_last_hurt():
+    at = datetime(2026, 11, 20, 12, tzinfo=UTC)
+
+    assert decayed_hurt([], at) == 0
+    assert decayed_hurt([(at, 5)], at) == 5
+    assert decayed_hurt([(at, 5)], at + timedelta(minutes=59)) == 5
+    assert decayed_hurt([(at, 5)], at + timedelta(hours=1)) == 4
+    assert decayed_hurt([(at, 5)], at + timedelta(hours=5)) == 0
+    assert decayed_hurt([(at, 5)], at + timedelta(hours=24)) == 0
+
+
+def test_a_new_hurt_restarts_the_clock():
+    at = datetime(2026, 11, 20, 12, tzinfo=UTC)
+    later = at + timedelta(hours=1)
+
+    assert decayed_hurt([(at, 5), (later, 5)], later) == 9
+    assert decayed_hurt([(at, 5), (later, 5)], later + timedelta(hours=1)) == 8
+    assert decayed_hurt([(at, 5), (at, 5), (at, 2)], at) == 12
 
 
 @pytest.fixture

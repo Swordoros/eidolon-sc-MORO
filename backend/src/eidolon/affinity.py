@@ -781,6 +781,32 @@ def hurt(judged: Judged | None) -> float:
     return LEVEL_HURTS[judged.level] + (INCONSIDERATE_HURT if inconsiderate else 0.0)
 
 
+HURT_DECAY_PER_HOUR = 1.0
+"""How much hurt fades each whole hour after the last hurt: one point."""
+
+
+def decayed_hurt(
+    hurts: Sequence[tuple[datetime, float]], now: datetime,
+) -> float:
+    """The hurt left by `hurts`, as `(at, amount)` oldest first, at `now`: one point an hour
+    fades, and each new hurt restarts the clock. A hurt is never negative, and only whole
+    hours count, so a gap of 59 minutes fades nothing."""
+    total = 0.0
+    last: datetime | None = None
+    for at, amount in hurts:
+        if amount <= 0:
+            continue
+        if last is not None:
+            hours = max(int((at - last).total_seconds() // 3600), 0)
+            total = max(0.0, total - HURT_DECAY_PER_HOUR * hours)
+        total += amount
+        last = at
+    if last is not None:
+        hours = max(int((now - last).total_seconds() // 3600), 0)
+        total = max(0.0, total - HURT_DECAY_PER_HOUR * hours)
+    return total
+
+
 def _fed_up_at(judged: Judged) -> float:
     """How much the latest turns may hurt her before she parts with the user, by where she
     is as the turn `judged` is taken."""

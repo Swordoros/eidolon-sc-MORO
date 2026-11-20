@@ -926,6 +926,11 @@ class Store:
         and those recorded before typed turns were counted, are not among them."""
         return await self._db.read(_typed_turns, conversation_id, latest)
 
+    async def hurt_history(self, conversation_id: str) -> list[tuple[datetime, float]]:
+        """Every hurt recorded on a typed turn in the conversation, oldest first, with when
+        it was said: for fades as time passes."""
+        return await self._db.read(_hurt_history, conversation_id)
+
     async def list_messages(self, conversation_id: str) -> list[Message]:
         """The conversation's messages, each reply with its photo, if any, but not its
         picture."""
@@ -1949,6 +1954,15 @@ def _typed_turns(db: sqlite3.Connection, conversation_id: str, latest: int) -> l
         (conversation_id, latest),
     ).fetchall()
     return [Typed(hurt, bool(out_of_line), level) for hurt, out_of_line, level in reversed(rows)]
+
+
+def _hurt_history(db: sqlite3.Connection, conversation_id: str) -> list[tuple[datetime, float]]:
+    rows = db.execute(
+        "SELECT created_at, hurt FROM messages WHERE conversation_id = ?"
+        " AND role = 'user' AND hurt IS NOT NULL AND hurt > 0 ORDER BY id",
+        (conversation_id,),
+    ).fetchall()
+    return [(_at(created_at), hurt) for created_at, hurt in rows]
 
 
 def _list_messages(db: sqlite3.Connection, conversation_id: str) -> list[Message]:

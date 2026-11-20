@@ -124,6 +124,7 @@ from eidolon.affinity import (
     Scene,
     Status,
     affinity_prompt,
+    decayed_hurt,
     ends,
     hurt,
     scene_prompt,
@@ -2259,7 +2260,9 @@ class ConversationEngine:
             # before this one; out of line is counted in the latest with this one among them.
             earlier = await self._store.typed_turns(conversation.id, FED_UP_TURNS - 1)
             out_of_line_before = sum(t.out_of_line for t in earlier)
-            hurt_before = [t.hurt for t in earlier]
+            hurt_before = [decayed_hurt(
+                await self._store.hurt_history(conversation.id), now,
+            )]
             levels_before = tuple(t.level for t in earlier)
         if judged is not None and judged.level == 0 and not judged.out_of_line:
             prior = levels_before[-(SEVERE_WINDOW - 1):]
