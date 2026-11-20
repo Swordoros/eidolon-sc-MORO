@@ -118,7 +118,7 @@ function ExchangeDialog({
   const held = new Map(backpack.map(({ gift_id, count: n }) => [gift_id, n]));
   const entries = catalog
     .filter((gift) => (mode === "sell" ? (held.get(gift.id) ?? 0) > 0 : !gift.retired))
-    .sort((a, b) => b.sell_price - a.sell_price);
+    .sort((a, b) => a.sell_price - b.sell_price);
 
   function choose(gift: GiftInfo) {
     const max = mode === "sell" ? (held.get(gift.id) ?? 0) : 99;
