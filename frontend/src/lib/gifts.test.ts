@@ -70,6 +70,8 @@ describe("我的礼物按类别筛选", () => {
     { id: "tea", name: "红茶", category: "drink", rarity: "common", retired: false, sell_price: 5, buy_price: 10 },
     { id: "cocoa", name: "热可可", category: "drink", rarity: "uncommon", retired: true, sell_price: 15, buy_price: 30 },
     { id: "rose", name: "玫瑰", category: "flower", rarity: "rare", retired: false, sell_price: 25, buy_price: 50 },
+    { id: "necklace", name: "项链", category: "fashion", rarity: "rare", retired: false, sell_price: 25, buy_price: 50 },
+    { id: "hand-cream", name: "护手霜", category: "care", rarity: "common", retired: false, sell_price: 5, buy_price: 10 },
   ];
   const backpack = [
     { gift_id: "cake", count: 2 },
@@ -87,6 +89,15 @@ describe("我的礼物按类别筛选", () => {
 
   it("一类：只列这一类的", () => {
     expect(shownGifts(backpack, catalog, "drink").map((h) => h.gift.id)).toEqual(["cocoa", "tea"]);
+  });
+
+  it("穿戴和护理也各自筛选", () => {
+    const owned = [
+      { gift_id: "necklace", count: 1 },
+      { gift_id: "hand-cream", count: 2 },
+    ];
+    expect(shownGifts(owned, catalog, "fashion").map((h) => h.gift.id)).toEqual(["necklace"]);
+    expect(shownGifts(owned, catalog, "care").map((h) => h.gift.id)).toEqual(["hand-cream"]);
   });
 
   it("这一类一件都没有时是空的", () => {

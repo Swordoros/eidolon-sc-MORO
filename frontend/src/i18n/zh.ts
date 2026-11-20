@@ -2742,6 +2742,8 @@ export const zh = {
       drink: "饮品",
       flower: "花草",
       trinket: "小物件",
+      fashion: "穿戴",
+      care: "护理",
     },
     /** 网格里一格的读屏：名字、件数、稀有度。 */
     held: (name: string, count: number, rarity: string) => `${name}，${count} 件，${rarity}`,

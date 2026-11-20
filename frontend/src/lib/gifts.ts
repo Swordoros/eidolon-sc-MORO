@@ -12,7 +12,7 @@ import type { Rewarded } from "@/lib/rewards";
 import { copy } from "@/i18n";
 
 /** 礼物的类别：吃的、饮品、花草、小物件。 */
-export type Category = "food" | "drink" | "flower" | "trinket";
+export type Category = "food" | "drink" | "flower" | "trinket" | "fashion" | "care";
 
 /** 稀有度：普通、少见、稀有。 */
 export type Rarity = "common" | "uncommon" | "rare";
@@ -215,7 +215,9 @@ export function emptyNote(draws: number, next: string): string {
 /** 我的礼物的筛选：全部，或某一类。 */
 export type GiftFilter = "all" | Category;
 
-export const GIFT_FILTERS: readonly GiftFilter[] = ["all", "food", "drink", "flower", "trinket"];
+export const GIFT_FILTERS: readonly GiftFilter[] = [
+  "all", "food", "drink", "flower", "trinket", "fashion", "care",
+];
 
 /** 持有的一件礼物和件数。 */
 export type Held = { gift: GiftInfo; count: number };

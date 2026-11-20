@@ -11,5 +11,8 @@
   例如蛋糕是「slice of strawberry shortcake with white cream and a red strawberry on top, on a tiny plate」。书和音乐 CD 在骨架末尾另加了「no lettering on the cover」。
 
 - `hot-water-bag.webp`（2026-10-25，gpt-image-2）用同一个骨架，`<物件和细节>` 是「hot water bottle in a soft knitted cover (warm pastel pink with a cream cable-knit pattern), round rubber cap on top」；裁掉透明边、物件占画面约八成后缩到 512×512。
+- 2026-11-21 新增 8 张（`manga-volume`、`coin-purse`、`hair-clip`、`brooch`、`scarf`、`scented-candle`、`hand-cream`、`tea-gift-box`，gpt-image-2.6）用同一骨架，只有风格句改成 `gentle colours`；模型返回透明底，裁掉透明边、按物件约 75% 缩放并居中后转成 512×512 WebP。
+- 同日再新增 5 张（`perfume`、`bath-salts`、`succulent`、`flower-arrangement`、`crystal-ornament`，gpt-image-2.6）沿用同一骨架；`crystal-ornament` 画的是淡紫色晶簇，文件名仍按礼物 `id`。
+- `mp3-player.webp`（2026-11-21，gpt-image-2.6）也是同一骨架，画的是奶油色机身、灰蓝按键的 MP3 播放器和有线耳机。
 
 新加一件礼物时照这个骨架生成插画，和已有的放在一起比一比画风再提交；没有插画的礼物不上线（界面上没有图标后备）。

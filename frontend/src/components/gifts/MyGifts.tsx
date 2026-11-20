@@ -7,14 +7,21 @@ import { GiftTile } from "@/components/gifts/GiftTile";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { copy } from "@/i18n";
 import { GIFT_FILTERS, shownGifts, type GiftFilter, type GiftInfo, type Held, type Owned } from "@/lib/gifts";
-import { DrinkIcon, FlowerIcon, FoodIcon, TrinketIcon } from "@/theme/icons";
+import { CareIcon, DrinkIcon, FashionIcon, FlowerIcon, FoodIcon, TrinketIcon } from "@/theme/icons";
 
 const t = copy.gifts;
 
 /** 「我的礼物」标题的 id，这一节用它做无障碍名。 */
 const MY_GIFTS_ID = "my-gifts";
 
-const FILTER_ICONS = { food: FoodIcon, drink: DrinkIcon, flower: FlowerIcon, trinket: TrinketIcon };
+const FILTER_ICONS = {
+  food: FoodIcon,
+  drink: DrinkIcon,
+  flower: FlowerIcon,
+  trinket: TrinketIcon,
+  fashion: FashionIcon,
+  care: CareIcon,
+};
 
 /**
  * 我的礼物（DESIGN.md「玩法页」）：标题右边是类别筛选（`ToggleGroup`），下面是插画网格（手机 3 列，更宽 4、5 列）。

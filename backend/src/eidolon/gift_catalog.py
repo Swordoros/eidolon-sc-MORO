@@ -24,8 +24,8 @@ from typing import Literal, get_args
 
 from eidolon.characters import Character, CharacterConfigError
 
-Category = Literal["food", "drink", "flower", "trinket"]
-"""吃的、饮品、花草、小物件."""
+Category = Literal["food", "drink", "flower", "trinket", "fashion", "care"]
+"""吃的、饮品、花草、小物件、穿戴、护理."""
 
 Rarity = Literal["common", "uncommon", "rare"]
 """普通、少见、稀有, from the commonest."""
@@ -39,9 +39,8 @@ BUY_PRICES: dict[Rarity, int] = {"common": 10, "uncommon": 30, "rare": 50}
 GIFTS_FILE = "gifts.toml"
 """The file's name, in the directory of the character configuration."""
 
-MAX_LIKED = 3
+MAX_LIKED = 5
 """The most gifts a character likes."""
-
 _VALID_ID = re.compile(r"[a-z0-9_-]+")
 
 

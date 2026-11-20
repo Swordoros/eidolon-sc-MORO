@@ -154,7 +154,7 @@ export { Martini as BarCardIcon } from "lucide-react";
 // 重置卡确认框里「现在的档位 → 信任」的箭头。
 export { Sparkles as DrawIcon, Sparkles as RareIcon } from "lucide-react";
 export { ArrowRight as BecomesIcon } from "lucide-react";
-export { Cookie as FoodIcon, CupSoda as DrinkIcon, Flower2 as FlowerIcon, Gem as TrinketIcon } from "lucide-react";
+export { Cookie as FoodIcon, CupSoda as DrinkIcon, Flower2 as FlowerIcon, Gem as TrinketIcon, Shirt as FashionIcon, Sparkles as CareIcon } from "lucide-react";
 
 // 设置一级的各类（档案、记忆、统计、通话用 PhoneIcon、搭话、周期、外观、自带密钥、登录与数据、数据包、关于）和「关于」上面的「赞赏」；「关于」里新标签页打开的链接行尾的外链图标。
 export {

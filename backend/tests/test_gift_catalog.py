@@ -39,18 +39,20 @@ async def test_the_catalog_lists_every_gift_with_its_category_rarity_and_whether
 
     assert res.status_code == 200
     catalog = res.json()
-    assert len(catalog) == 20
+    assert len(catalog) == 34
     assert all(
         set(g) == {
             "id", "name", "category", "rarity", "retired", "sell_price", "buy_price"
         }
         for g in catalog
     )
-    assert Counter(g["rarity"] for g in catalog) == {"common": 9, "uncommon": 8, "rare": 3}
+    assert Counter(g["rarity"] for g in catalog) == {"common": 13, "uncommon": 14, "rare": 7}
     assert {"id": "pudding", "name": "布丁", "category": "food", "rarity": "common",
             "retired": False, "sell_price": 5, "buy_price": 10} in catalog
     assert {"id": "hot-water-bag", "name": "热水袋", "category": "trinket", "rarity": "uncommon",
             "retired": False, "sell_price": 15, "buy_price": 30} in catalog
+    assert {"id": "jewelry", "name": "项链", "category": "fashion", "rarity": "rare",
+            "retired": False, "sell_price": 25, "buy_price": 50} in catalog
     assert not any(g["retired"] for g in catalog)
 
 
@@ -107,7 +109,7 @@ HIORI_SHEET = "# 人设\n你是風野灯織。"
     ("liked", "named"),
     [
         (("cake", "macaron"), "macaron"),
-        (("cake", "cocoa", "plush", "candy"), "最多 3 件"),
+        (("cake", "cocoa", "plush", "candy", "coffee", "ice-cream"), "最多 5 件"),
         (("plush", "jewelry"), "稀有"),
         (("cake", "cake"), "重复"),
         (None, "liked_gifts"),
@@ -125,6 +127,17 @@ def test_wrong_liked_gifts_keep_the_backend_from_starting(
         make_client(FakeLLM())
 
 
+def test_five_liked_gifts_are_allowed(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    characters.add(
+        "hiori", "風野灯織", HIORI_SHEET,
+        liked_gifts=("cake", "cocoa", "plush", "candy", "coffee"),
+    )
+
+    make_client(FakeLLM())
+
+
 def test_liked_gifts_must_be_a_list_of_gift_ids(
     make_client: ClientFactory, characters: CharacterConfig
 ):
@@ -140,7 +153,9 @@ def test_liked_gifts_must_be_a_list_of_gift_ids(
 def test_repository_warm_gifts_are_the_hot_drinks_without_caffeine_and_the_hot_water_bag():
     catalog = load_gift_catalog(REPO_GIFTS)
 
-    assert {id for id, g in catalog.items() if g.warm} == {"cocoa", "honey-drink", "hot-water-bag"}
+    assert {id for id, g in catalog.items() if g.warm} == {
+        "cocoa", "honey-drink", "hot-water-bag", "scarf",
+    }
 
 
 def test_repository_characters_each_like_gifts_and_every_gift_but_the_hot_water_bag_is_liked():

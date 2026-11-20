@@ -137,6 +137,91 @@ rarity = "rare"
 
 [[gifts]]
 id = "jewelry"
-name = "首饰"
+name = "项链"
+category = "fashion"
+rarity = "rare"
+
+[[gifts]]
+id = "manga-volume"
+name = "漫画单行本"
+category = "trinket"
+rarity = "common"
+
+[[gifts]]
+id = "coin-purse"
+name = "零钱包"
+category = "fashion"
+rarity = "uncommon"
+
+[[gifts]]
+id = "hair-clip"
+name = "发夹"
+category = "fashion"
+rarity = "uncommon"
+
+[[gifts]]
+id = "brooch"
+name = "胸针"
+category = "fashion"
+rarity = "common"
+
+[[gifts]]
+id = "scarf"
+name = "围巾"
+category = "fashion"
+rarity = "rare"
+warm = true
+
+[[gifts]]
+id = "scented-candle"
+name = "香薰蜡烛"
+category = "care"
+rarity = "uncommon"
+
+[[gifts]]
+id = "hand-cream"
+name = "护手霜"
+category = "care"
+rarity = "common"
+
+[[gifts]]
+id = "tea-gift-box"
+name = "茶叶礼盒"
+category = "drink"
+rarity = "uncommon"
+
+[[gifts]]
+id = "perfume"
+name = "香水"
+category = "care"
+rarity = "rare"
+
+[[gifts]]
+id = "bath-salts"
+name = "入浴剂"
+category = "care"
+rarity = "uncommon"
+
+[[gifts]]
+id = "succulent"
+name = "多肉植物"
+category = "flower"
+rarity = "common"
+
+[[gifts]]
+id = "flower-arrangement"
+name = "插花"
+category = "flower"
+rarity = "uncommon"
+
+[[gifts]]
+id = "crystal-ornament"
+name = "水晶摆件"
+category = "trinket"
+rarity = "rare"
+
+[[gifts]]
+id = "mp3-player"
+name = "MP3 播放器"
 category = "trinket"
 rarity = "rare"

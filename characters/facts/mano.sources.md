@@ -129,6 +129,8 @@ Story episodes are from ShinyGroup/SCTranslationData (`data/story/...`), cited a
 `characters.toml` 里 `liked_gifts` 的依据，每件写明是哪一种（点单、吃过、收到礼物时的反应、自己说喜欢……）；从具体的东西对应到通用礼物的，写明怎么对应。
 - 盆栽（potted-plant）：照顾自己养的花。Morning / morning⑦（「私が育ててるお花が咲いたんですっ」「毎日水やりして……時々肥料もあげて/いつ咲くか楽しみにしていたんですっ」）。原文只说是她养的花，没说是盆栽，对应到最接近的盆栽。
 - 红茶（black-tea）：喝过、说好喝。283活动剧情 / 青のReflection / 序章-くじらの心は底知れぬ（「灯織ちゃんの紅茶、美味しいから/うれしいな……」）。
+- 茶叶礼盒（tea-gift-box）：对应她喜欢的茶/和果子；具体剧情出处待补。
+- 多肉植物（succulent）：礼物设计，对应她喜欢植物/盆栽；具体剧情出处待补。
 
 ## 酒吧口味
 `characters.toml` 里酒吧五列（`bar_flavors`、`bar_kind`、`bar_favorites`、`bar_disliked_flavor`、`bar_tolerance`）的依据，每一条一句理由。剧情里有的引剧情，没引剧情或官方资料的都是从人设推的，标「人设推断」；酒量按年龄和性格推。口味、种类和饮品照 `drinks.toml`。

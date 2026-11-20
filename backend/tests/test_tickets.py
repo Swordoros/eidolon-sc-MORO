@@ -93,7 +93,10 @@ async def test_the_twentieth_draw_without_a_rare_gift_is_one(
     drawn = (await client.post("/api/gifts/draws", json={"all": True})).json()["drawn"]
 
     assert drawn[:19] == [{"kind": "gift", "gift_id": "cake"}] * 19
-    assert drawn[19]["kind"] == "gift" and drawn[19]["gift_id"] in {"plush", "jewelry", "preserved-flower"}
+    assert drawn[19]["kind"] == "gift" and drawn[19]["gift_id"] in {
+        "plush", "jewelry", "preserved-flower", "scarf", "perfume", "crystal-ornament",
+        "mp3-player",
+    }
     assert (await state(client))["to_rare"] == 20
 
 
