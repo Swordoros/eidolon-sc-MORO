@@ -51,6 +51,7 @@ def test_keepsake_rules_do_not_push_everything_toward_handmade():
 
     assert "不必总是手作" in rules
     assert "手作的小东西" not in rules
+    assert "仅限中文，相关纪念品采用简体中文常用译名" in rules
     assert "例如 草莓蛋糕" not in rules
     assert "别送一样的，也尽量换一类" in rules
 
@@ -193,10 +194,10 @@ async def test_given_now_it_comes_in_the_conversation_and_the_cabinet_and_she_kn
     assert shown["missing"] == 1 and shown["can_draw"] is False
     assert unseen == {"unseen": 1}
     assert [(e["kind"], e["keepsake_id"]) for e in events] == [("keepsake", given["id"])]
-    history = next(
-        m.content for m in llm.prompts[-1] if m.role == "system" and "历史对话" in m.content
+    system = "\n".join(
+        m.content for m in llm.prompts[-1] if m.role == "system"
     )
-    assert "旁白：你送给了制作人「手作的四叶草书签」。" in history
+    assert "旁白：（背景事件：你送给了制作人「手作的四叶草书签」）" in system
     assert (await client.get(f"/api/keepsakes/{given['id']}/image")).status_code == 404
     await client.post("/api/keepsakes/seen")
     assert (await client.get("/api/keepsakes/unseen")).json() == {"unseen": 0}
