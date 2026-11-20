@@ -150,6 +150,8 @@ export function ConversationView({
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const [pickingPast, setPickingPast] = useState(false);
   const [pickingAgenda, setPickingAgenda] = useState(false);
+  /** Bumped whenever the user sends: the log is forced to its end, as chat apps do. */
+  const [scrollSignal, setScrollSignal] = useState(0);
   // 开发：上一次生成对话的完整提示词（GLOSSARY.md「开发」）。undefined 还没取，null 没有。
   const [devPromptOpen, setDevPromptOpen] = useState(false);
   const [devPrompt, setDevPrompt] = useState<string | null | undefined>(undefined);
@@ -381,6 +383,10 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
+  const send = () => {
+    if (canSend) setScrollSignal((signal) => signal + 1);
+    void live?.submit();
+  };
   const cooldownUntil = cooling ? affinity?.cooldown_until : null;
   // 冷却中的解除时刻和去礼物子页的「送她一件礼物」：冷却那一行和冷却版结束卡共用。
   const until = cooldownUntil ? untilText(new Date(cooldownUntil), new Date(), timeZone) : null;
@@ -420,7 +426,7 @@ export function ConversationView({
       className="flex shrink-0 flex-col gap-2 border-t bg-background px-3 py-2"
       onSubmit={(e) => {
         e.preventDefault();
-        void live?.submit();
+        send();
       }}
     >
       {/* 失败的原因（没登录时带去登录的入口）；通话层盖着时整栏 inert，Tab 摸不到 */}
@@ -435,7 +441,7 @@ export function ConversationView({
             // 回车发送，Shift+回车换行；输入法选字时的回车不算。
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              void live?.submit();
+              send();
             }
           }}
           placeholder={t.placeholder}
@@ -473,6 +479,7 @@ export function ConversationView({
               affinityOn={affinity !== null}
               timeZone={timeZone}
               reading={reading(viewing.id)}
+              scrollSignal={scrollSignal}
             />
           ) : viewing.status === "failed" ? (
             <Empty className="h-full">
@@ -507,6 +514,7 @@ export function ConversationView({
             affinityOn={affinity !== null}
             timeZone={timeZone}
             reading={conversation.status === "open" ? reading(conversation.id) : null}
+            scrollSignal={scrollSignal}
           />
         )}
       </div>
@@ -716,6 +724,7 @@ function Messages({
   affinityOn,
   timeZone,
   reading,
+  scrollSignal,
 }: {
   entries: Entry[];
   hearing: string;
@@ -723,13 +732,14 @@ function Messages({
   affinityOn: boolean;
   timeZone: string;
   reading: Reading | null;
+  scrollSignal: number;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   // 键盘停在她最后一条能朗读的话上（`ReadAloudMenu`）。
   const tabStop = reading?.canRead ? entries.findLast((e) => herLineIn(reading, e))?.key : undefined;
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
-      <FollowNewEvents entries={entries} />
+      <FollowNewEvents entries={entries} scrollSignal={scrollSignal} />
       <MessageScroller>
         <MessageScrollerViewport>
           <MessageScrollerContent className="gap-1 px-3 pt-2 pb-4">
@@ -791,9 +801,17 @@ function Messages({
 
 /** A missed call is a new line the user should see at once, even when the call layer had
  * covered the log while it was recorded. */
-function FollowNewEvents({ entries }: { entries: Entry[] }) {
+function FollowNewEvents({ entries, scrollSignal }: { entries: Entry[]; scrollSignal: number }) {
   const { scrollToEnd } = useMessageScroller();
   const lastKey = useRef<string | null>(entries.at(-1)?.key ?? null);
+  const lastSignal = useRef(scrollSignal);
+
+  useEffect(() => {
+    if (scrollSignal !== lastSignal.current) {
+      lastSignal.current = scrollSignal;
+      scrollToEnd({ behavior: "auto" });
+    }
+  }, [scrollSignal, scrollToEnd]);
 
   useEffect(() => {
     const last = entries.at(-1);
