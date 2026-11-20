@@ -332,7 +332,9 @@ async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
         m.content for m in prompt if m.role == "system" and "历史对话" in m.content
     )
     assert "制作人：这只鸽子叫什么？" in history
-    assert "角色：" in history and "是小皮！" in history
+    last = [m for m in prompt if m.role == "assistant"][-1]
+    assert "角色：" in last.content and "是小皮！" in last.content
+    assert "<ja>" in last.content and "<zh>" in last.content
     assert "<ja>" not in history and "<zh>" not in history
     assert "------------当前对话--------------" in prompt[-1].content
     assert "制作人：" in prompt[-1].content and "好可爱" in prompt[-1].content

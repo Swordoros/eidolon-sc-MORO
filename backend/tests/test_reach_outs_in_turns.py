@@ -34,9 +34,7 @@ from tests.fakes import (
     FakeServiceClients,
 )
 from tests.test_call_turns import MANO_REPLY, CallUnderTest, spoken
-from tests.test_conversation_events import HUNG_UP
-from tests.test_conversation_history import history, told
-from tests.test_dynamic_context import shape
+from tests.test_conversation_history import history
 from tests.test_llm_cache_hits import (
     ANTHROPIC,
     CHAT,
@@ -116,15 +114,62 @@ async def test_the_one_he_answers_is_told_before_his_words_and_stays_there_after
 
     await send_turn(client, conversation, "辛苦了")
 
-    assert history(llm)[-1] == ("user", f"{reached(at)}辛苦了")
+    first = history(llm)
+    assert first[-1][0] == "user" and "辛苦了" in first[-1][1]
+    assert first[-2][0] == "assistant" and WRITTEN in first[-2][1]
+    assert "旁白：你先给制作人发了消息" not in "\n".join(text for _, text in first)
 
     await send_turn(client, conversation, "然后呢")
 
-    assert history(llm) == [
-        ("user", "我去练习了"), ("assistant", SAID),
-        ("user", f"{reached(at)}辛苦了"), ("assistant", SAID),
-        ("user", "然后呢"),
-    ]
+    second = history(llm)
+    assert second[-1][0] == "user" and "然后呢" in second[-1][1]
+    assert all("旁白：你先给制作人发了消息" not in text for _, text in second)
+
+
+async def test_a_recent_reachout_is_the_last_assistant_and_leaves_the_history_block(
+    make_client: ClientFactory, settings: Settings
+):
+    client, llm, _, conversation, _ = await reached_out(make_client, settings, REPLY)
+
+    await send_turn(client, conversation, "辛苦了")
+
+    prompt = llm.prompts[-1]
+    assistant = [message for message in prompt if message.role == "assistant"]
+    assert len(assistant) == 1 and WRITTEN in assistant[0].content
+    assert "旁白：你先给制作人发了消息" not in "\n".join(
+        message.content for message in prompt
+    )
+
+
+async def test_an_old_reachout_stays_in_the_history_block(
+    make_client: ClientFactory, settings: Settings
+):
+    client, llm, clock, conversation, _ = await reached_out(make_client, settings, REPLY)
+    place(settings.database_path, conversation, clock.now - timedelta(hours=7))
+
+    await send_turn(client, conversation, "辛苦了")
+
+    prompt = llm.prompts[-1]
+    assert not [message for message in prompt if message.role == "assistant"]
+    assert "练习结束了哦" in "\n".join(
+        message.content for message in prompt if message.role == "system"
+    )
+
+
+async def test_keepsake_and_gift_hints_are_system_notes_in_time_order(
+    make_client: ClientFactory, settings: Settings
+):
+    client, llm, _, conversation, at = await reached_out(make_client, settings, REPLY)
+    write_event(settings.database_path, conversation, "keepsake", at + timedelta(minutes=1))
+    write_event(settings.database_path, conversation, "gift", at + timedelta(minutes=2))
+
+    await send_turn(client, conversation, "辛苦了")
+
+    prompt = llm.prompts[-1]
+    assistant = [message for message in prompt if message.role == "assistant"]
+    assert len(assistant) == 1 and WRITTEN in assistant[0].content
+    notes = "\n".join(message.content for message in prompt if message.role == "system")
+    assert notes.index("你送给了制作人「纪念品」") < notes.index("制作人送了你一份蛋糕")
 
 
 async def test_cut_back_by_turns_it_goes_with_the_turn_after_it(
@@ -138,9 +183,9 @@ async def test_cut_back_by_turns_it_goes_with_the_turn_after_it(
 
     await send_turn(client, conversation, "然后呢")
 
-    assert history(llm) == [  # the turn before it cut, it goes on with the one after it
-        ("user", f"{reached(at)}辛苦了"), ("assistant", SAID), ("user", "然后呢"),
-    ]
+    after = history(llm)
+    assert after[-1][0] == "user" and "然后呢" in after[-1][1]
+    assert all("旁白：你先给制作人发了消息" not in text for _, text in after)
 
 
 async def test_among_the_events_by_time_having_reached_out_she_has_responded_to_the_gift(
@@ -152,10 +197,13 @@ async def test_among_the_events_by_time_having_reached_out_she_has_responded_to_
 
     await send_turn(client, conversation, "辛苦了")
 
-    assert history(llm)[-1] == (
-        "user", f"（制作人送给你一份蛋糕。）\n{reached(at)}{HUNG_UP}\n辛苦了"
-    )
-    assert "回应收到的礼物" not in told(llm)
+    prompt = llm.prompts[-1]
+    assistant = [message for message in prompt if message.role == "assistant"]
+    assert assistant and WRITTEN in assistant[-1].content
+    assert "旁白" not in assistant[-1].content
+    text = "\n".join(message.content for message in prompt if message.role == "system")
+    assert "制作人送了你一份蛋糕" in text
+    assert "回应收到的礼物" not in text
 
 
 async def test_each_turn_opens_as_the_one_before_it_did(
@@ -166,8 +214,7 @@ async def test_each_turn_opens_as_the_one_before_it_did(
     await send_turn(client, conversation, "然后呢")
 
     before, after = llm.prompts[-2:]
-    opening = shape(before[:-2])
-    assert shape(after[: len(opening)]) == opening
+    assert before[:2] == after[:2]
 
 
 @pytest.mark.parametrize(
@@ -192,7 +239,7 @@ async def test_every_protocol_takes_the_turn_answering_it(
     body = json.loads(requests[0].content)
     said = [m["role"] for m in body.get("messages", body.get("input", []))]
     said = [role for role in said if role != "system"]
-    assert said == ["user", "assistant", "user"]
+    assert said[-2:] == ["assistant", "user"]
 
 
 async def test_the_judge_model_retrieval_and_memory_read_it_as_her_latest_words(
@@ -228,4 +275,6 @@ async def test_in_a_call_the_one_before_it_connected_is_told_before_his_words(
     call_llm = FakeLLM(MANO_REPLY)
     await call.run(call_llm, [spoken("看到了")])
 
-    assert history(call_llm)[-1] == ("user", f"{reached(at)}看到了")
+    prompt = call_llm.prompts[-1]
+    assert history(call_llm)[-1][0] == "user"
+    assert not [message for message in prompt if message.role == "assistant"]

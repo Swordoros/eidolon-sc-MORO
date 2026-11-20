@@ -634,6 +634,29 @@ def recent_reply(messages: Sequence[Message], now: datetime | None) -> Message |
     return last if timedelta() <= gap < RECENT_REPLY else None
 
 
+def last_character_utterance(record: Sequence[Recorded]) -> Message | ReachOut | None:
+    """Her most recent words in the record, a reply or a reach-out; events between are not
+    hers to say. A reach-out after her last reply is the latest."""
+    for entry in reversed(record):
+        if isinstance(entry, ReachOut):
+            return entry
+        if isinstance(entry, Message) and entry.role == "character":
+            return entry
+    return None
+
+
+def _utterance_text(
+    utterance: Message | ReachOut, now: datetime, timezone: str,
+) -> str:
+    """The last thing she said, as her earlier replies are written in the prompt."""
+    photo = utterance.photo
+    failed = isinstance(utterance, Message) and utterance.photo_failed
+    stamp = reply_message_stamp(utterance.created_at, now, timezone)
+    return "角色：" + stamp + " " + format_reply(
+        utterance.segments, photo.tag if photo else None, failed,
+    )
+
+
 def anchor_note(anchor: Message | None, now: datetime | None) -> str | None:
     """How the repeated last line is introduced: how long ago it was said, when it was an
     hour or more ago; None for a line just said, or no line."""
@@ -695,15 +718,20 @@ class HistoryNote:
 def history_notes(
     record: Sequence[Recorded], gift_catalog: Mapping[str, Gift], her_days: HerDays,
     timezone: str, skip: set[int] | frozenset[int] = frozenset(),
+    skip_reach_outs: set[int] | frozenset[int] = frozenset(),
 ) -> dict[int | None, list[HistoryNote]]:
     """The events and reach-outs `record` tells her of, by the id of the user message each
     comes before; None for those after them all. Events in `skip` are attached to an
-    assistant message instead."""
+    assistant message instead; reach-outs in `skip_reach_outs` are shown as the last
+    assistant instead."""
     notes: dict[int | None, list[HistoryNote]] = {}
     pending: list[HistoryNote] = []
     for entry in record:
         if not told_her(entry) or entry.id in skip:
             continue
+        if isinstance(entry, ReachOut):
+            if entry.id in skip_reach_outs:
+                continue
         if isinstance(entry, Message):
             if entry.role == "user":
                 notes[entry.id], pending = pending, []
@@ -837,6 +865,26 @@ def tail_event_notes(
             f"{history_stamp(entry.created_at, now, timezone)}\n"
             f"{_event_note(entry, gift_catalog, when)}"
         )
+        handled.add(entry.id)
+    return notes, handled
+
+
+def tail_events_after(
+    record: Sequence[Recorded], index: int, gift_catalog: Mapping[str, Gift],
+    now: datetime,
+) -> tuple[list[str], set[int]]:
+    """Gifts and keepsakes after the utterance at `index`, as system notes for the prompt's
+    end: just the events, no timestamp, since the speaker and time are already clear."""
+    notes: list[str] = []
+    handled: set[int] = set()
+    for entry in record[index + 1:]:
+        if not isinstance(entry, ConversationEvent) or not told_her(entry):
+            continue
+        if entry.kind not in ("gift", "keepsake"):
+            continue
+        at = datetime.fromisoformat(entry.created_at)
+        when = "current" if now - at <= TAIL_EVENT_CURRENT else "history"
+        notes.append(_event_note(entry, gift_catalog, when))
         handled.add(entry.id)
     return notes, handled
 
@@ -2270,22 +2318,34 @@ class ConversationEngine:
             if self._relationships is not None else None
         )
         prompt_history = latest_turns(prompt_messages, turns)
-        tail_notes, tail_handled = tail_event_notes(
-            read.record, self._gift_catalog, now, timezone,
+        last = last_character_utterance(read.record)
+        last_index = next(
+            (index for index in range(len(read.record) - 1, -1, -1) if read.record[index] is last),
+            -1,
         )
-        assistant_notes, handled = assistant_event_notes(
-            read.record, prompt_history, self._gift_catalog, her_days, timezone
+        recent = False
+        if last is not None:
+            try:
+                gap = now - datetime.fromisoformat(last.created_at)
+                recent = timedelta() <= gap < RECENT_REPLY
+            except ValueError:
+                recent = False
+        if recent and isinstance(last, Message):
+            prompt_history = [message for message in prompt_history if message.id != last.id]
+        tail_notes, tail_handled = (
+            tail_events_after(read.record, last_index, self._gift_catalog, now)
+            if recent else ([], set())
         )
         notes = history_notes(
             read.record, self._gift_catalog, her_days, timezone,
-            skip=handled | tail_handled,
+            skip=tail_handled,
+            skip_reach_outs={last.id} if recent and isinstance(last, ReachOut) else set(),
         )
-        anchor = recent_reply(prompt_history, now)
-        anchor_notes = anchor_event_notes(read.record, anchor, self._gift_catalog)
+        last_utterance = _utterance_text(last, now, timezone) if recent and last else None
+        anchor: Message | None = None
         compact_history = history_block(
             prompt_history, notes, now, timezone,
             japanese=conversation.id in self._japanese_history,
-            assistant_notes=assistant_notes,
         )
         scene_text = scene_prompt(
             scene, character.heart, profile.gender == "female",
@@ -2317,8 +2377,8 @@ class ConversationEngine:
             [p for p in (retrieved.cards_prompt, retrieved.related_prompt, long_term, retrieved.memories_prompt, relationship, retrieved.prompt) if p],
             (ANSWERING_IN_THE_TUB if in_bath else ANSWERING) if opening else text,
             voiced_by, stamp_user=True, now=now, timezone=timezone,
-            history_block=compact_history, anchor=anchor, now_state=schedule_state,
-            anchor_notes=anchor_notes, tail_notes=tail_notes, scene=scene_text,
+            history_block=compact_history, last_utterance=last_utterance,
+            now_state=schedule_state, tail_notes=tail_notes, scene=scene_text,
             photo=None,
         )
 
@@ -3210,6 +3270,7 @@ class ConversationEngine:
         now: datetime | None = None,
         timezone: str = "Asia/Shanghai",
         history_block: str | None = None,
+        last_utterance: str | None = None,
         anchor: Message | None = None,
         now_state: str | None = None,
         anchor_notes: Sequence[str] = (),
@@ -3263,7 +3324,9 @@ class ConversationEngine:
             prompt.append(ChatMessage("system", scene))
         if photo:
             prompt.append(ChatMessage("system", photo))
-        if anchor is not None and history_block is not None:
+        if last_utterance is not None:
+            prompt.append(ChatMessage("assistant", last_utterance))
+        elif anchor is not None and history_block is not None:
             note = anchor_note(anchor, now)
             if note is not None:
                 prompt.append(ChatMessage("system", note))
