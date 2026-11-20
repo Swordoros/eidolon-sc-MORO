@@ -335,11 +335,14 @@ def read_tag(text: str) -> PhotoTag:
     )
     shared: list[str] = []
     each: list[tuple[str, tuple[str, ...]]] = []
+    named: set[str] = set()
     for part in re.split(r"[/;；]", fields.get("others", "")):
         if found := _ONE_OF_THEM.match(part):
+            who = found.group(1).lower()
             tags = _field(found.group(2), set(_FIXED), stripped, (), name="others")
-            if tags:
-                each.append((found.group(1).lower(), tags))
+            if tags and who not in named:
+                each.append((who, tags))
+                named.add(who)
         elif part.strip():
             shared.append(part)
     others = _field(",".join(shared), set(_FIXED), stripped, (), name="others")

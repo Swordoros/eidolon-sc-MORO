@@ -377,6 +377,40 @@ def test_each_of_the_others_wears_and_does_what_she_wrote_for_her():
     assert unnamed.characters[1] == "girl, kazano hiori, black hair, scarf, smile"
 
 
+def test_a_character_named_twice_in_others_is_drawn_once():
+    mano = Character("mano", "櫻木真乃", "", "v", "", None, "#ffbad6", Birthday(4, 24), 16,
+                     photo_tag="sakuragi mano", photo_appearance="brown hair")
+    hiori = Character("hiori", "風野灯織", "", "v", "", None, "#000000", Birthday(4, 24), 16,
+                      photo_tag="kazano hiori", photo_appearance="black hair")
+    meguru = Character("meguru", "八宮めぐる", "", "v", "", None, "#000000", Birthday(4, 24), 16,
+                       photo_tag="hachimiya meguru", photo_appearance="blonde hair")
+    tag = read_tag(
+        "shot: other\nplace: kyoto\noutfit: cardigan\naction: smile\n"
+        "others: hiori: navy coat / hiori: black jacket / meguru: yellow hoodie"
+    )
+
+    prompt = group_prompt([mano, hiori, meguru], tag)
+
+    assert [who for who, _ in tag.each] == ["hiori", "meguru"]
+    assert prompt.characters[1] == "girl, kazano hiori, black hair, navy coat"
+    assert prompt.characters[2] == "girl, hachimiya meguru, blonde hair, yellow hoodie"
+
+
+def test_the_same_name_in_others_and_scene_is_kept():
+    hiori = Character("hiori", "風野灯織", "", "v", "", None, "#000000", Birthday(4, 24), 16,
+                      photo_tag="kazano hiori", photo_appearance="black hair")
+    meguru = Character("meguru", "八宮めぐる", "", "v", "", None, "#000000", Birthday(4, 24), 16,
+                       photo_tag="hachimiya meguru", photo_appearance="blonde hair")
+    tag = read_tag(
+        "shot: other\nothers: hiori: navy coat / meguru: yellow hoodie\n"
+        "scene: hiori on the left, meguru on the right"
+    )
+
+    assert [who for who, _ in tag.each] == ["hiori", "meguru"]
+    assert "hiori" in tag.scene and "meguru" in tag.scene
+    group_prompt([hiori, meguru], tag)
+
+
 def test_the_producer_in_a_photo_is_the_p_headed_producer_in_a_suit_or_a_skirt_suit():
     mano = Character("mano", "櫻木真乃", "", "v", "", None, "#ffbad6", Birthday(4, 24), 16,
                      photo_tag="sakuragi mano", photo_appearance="brown hair")
