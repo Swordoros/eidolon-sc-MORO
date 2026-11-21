@@ -1581,6 +1581,7 @@ class CallTurns(FrameProcessor):
         self._turn_outcome: TurnOutcome | None = None  # how it turns out, the last one's
         # till the next is taken up: her voice may start only once a recorded reply is over
         self._bath = False  # she took the call in the tub (GLOSSARY.md「洗澡」)
+        self._opening_started: datetime | None = None  # the bath this call opened in
         self._said_anything = False  # anything has been said: she answers first only before it
         self._answered = False  # the `answered` client message has come
         self._ambience = ambience
@@ -1691,8 +1692,19 @@ class CallTurns(FrameProcessor):
         phone = await self._engine.phone(self._call.conversation, self._call.device_timezone)
         if phone == "in_the_tub":
             self._bath = True
+            started = await self._engine.bath_started_at(
+                self._call.conversation, self._call.device_timezone
+            )
+            if started is not None and not await self._engine.bath_opening_done(
+                self._call.conversation, started
+            ):
+                self._opening_started = started
             await self._send({"type": "bath"})
-        if not self._said_anything and phone in ("asleep", "in_the_tub"):
+        if (
+            not self._said_anything
+            and phone in ("asleep", "in_the_tub")
+            and (phone != "in_the_tub" or self._opening_started is not None)
+        ):
             self._inputs.put_nowait(OPENING)
 
     async def _carry_out(
@@ -1895,6 +1907,11 @@ class CallTurns(FrameProcessor):
             if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                 await self._carry_out(self._turns.reply_recorded())
                 self._outcome.turn_recorded(recorded)
+                if text == OPENING and self._opening_started is not None:
+                    await self._engine.mark_bath_opening_done(
+                        self._call.conversation, self._opening_started
+                    )
+                    self._opening_started = None
                 self._turns_since_pick += 1
                 if self._turns_since_pick >= PICK_EVERY:
                     self._pick_ambience()

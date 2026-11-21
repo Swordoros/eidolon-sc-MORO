@@ -2136,6 +2136,40 @@ class ConversationEngine:
                 return ends
         return None
 
+    async def bath_started_at(
+        self, conversation: Conversation, device_timezone: str | None = None
+    ) -> datetime | None:
+        """When the bath she is in now began; None if she is not in one."""
+        if self._schedules is None:
+            return None
+        profile = await self._store.get_profile(conversation.user_id)
+        local = self._clock().astimezone(
+            ZoneInfo(effective_timezone(profile, device_timezone))
+        )
+        today = await self._schedules.of(
+            conversation.user_id, conversation.character_id, local.date()
+        )
+        yesterday = await self._schedules.of(
+            conversation.user_id, conversation.character_id, local.date() - timedelta(days=1)
+        )
+        return bath_began(today, yesterday, local)
+
+    async def bath_opening_done(
+        self, conversation: Conversation, started_at: datetime
+    ) -> bool:
+        """Whether she has already opened a call in the bath that began at `started_at`."""
+        return await self._store.bath_opening_done(
+            conversation.user_id, conversation.character_id, started_at
+        )
+
+    async def mark_bath_opening_done(
+        self, conversation: Conversation, started_at: datetime
+    ) -> None:
+        """Keep that she has opened the call in the bath that began at `started_at`."""
+        await self._store.mark_bath_opening(
+            conversation.user_id, conversation.character_id, started_at
+        )
+
     async def turn(
         self,
         conversation: Conversation,

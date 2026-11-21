@@ -227,6 +227,12 @@ async def test_an_adult_who_soaks_answers_first_from_the_tub(
     assert llm.prompts[0][-1].content.endswith(ANSWERING_IN_THE_TUB)
     told = context_of(llm.prompts[0])
     assert "正在泡澡" in told and "回响" in told
+    with sqlite3.connect(settings.database_path) as db:
+        [openings] = db.execute(
+            "SELECT COUNT(*) FROM bath_openings WHERE user_id = ? AND character_id = 'mano'",
+            (user_id(settings.database_path, "producer"),),
+        ).fetchone()
+    assert openings == 1
 
 
 async def test_after_the_bath_she_comes_back_for_the_call_she_did_not_answer_night_or_not(

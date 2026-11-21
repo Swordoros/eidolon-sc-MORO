@@ -142,6 +142,15 @@ CREATE TABLE IF NOT EXISTS conversation_events (
 );
 CREATE INDEX IF NOT EXISTS conversation_events_by_conversation
     ON conversation_events(conversation_id, created_at);
+-- The bath call she already opened in (GLOSSARY.md「洗澡」): one opening per bath, so a
+-- redial after she has spoken does not open it again.
+CREATE TABLE IF NOT EXISTS bath_openings (
+    user_id TEXT NOT NULL,
+    character_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    opened_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, character_id, started_at)
+);
 -- A photo she sent with a reply (GLOSSARY.md「照片」, ADR-0024), one at most to a reply: the
 -- photo tag she wrote for it, as she wrote it; whether it is being generated, was sent or was
 -- not, and why not (`reason`); and once sent the picture itself, a WebP, read only on its own.
@@ -920,6 +929,18 @@ class Store:
         """When she last did not answer the user's call in the conversation (`missed_call`),
         if it was after `after`; None if not."""
         return await self._db.read(read_missed_call_after, conversation_id, after)
+
+    async def bath_opening_done(
+        self, user_id: str, character_id: str, started_at: datetime
+    ) -> bool:
+        """Whether she already opened a call in the bath that began at `started_at`."""
+        return await self._db.read(_bath_opening_done, user_id, character_id, started_at)
+
+    async def mark_bath_opening(
+        self, user_id: str, character_id: str, started_at: datetime
+    ) -> None:
+        """Keep that she has opened the bath call that began at `started_at`; once is enough."""
+        await self._db.write(_mark_bath_opening, user_id, character_id, started_at, _now())
 
     async def typed_turns(self, conversation_id: str, latest: int) -> list[Typed]:
         """What the conversation's `latest` typed turns came to, oldest first; turns of calls,
@@ -2448,6 +2469,27 @@ def _last_contact(
     if last_turn is not None:
         contacts.append(_at(last_turn))
     return max(contacts, default=None)
+
+
+def _bath_opening_done(
+    db: sqlite3.Connection, user_id: str, character_id: str, started_at: datetime
+) -> bool:
+    row = db.execute(
+        "SELECT 1 FROM bath_openings"
+        " WHERE user_id = ? AND character_id = ? AND started_at = ?",
+        (user_id, character_id, started_at.astimezone(UTC).isoformat()),
+    ).fetchone()
+    return row is not None
+
+
+def _mark_bath_opening(
+    db: sqlite3.Connection, user_id: str, character_id: str, started_at: datetime, opened_at: str
+) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO bath_openings"
+        " (user_id, character_id, started_at, opened_at) VALUES (?, ?, ?, ?)",
+        (user_id, character_id, started_at.astimezone(UTC).isoformat(), opened_at),
+    )
 
 
 def _hash(secret: str) -> str:

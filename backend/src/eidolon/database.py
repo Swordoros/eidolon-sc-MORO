@@ -33,6 +33,7 @@ USER_DATA = [
     ("reach_out_schedules",
      "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("calls", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("bath_openings", "user_id = ?"),
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("music_favorites", "user_id = ?"),
