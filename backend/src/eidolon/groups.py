@@ -1112,17 +1112,28 @@ class Groups:
             try:
                 status = await self._affinities.status(user_id, member.id)
                 character = self._characters.get(member.id)
-                lines = tier_prompt(
-                    status,
-                    character.heart if character is not None else None,
-                    profile.gender == "female" if profile is not None else False,
+                female_producer = (
+                    profile.gender == "female" if profile is not None else False
                 )
+                heart = character.heart if character is not None else None
+                lines = tier_prompt(status, heart, female_producer)
                 if lines:
                     parts.extend(lines)
-                    parts.append(
-                        "这只影响你直接对制作人说话时的态度。对群里其他人按你自己的关系说话；"
-                        "不要提好感度、不要比较谁和制作人更亲近，也不要替别人表态。"
-                    )
+                    if heart is not None and heart.romance_in(status.tier, female_producer):
+                        parts.append(
+                            "这只影响你直接对制作人说话时的态度。对群里其他人按你自己的关系说话；"
+                            "不要提好感度，也不要替别人表态。"
+                            "制作人明显把注意力放在别人身上时，可以按你的性格有一点在意或吃醋："
+                            "多看那边一眼、插一句、语气酸一下，或嘴上不承认。"
+                            "群里大家都看得到，所以只到打趣、嘴硬或轻轻闹一下的程度；"
+                            "不要每句都吃醋，不要质问或审问制作人，不要贬低别人，"
+                            "不要断言别人也喜欢制作人，也不要把别人拉进你和制作人的竞争里。"
+                        )
+                    else:
+                        parts.append(
+                            "这只影响你直接对制作人说话时的态度。对群里其他人按你自己的关系说话；"
+                            "不要提好感度、不要比较谁和制作人更亲近，也不要替别人表态。"
+                        )
             except Exception:
                 log.warning("reading her affinity for the group failed", exc_info=True)
         others = "、".join(each.name for each in roster if each.id != member.id)

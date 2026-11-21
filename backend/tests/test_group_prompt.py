@@ -1,12 +1,24 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from dataclasses import replace
 
 from eidolon.affinity import Status
 from eidolon.characters import load_characters
 from eidolon.group_context import GroupMemberNow, GroupNow
 from eidolon.group_prompt import history_block
 from eidolon.groups import TOPIC_GAP, TOPIC_INTERVAL, Groups, Line, Member, _say_prompt, _topic_prompt
+from eidolon.hearts import hearts_path, load_hearts
+
+
+def characters_with_hearts():
+    path = Path(__file__).resolve().parents[2] / "characters" / "characters.toml"
+    characters = load_characters(path)
+    hearts = load_hearts(hearts_path(path), characters.values())
+    return {
+        character_id: replace(character, heart=hearts.get(character_id))
+        for character_id, character in characters.items()
+    }
 
 
 def test_group_history_has_relative_time_and_no_producer_state():
@@ -84,6 +96,47 @@ async def test_group_system_injects_only_her_own_affinity():
     told = await groups._system("user", member, "周末茶会", [member])
     assert "对制作人态度很冷" in told
     assert "不要提好感度" in told
+    assert "吃醋" not in told
+
+
+async def test_group_romance_tiers_allow_jealousy():
+    characters = characters_with_hearts()
+    groups = object.__new__(Groups)
+    groups._characters = characters  # type: ignore[attr-defined]
+    groups._store = None  # type: ignore[attr-defined]
+    groups._world = None  # type: ignore[attr-defined]
+
+    class Affinities:
+        async def status(self, user_id: str, character_id: str) -> Status:
+            assert character_id == "nichika"
+            return Status("close", None)
+
+    groups._affinities = Affinities()  # type: ignore[attr-defined]
+    member = groups._members_by_id("nichika")
+    assert member is not None
+    told = await groups._system("user", member, "周末茶会", [member])
+    assert "可以按你的性格有一点在意或吃醋" in told
+    assert "不要比较谁和制作人更亲近" not in told
+
+
+async def test_group_members_without_romance_do_not_get_jealousy():
+    characters = characters_with_hearts()
+    groups = object.__new__(Groups)
+    groups._characters = characters  # type: ignore[attr-defined]
+    groups._store = None  # type: ignore[attr-defined]
+    groups._world = None  # type: ignore[attr-defined]
+
+    class Affinities:
+        async def status(self, user_id: str, character_id: str) -> Status:
+            assert character_id == "asahi"
+            return Status("close", None)
+
+    groups._affinities = Affinities()  # type: ignore[attr-defined]
+    member = groups._members_by_id("asahi")
+    assert member is not None
+    told = await groups._system("user", member, "周末茶会", [member])
+    assert "不要比较谁和制作人更亲近" in told
+    assert "吃醋" not in told
 
 
 def bare_groups() -> Groups:
