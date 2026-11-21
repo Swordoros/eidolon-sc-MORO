@@ -777,7 +777,7 @@ function Messages({
                   </Capsule>
                 </MessageScrollerItem>
               ) : line.entry.kind === "withdrawal" ? (
-                <MessageScrollerItem key={line.entry.key} className="my-3 flex justify-center">
+                <MessageScrollerItem key={line.entry.key} className="my-2 flex justify-center">
                   <div role="note" className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
                     <span>制作人撤回了一条对话</span>
                     {onEdit ? (
