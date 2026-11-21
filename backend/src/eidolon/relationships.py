@@ -157,7 +157,7 @@ class Relationship:
 
     @property
     def text(self) -> str:
-        return self.edited_text or self.generated_text
+        return _without_opinion(self.edited_text or self.generated_text)
 
     @property
     def edited(self) -> bool:
@@ -696,6 +696,14 @@ def _line_value(text: str, label: str) -> str:
         if line.startswith(prefix):
             return line[len(prefix):].strip()
     return ""
+
+
+def _without_opinion(text: str) -> str:
+    """The daily text without its opinion line: that moved to the long-term baseline."""
+    return "\n".join(
+        line for line in text.replace("\r\n", "\n").splitlines()
+        if not line.startswith("对制作人的评价：")
+    ).strip()
 
 
 def _by_day(db: sqlite3.Connection, user_id: str, character_id: str, day: str) -> bool:
