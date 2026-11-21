@@ -27,6 +27,8 @@ USER_DATA = [
     ("memories", "user_id = ?"),
     ("photos", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("withdrawn_turns",
+     "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversation_events",
      "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("reach_outs", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
@@ -91,6 +93,7 @@ what refers to a row before the row."""
 CONVERSATION_DATA = [
     ("photos", "conversation_id = ?"),
     ("messages", "conversation_id = ?"),
+    ("withdrawn_turns", "conversation_id = ?"),
     ("conversation_events", "conversation_id = ?"),
     ("reach_outs", "conversation_id = ?"),
     ("reach_out_schedules", "conversation_id = ?"),

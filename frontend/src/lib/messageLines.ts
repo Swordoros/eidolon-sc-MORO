@@ -23,7 +23,7 @@ export type Line =
 export function linesOf(entries: Entry[], now: Date, affinityOn: boolean): Line[] {
   const hours = entries.map((e) => hourOf(new Date(e.at)));
   const cueOf = (entry: Entry | undefined) =>
-    affinityOn && entry && entry.kind !== "user" ? entry.affinity : null;
+    affinityOn && entry && entry.kind !== "user" && entry.kind !== "withdrawal" ? entry.affinity : null;
   const usedUpOf = (entry: Entry | undefined) => (entry?.kind === "character" ? entry.photosUsedUp : undefined);
   const splitsAfter = (entry: Entry | undefined) => cueOf(entry) !== null || usedUpOf(entry) !== undefined;
   const reachesOut = (entry: Entry | undefined) => entry?.kind === "character" && entry.reachOut === true;

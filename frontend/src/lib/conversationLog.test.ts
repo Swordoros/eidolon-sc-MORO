@@ -326,7 +326,7 @@ describe("conversationLog", () => {
       history,
     );
     expect(log.turn).toBeNull();
-    expect(log.entries.map((e) => (e.kind === "character" ? e.segments[0].ja : e.kind === "user" ? e.text : e.event))).toEqual([
+    expect(log.entries.map((e) => (e.kind === "character" ? e.segments[0].ja : e.kind === "user" || e.kind === "withdrawal" ? e.text : e.event))).toEqual([
       "早上好",
       "おはよう",
       "一",

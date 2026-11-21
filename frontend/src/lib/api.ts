@@ -222,7 +222,16 @@ export type ReachOut = {
 };
 
 /** What a conversation's record holds, in order. */
-export type Recorded = Message | ConversationEvent | ReachOut;
+export type Recorded = Message | ConversationEvent | ReachOut | Withdrawal;
+
+/** A turn the user withdrew: only its original words are kept, for editing again. */
+export type Withdrawal = {
+  type: "withdrawal";
+  id: number;
+  turn_id: string;
+  text: string;
+  created_at: string;
+};
 
 /** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
  * `delta`s and, when the page asks for them, `segment-complete`s, then `photos-used-up` if the
@@ -1219,6 +1228,17 @@ export async function createConversation(characterId: string): Promise<Conversat
 /** The conversation's record: its messages and conversation events, in order. */
 export async function listMessages(conversationId: string): Promise<Recorded[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
+}
+
+export async function withdrawTurn(
+  conversationId: string,
+  messageId: number,
+): Promise<Withdrawal> {
+  return json(
+    await api(`/api/conversations/${conversationId}/messages/${messageId}/withdraw`, {
+      method: "POST",
+    }),
+  );
 }
 
 /** Whether the user's text turns and calls would count towards nothing (on their own keys alone),

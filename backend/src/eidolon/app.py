@@ -97,7 +97,9 @@ from eidolon.sponsor_api import add_sponsor_routes
 from eidolon.stats import add_stats_routes
 from eidolon.service_status import add_service_status_routes
 from eidolon.stand_outfits import list_path, outfit_path
-from eidolon.store import Conversation, ConversationEvent, IsCurrent, ReachOut, Recorded
+from eidolon.store import (
+    Conversation, ConversationEvent, IsCurrent, NotFound, ReachOut, Recorded,
+)
 from eidolon.throttle import Throttled
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
@@ -800,6 +802,25 @@ def create_app(backend: Backend) -> FastAPI:
         order. The user reads it: its reach-outs are seen from now on."""
         conversation = await conversation_or_404(conversation_id, user_id)
         return [recorded(entry) for entry in await store.read_by_user(conversation.id)]
+
+    @app.post("/api/conversations/{conversation_id}/messages/{message_id}/withdraw")
+    async def withdraw_turn(
+        conversation_id: str, message_id: int, user_id: UserId
+    ) -> dict:
+        """Withdraw the whole turn the user's message opened, with her reply, from every
+        later prompt; the affinity already taken stays."""
+        conversation = await conversation_or_404(conversation_id, user_id)
+        if store.is_taking_turn(conversation.id):
+            raise HTTPException(409, "这一轮还在生成，暂时不能撤回")
+        try:
+            withdrawn = await store.withdraw_turn(
+                conversation.id, message_id, backend.clock().isoformat()
+            )
+        except NotFound:
+            raise HTTPException(404, "没有这条消息") from None
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from None
+        return withdrawn.shown()
 
     @app.post("/api/conversations/{conversation_id}/turns")
     async def text_turn(

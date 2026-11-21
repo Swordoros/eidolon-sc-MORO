@@ -20,6 +20,12 @@ import { TimeStamp } from "@/components/conversations/TimeStamp";
 import { HerLetterButton } from "@/components/letter/LetterButton";
 import { Bubble, BubbleContent, BubbleGroup } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -515,6 +521,8 @@ export function ConversationView({
             timeZone={timeZone}
             reading={conversation.status === "open" ? reading(conversation.id) : null}
             scrollSignal={scrollSignal}
+            onWithdraw={(messageId) => void live?.withdraw(messageId)}
+            onEdit={(text) => live?.setDraft(text)}
           />
         )}
       </div>
@@ -725,6 +733,8 @@ function Messages({
   timeZone,
   reading,
   scrollSignal,
+  onWithdraw,
+  onEdit,
 }: {
   entries: Entry[];
   hearing: string;
@@ -733,6 +743,8 @@ function Messages({
   timeZone: string;
   reading: Reading | null;
   scrollSignal: number;
+  onWithdraw?: (messageId: number) => void;
+  onEdit?: (text: string) => void;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   // 键盘停在她最后一条能朗读的话上（`ReadAloudMenu`）。
@@ -764,6 +776,21 @@ function Messages({
                     {photosUsedUpText(line.retryAt, timeZone)}
                   </Capsule>
                 </MessageScrollerItem>
+              ) : line.entry.kind === "withdrawal" ? (
+                <MessageScrollerItem key={line.entry.key} className="my-3 flex justify-center">
+                  <div role="note" className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <span>制作人撤回了一条对话</span>
+                    {onEdit ? (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        onClick={() => onEdit(line.entry.kind === "withdrawal" ? line.entry.text : "")}
+                      >
+                        重新编辑
+                      </Button>
+                    ) : null}
+                  </div>
+                </MessageScrollerItem>
               ) : line.entry.kind === "event" ? (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className="my-3">
                   <EventLine entry={line.entry} name={character.name} />
@@ -776,6 +803,7 @@ function Messages({
                     character={character}
                     reading={reading}
                     isTabStop={line.entry.key === tabStop}
+                    onWithdraw={onWithdraw}
                   />
                 </MessageScrollerItem>
               ),
@@ -867,26 +895,41 @@ function Bubbled({
   character,
   reading,
   isTabStop,
+  onWithdraw,
 }: {
   line: Extract<Line, { kind: "entry" }>;
-  entry: Exclude<Entry, { kind: "event" }>;
+  entry: Exclude<Entry, { kind: "event" } | { kind: "withdrawal" }>;
   character: Character;
   reading: Reading | null;
   /** 消息区里键盘停在这一条（她最后一条能朗读的话）。 */
   isTabStop: boolean;
+  onWithdraw?: (messageId: number) => void;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
   const said = reading && herLineIn(reading, entry);
   if (entry.kind === "user") {
+    const bubble = (
+      <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
+        <BubbleContent>
+          <p className="text-body whitespace-pre-wrap">{entry.text}</p>
+        </BubbleContent>
+      </Bubble>
+    );
+    const messageId = entry.messageId;
     return (
       <Message align="end">
         <div className="flex min-w-0 flex-1 items-end justify-end gap-1.5">
           {last && time}
-          <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
-            <BubbleContent>
-              <p className="text-body whitespace-pre-wrap">{entry.text}</p>
-            </BubbleContent>
-          </Bubble>
+          {onWithdraw && messageId ? (
+            <ContextMenu>
+              <ContextMenuTrigger render={bubble} aria-haspopup="menu" />
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => onWithdraw(messageId)}>
+                  撤回这一轮
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          ) : bubble}
         </div>
       </Message>
     );

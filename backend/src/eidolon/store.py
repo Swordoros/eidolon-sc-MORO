@@ -126,9 +126,20 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     affinity TEXT,
     hurt REAL,
-    out_of_line INTEGER
+    out_of_line INTEGER,
+    turn_id TEXT,
+    withdrawn_at TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
+CREATE TABLE IF NOT EXISTS withdrawn_turns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    turn_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    withdrawn_at TEXT NOT NULL,
+    UNIQUE (conversation_id, turn_id)
+);
 CREATE TABLE IF NOT EXISTS conversation_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id),
@@ -453,7 +464,22 @@ class ReachOut:
         return shown | ({"photo": self.photo.shown()} if self.photo else {})
 
 
-Recorded = Message | ConversationEvent | ReachOut
+@dataclass(frozen=True)
+class Withdrawal:
+    """A whole turn the user withdrew: its original words, kept so they can edit them again.
+    It is shown as a placeholder, never read into a prompt."""
+
+    id: int
+    turn_id: str
+    text: str
+    created_at: str
+    type: Literal["withdrawal"] = field(default="withdrawal", init=False)
+
+    def shown(self) -> dict:
+        return asdict(self)
+
+
+Recorded = Message | ConversationEvent | ReachOut | Withdrawal
 """What a conversation's record holds."""
 
 
@@ -964,11 +990,22 @@ class Store:
     async def read_by_user(self, conversation_id: str) -> list[Recorded]:
         """The conversation's record as `record` gives it, read by the user: every reach-out
         in it is seen from now on (GLOSSARY.md「没看过的搭话」); one made after it was read, not.
-        Only read, but when one of them was not seen yet."""
+        Only read, but when one of them was not seen yet. Withdrawn turns are shown as
+        placeholders, never in a prompt."""
         entries, unseen = await self._db.read(_record_and_unseen, conversation_id)
         if unseen is not None:
             await self._db.write(_see_reach_outs, conversation_id, unseen)
-        return entries
+        withdrawn = await self._db.read(_withdrawals, conversation_id)
+        return sorted([*entries, *withdrawn], key=lambda entry: entry.created_at)
+
+    async def withdraw_turn(
+        self, conversation_id: str, user_message_id: int, withdrawn_at: str
+    ) -> Withdrawal:
+        """Withdraw the whole turn the user's message opened: both messages leave the record
+        and every prompt, while the affinity already taken and its value stay."""
+        return await self._db.write(
+            _withdraw_turn, conversation_id, user_message_id, withdrawn_at
+        )
 
     async def current_conversations(self) -> list[CurrentConversation]:
         """Every user's current conversation with each character they have one with, as
@@ -1073,6 +1110,9 @@ def _open(db: sqlite3.Connection) -> None:
     _add_missing_columns(db, "messages", ("hurt",), "REAL")
     _add_missing_columns(db, "messages", ("out_of_line",), "INTEGER")
     _add_missing_columns(db, "messages", ("level",), "INTEGER")
+    _add_missing_columns(db, "messages", ("turn_id",), "TEXT")
+    _add_missing_columns(db, "messages", ("withdrawn_at",), "TEXT")
+    _backfill_turn_ids(db)
     _add_missing_columns(db, "conversations", ("title",), "TEXT")
     _add_missing_columns(db, "conversation_events", ("gift_id",), "TEXT")
     _add_missing_columns(db, "conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
@@ -1092,6 +1132,23 @@ def _open(db: sqlite3.Connection) -> None:
 
 def _columns(db: sqlite3.Connection, table: str) -> set[str]:
     return {row["name"] for row in by_name(db).execute(f"PRAGMA table_info({table})")}
+
+
+def _backfill_turn_ids(db: sqlite3.Connection) -> None:
+    """Give old messages the turn ids they lacked, pairing each user message with the
+    character reply that follows it before the next user message."""
+    rows = db.execute(
+        "SELECT id, conversation_id, role FROM messages WHERE turn_id IS NULL"
+        " ORDER BY conversation_id, id"
+    ).fetchall()
+    current: dict[str, str] = {}
+    for message_id, conversation_id, role in rows:
+        if role == "user":
+            turn_id = f"t{message_id}"
+            current[conversation_id] = turn_id
+        else:
+            turn_id = current.get(conversation_id, f"t{message_id}")
+        db.execute("UPDATE messages SET turn_id = ? WHERE id = ?", (turn_id, message_id))
 
 
 def _add_missing_columns(
@@ -1546,7 +1603,7 @@ def read_whole_conversations(db: sqlite3.Connection, user_id: str) -> list[Whole
                     " p.status AS photo_status, p.reason AS photo_reason,"
                     " p.created_at AS photo_created_at, p.updated_at AS photo_updated_at"
                     " FROM messages m LEFT JOIN photos p ON p.message_id = m.id"
-                    " WHERE m.conversation_id = ? ORDER BY m.id",
+                    " WHERE m.conversation_id = ? AND m.withdrawn_at IS NULL ORDER BY m.id",
                     (c["id"],),
                 ).fetchall()
             ],
@@ -1722,7 +1779,7 @@ def _last(db: sqlite3.Connection, conversation_id: str) -> Recorded | None:
         return latest or message
     said = db.execute(
         "SELECT created_at FROM messages WHERE conversation_id = ? AND role = 'user'"
-        " ORDER BY id DESC LIMIT 1",
+        " AND withdrawn_at IS NULL ORDER BY id DESC LIMIT 1",
         (conversation_id,),
     ).fetchone()
     last_turn_said = said[0] if said else message.created_at
@@ -1751,8 +1808,15 @@ def add_turn(
     conversation she has ended already, nothing is recorded: `ConversationEnded`."""
     if read_ended(db, conversation_id) is not None:
         raise ConversationEnded()
-    _insert_message(db, conversation_id, "user", text=text, created_at=said_at, typed=typed)
-    replied = _insert_message(db, conversation_id, "character", segments=reply, affinity=affinity)
+    turn_id = f"t{uuid.uuid4().hex}"
+    _insert_message(
+        db, conversation_id, "user", text=text, created_at=said_at, typed=typed,
+        turn_id=turn_id,
+    )
+    replied = _insert_message(
+        db, conversation_id, "character", segments=reply, affinity=affinity,
+        turn_id=turn_id,
+    )
     if photo is not None:
         now = _now()
         db.execute(
@@ -1873,7 +1937,8 @@ def _reply_said(
     db: sqlite3.Connection, conversation_id: str, message_id: int
 ) -> list[Segment] | None:
     row = db.execute(
-        "SELECT segments FROM messages WHERE id = ? AND conversation_id = ? AND role = 'character'",
+        "SELECT segments FROM messages WHERE id = ? AND conversation_id = ? AND role = 'character'"
+        " AND withdrawn_at IS NULL",
         (message_id, conversation_id),
     ).fetchone()
     return [Segment(**s) for s in json.loads(row[0] or "[]")] if row else None
@@ -1971,7 +2036,8 @@ def read_ended(db: sqlite3.Connection, conversation_id: str) -> ConversationEven
 def _typed_turns(db: sqlite3.Connection, conversation_id: str, latest: int) -> list[Typed]:
     rows = db.execute(
         "SELECT hurt, out_of_line, level FROM messages WHERE conversation_id = ?"
-        " AND role = 'user' AND hurt IS NOT NULL ORDER BY id DESC LIMIT ?",
+        " AND role = 'user' AND hurt IS NOT NULL AND withdrawn_at IS NULL"
+        " ORDER BY id DESC LIMIT ?",
         (conversation_id, latest),
     ).fetchall()
     return [Typed(hurt, bool(out_of_line), level) for hurt, out_of_line, level in reversed(rows)]
@@ -1980,15 +2046,71 @@ def _typed_turns(db: sqlite3.Connection, conversation_id: str, latest: int) -> l
 def _hurt_history(db: sqlite3.Connection, conversation_id: str) -> list[tuple[datetime, float]]:
     rows = db.execute(
         "SELECT created_at, hurt FROM messages WHERE conversation_id = ?"
-        " AND role = 'user' AND hurt IS NOT NULL AND hurt > 0 ORDER BY id",
+        " AND role = 'user' AND hurt IS NOT NULL AND hurt > 0"
+        " AND withdrawn_at IS NULL ORDER BY id",
         (conversation_id,),
     ).fetchall()
     return [(_at(created_at), hurt) for created_at, hurt in rows]
 
 
+def _withdrawals(db: sqlite3.Connection, conversation_id: str) -> list[Withdrawal]:
+    rows = db.execute(
+        "SELECT id, turn_id, text, created_at FROM withdrawn_turns"
+        " WHERE conversation_id = ? ORDER BY created_at, id",
+        (conversation_id,),
+    ).fetchall()
+    return [Withdrawal(*row) for row in rows]
+
+
+def _withdraw_turn(
+    db: sqlite3.Connection, conversation_id: str, user_message_id: int,
+    withdrawn_at: str,
+) -> Withdrawal:
+    row = db.execute(
+        "SELECT role, text, turn_id, created_at, withdrawn_at FROM messages"
+        " WHERE id = ? AND conversation_id = ?",
+        (user_message_id, conversation_id),
+    ).fetchone()
+    if row is None:
+        raise NotFound("没有这条消息")
+    role, text, turn_id, created_at, already = row
+    if role != "user":
+        raise ValueError("只能撤回制作人的消息")
+    if turn_id is None:
+        turn_id = f"t{user_message_id}"
+        db.execute("UPDATE messages SET turn_id = ? WHERE id = ?", (turn_id, user_message_id))
+    if already is not None:
+        found = db.execute(
+            "SELECT id, turn_id, text, created_at FROM withdrawn_turns"
+            " WHERE conversation_id = ? AND turn_id = ?",
+            (conversation_id, turn_id),
+        ).fetchone()
+        if found is not None:
+            return Withdrawal(*found)
+    db.execute(
+        "UPDATE messages SET withdrawn_at = ?"
+        " WHERE conversation_id = ? AND turn_id = ? AND withdrawn_at IS NULL",
+        (withdrawn_at, conversation_id, turn_id),
+    )
+    db.execute(
+        "INSERT OR IGNORE INTO withdrawn_turns"
+        " (conversation_id, turn_id, text, created_at, withdrawn_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (conversation_id, turn_id, text or "", created_at, withdrawn_at),
+    )
+    found = db.execute(
+        "SELECT id, turn_id, text, created_at FROM withdrawn_turns"
+        " WHERE conversation_id = ? AND turn_id = ?",
+        (conversation_id, turn_id),
+    ).fetchone()
+    assert found is not None
+    return Withdrawal(*found)
+
+
 def _list_messages(db: sqlite3.Connection, conversation_id: str) -> list[Message]:
     rows = by_name(db).execute(
-        f"SELECT {_MESSAGE_WITH_PHOTO} WHERE m.conversation_id = ? ORDER BY m.id",
+        f"SELECT {_MESSAGE_WITH_PHOTO} WHERE m.conversation_id = ?"
+        " AND m.withdrawn_at IS NULL ORDER BY m.id",
         (conversation_id,),
     ).fetchall()
     return [_message_with_photo(row) for row in rows]
@@ -2048,7 +2170,8 @@ def _see_reach_outs(db: sqlite3.Connection, conversation_id: str, up_to: int) ->
 def _current_conversations(db: sqlite3.Connection) -> list[CurrentConversation]:
     rows = by_name(db).execute(
         "SELECT c.*,"
-        " (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id)"
+        " (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id"
+        "  AND m.withdrawn_at IS NULL)"
         "  AS last_turn,"
         " (SELECT MAX(r.created_at) FROM reach_outs r WHERE r.conversation_id = c.id)"
         "  AS reached_out_at,"
@@ -2088,6 +2211,7 @@ def read_in_touch(db: sqlite3.Connection, user_id: str | None = None) -> list[In
     turns = db.execute(
         "SELECT c.user_id, c.character_id, MAX(m.created_at) FROM conversations c"
         f" {users} LEFT JOIN messages m ON m.conversation_id = c.id"
+        " AND m.withdrawn_at IS NULL"
         " GROUP BY c.user_id, c.character_id",
         {"user": user_id},
     ).fetchall()
@@ -2133,6 +2257,7 @@ def read_last_contact(
         "SELECT MAX(m.created_at) FROM messages m"
         " JOIN conversations c ON c.id = m.conversation_id"
         " WHERE c.user_id = ? AND c.character_id = ?"
+        " AND m.withdrawn_at IS NULL"
         + ("" if before is None else " AND m.created_at < ?"),
         (user_id, character_id, *until),
     ).fetchone()
@@ -2240,7 +2365,8 @@ def _last_contact_in(db: sqlite3.Connection, conversation_id: str) -> datetime |
     """When the user and she were last in touch in the conversation, as
     `current_conversations` has it."""
     [last_turn] = db.execute(
-        "SELECT MAX(created_at) FROM messages WHERE conversation_id = ?", (conversation_id,)
+        "SELECT MAX(created_at) FROM messages WHERE conversation_id = ?"
+        " AND withdrawn_at IS NULL", (conversation_id,)
     ).fetchone()
     calls = db.execute(
         "SELECT connected_at, duration_s FROM calls WHERE conversation_id = ?",
@@ -2258,19 +2384,23 @@ def _insert_message(
     affinity: Change | None = None,
     created_at: str | None = None,
     typed: Typed | None = None,
+    turn_id: str | None = None,
 ) -> Message:
     created_at = created_at or _now()
+    turn_id = turn_id or f"t{uuid.uuid4().hex}"
     ja = zh = None
     if segments is not None:
         ja = "".join(s.ja for s in segments)
         zh = "".join(s.zh for s in segments)
     cursor = db.execute(
         "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
-        " affinity, hurt, out_of_line, level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " affinity, hurt, out_of_line, level, turn_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             conversation_id, role, text, ja, zh, _stored_segments(segments), created_at,
             _stored_change(affinity),
             typed and typed.hurt, typed and int(typed.out_of_line), typed and typed.level,
+            turn_id,
         ),
     )
     assert cursor.lastrowid is not None

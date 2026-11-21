@@ -17,6 +17,7 @@ import {
   type Recorded,
   type Segment,
   type TurnEvent,
+  withdrawTurn,
 } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
@@ -473,6 +474,16 @@ export class LiveConversation {
 
   setDraft(draft: string): void {
     this.update({ draft: draft.slice(0, MAX_INPUT_LENGTH) });
+  }
+
+  /** Withdraw a whole turn and put its words back in the composer for editing. */
+  async withdraw(messageId: number): Promise<void> {
+    const conversationId = this.openConversationId();
+    if (conversationId === null) return;
+    const withdrawn = await withdrawTurn(conversationId, messageId);
+    this.setDraft(withdrawn.text);
+    const messages = await this.ports.listMessages(conversationId);
+    this.apply({ type: "loaded", messages }, {});
   }
 
   /** Entry only. Preparation is quiet; once typing starts ordinary busy input rules apply. */

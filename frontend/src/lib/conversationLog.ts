@@ -14,7 +14,8 @@ import { type EventShown, unwellOf } from "@/lib/conversationEvents";
  * if none; and, in a turn the user asked for a photo with this hour's used up, when they may ask
  * again (ISO), which is never recorded. */
 export type Entry =
-  | { kind: "user"; key: string; text: string; at: string }
+  | { kind: "user"; key: string; messageId?: number; text: string; at: string }
+  | { kind: "withdrawal"; key: string; text: string; at: string }
   | ({ kind: "event"; key: string; at: string; affinity: AffinityChange | null } & EventShown)
   | {
       kind: "character";
@@ -158,7 +159,7 @@ function opened(log: ConversationLog, text: string, at: string, confirmed: boole
   return {
     entries: [
       ...log.entries,
-      { kind: "user", key: turn.userKey, text, at },
+      { kind: "user", key: turn.userKey, messageId: 0, text, at },
       { kind: "character", key: turn.replyKey, segments: [], pending: true, at, affinity: null, photo: null },
     ],
     turn,
@@ -204,6 +205,14 @@ function withDelta(entry: Entry, event: TurnEvent & { type: "delta" }): Entry {
 }
 
 function toEntry(message: Recorded): Entry {
+  if ("type" in message && message.type === "withdrawal") {
+    return {
+      kind: "withdrawal",
+      key: `w${message.id}`,
+      text: message.text,
+      at: message.created_at,
+    };
+  }
   if ("type" in message && message.type === "reach_out") {
     return {
       kind: "character",
@@ -229,7 +238,7 @@ function toEntry(message: Recorded): Entry {
     };
   }
   return message.role === "user"
-    ? { kind: "user", key: `m${message.id}`, text: message.text ?? "", at: message.created_at }
+    ? { kind: "user", key: `m${message.id}`, messageId: message.id, text: message.text ?? "", at: message.created_at }
     : {
         kind: "character",
         key: `m${message.id}`,

@@ -848,6 +848,7 @@ def _private_messages(db: sqlite3.Connection, user_id: str, character_id: str,
         "SELECT m.created_at, m.role, m.text, m.ja, m.zh FROM messages m"
         " JOIN conversations c ON c.id = m.conversation_id"
         " WHERE c.user_id = ? AND c.character_id = ?"
+        " AND m.withdrawn_at IS NULL"
         " AND m.created_at >= ? AND m.created_at < ? ORDER BY m.created_at",
         (user_id, character_id, start, end),
     ).fetchall()
