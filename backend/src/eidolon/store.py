@@ -1755,7 +1755,7 @@ def _last(db: sqlite3.Connection, conversation_id: str) -> Recorded | None:
     named = by_name(db)
     row = named.execute(
         f"SELECT {_MESSAGE_WITH_PHOTO} WHERE m.conversation_id = ?"
-        " ORDER BY m.id DESC LIMIT 1",
+        " AND m.withdrawn_at IS NULL ORDER BY m.id DESC LIMIT 1",
         (conversation_id,),
     ).fetchone()
     message = _message_with_photo(row) if row else None
