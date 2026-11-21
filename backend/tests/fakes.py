@@ -252,7 +252,7 @@ class FakeLLM:
             if not colon:
                 continue
             key = name.strip().lower()
-            if key in {"shot", "framing", "note"}:
+            if key in {"shot", "framing", "note", "group", "others", "scene", "words", "words_on"}:
                 fields[key] = value.strip()
             elif key in {"place", "outfit", "action"}:
                 fields[key] = [part.strip() for part in value.split(",") if part.strip()]

@@ -217,7 +217,8 @@ async def test_on_a_trip_she_sends_one_photo_from_there_once_its_time_comes(
 
     assert too_early == 1 and len(llm.prompts) == 2  # once
     assert llm.prompts[-1][-1].content.endswith(WANTS_TO_SEND_TRIP_PHOTO)
-    assert "你今天在京都出外景" in str(llm.prompts[-1])
+    assert "这一轮已经让系统发了一张照片" in str(llm.prompts[-1])
+    assert "kyoto" in str(llm.prompts[-1])
     assert sent["segments"] == [{"ja": "見て、紅葉です", "zh": "你看，是红叶"}]
     assert sent["photo"]["status"] == "ready" and picture.status_code == 200
     [request] = image.requests
@@ -239,7 +240,7 @@ async def test_she_knows_she_sent_it_and_the_list_shows_a_photo(
     assert sent.status_code == 201
     [mano] = [c for c in listed if c["character_id"] == "mano"]
     assert mano["last_message"]["photo"] is True and mano["last_message"]["reach_out"] is True
-    assert "shot: selfie" in str(llm.prompts[-2])  # her trip photo's prompt, of the format
+    assert "取景：selfie" in str(llm.prompts[-2])  # her trip photo's prompt, already sent
 
 
 async def test_with_her_unit_on_the_trip_it_may_be_of_them_all(
@@ -251,7 +252,7 @@ async def test_with_her_unit_on_the_trip_it_may_be_of_them_all(
 
     await backend_of(client).trip_photos.run_due()
 
-    assert "和你一起来的有月岡恋鐘" in str(llm.prompts[-1])
+    assert "合照：" in str(llm.prompts[-1])
     [request] = image.requests
     parameters = request["body"]["parameters"]
     base = request["body"]["input"]
@@ -281,7 +282,7 @@ async def test_sent_now_with_others_named_it_may_be_of_them_all(
     })
 
     assert sent.status_code == 201, sent.text
-    assert "和你一起来的有月岡恋鐘（kogane），这次拍一张和她们的合照" in str(llm.prompts[-1])
+    assert "合照：" in str(llm.prompts[-1])
     assert image.requests[0]["body"]["input"].startswith("2girls")
     assert nobody.status_code == 404
 

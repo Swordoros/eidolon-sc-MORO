@@ -12,10 +12,11 @@ while she is cold or distant to the user, or in a cooldown, nor while a text tur
 way or a call, when it is looked at again at the next tick; one the model fails on is tried
 again `RETRY_AFTER` later, `TRIES` times in all, then let go.
 
-She writes it as a reach-out (`ConversationEngine.send_trip_photo`), on the deployer's chat
-model, with a photo tag as a turn's photo has; with others of her unit on the trip with her
-(`Schedule.trip_with`), she may take one of them all (`group: yes`), drawn with each one a
-character prompt of her own (`photo_prompt.group_prompt`). It is kept as a reach-out with a
+She writes it as a reach-out (`ConversationEngine.send_trip_photo`), after the photo is
+planned apart from her words as a turn's photo is, so she never writes a photo tag; with
+others of her unit on the trip with her (`Schedule.trip_with`), the plan may take one of
+them all (`group: yes`), drawn with each one a character prompt of her own
+(`photo_prompt.group_prompt`). It is kept as a reach-out with a
 photo (`Store.add_photo_reach_out`), being generated, then generated on the deployer's image
 generation, counted towards no limit of the user's, and kept sent or not as a reply's photo
 is. Each has an activity record of its own (`trip_photo`).
@@ -261,7 +262,7 @@ class TripPhotos:
         try:
             with recording.current():
                 said, tag = await self._engine.send_trip_photo(
-                    conversation, lease.keys.chat_llm, place, [f"{c.name}（{c.id}）" for c in others],
+                    conversation, lease.keys.chat_llm, place, others,
                     all_together and bool(others),
                 )
         except Exception as e:
@@ -278,12 +279,16 @@ class TripPhotos:
         await self._sent_with_photo(conversation, said, tag, others, recording)
 
     async def _sent_with_photo(
-        self, conversation: Conversation, said: list, tag: str, others: list[Character],
+        self, conversation: Conversation, said: list, tag: str | None, others: list[Character],
         recording,
     ) -> None:
         """Keep what she said with the photo `tag` says, being generated, and draw it, of her
-        and of `others` if her tag says so."""
+        and of `others` if her tag says so; a trip that planned no photo keeps only her words."""
         character = self._characters[conversation.character_id]
+        if tag is None:
+            reach_out = await self._store.add_photo_reach_out(conversation.id, said, None)
+            await recording.finish("success" if reach_out is not None else "failed")
+            return
         photo_id = uuid.uuid4().hex
         reach_out = await self._store.add_photo_reach_out(
             conversation.id, said, NewPhoto(photo_id, tag)

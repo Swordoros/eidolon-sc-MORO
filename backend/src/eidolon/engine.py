@@ -156,6 +156,8 @@ from eidolon.photo_prompt import SCENE_MARK, keepsake_words, tag_fields
 from eidolon.photo_plan import (
     FINAL_ASK,
     PLANNER,
+    TRIP_FINAL_ASK,
+    TRIP_PLANNER,
     PhotoPlan,
     parse_plan,
     planner_context,
@@ -726,8 +728,13 @@ def photo_caption(photo: Photo | None) -> str | None:
     without a description."""
     if photo is None or photo.status != "ready":
         return None
-    note = " ".join(tag_fields(photo.tag).get("note", "").split())[:PHOTO_NOTE_CHARS]
-    return note or None
+    fields = tag_fields(photo.tag)
+    note = " ".join(fields.get("note", "").split())[:PHOTO_NOTE_CHARS]
+    if not note:
+        return None
+    if fields.get("group", "").strip().lower() == "yes":
+        note += "（合照）"
+    return note
 
 
 def photo_history_note(photo: Photo | None) -> str | None:
@@ -2821,33 +2828,36 @@ class ConversationEngine:
         return said
 
     async def send_trip_photo(
-        self, conversation: Conversation, llm: ChatLLM, place: str, with_names: Sequence[str],
-        all_together: bool = False,
-    ) -> tuple[list[Segment], str]:
+        self, conversation: Conversation, llm: ChatLLM, place: str,
+        companions: Sequence[Character] = (), all_together: bool = False,
+    ) -> tuple[list[Segment], str | None]:
         """What she says first in `conversation` on a trip to `place` (GLOSSARY.md「外景照片」),
-        with the others of her unit named in `with_names` if any, sending the producer a
-        photo from there: its segments and the photo tag she wrote. Raises EmptyReply if
-        she says nothing, or writes no photo tag."""
-        together = bool(with_names)
-        rules = photo_rules(
-            "外景的照片",
-            TRIP_PHOTO_SITUATION.format(
-                where=place,
-                together=(
-                    (TRIP_PHOTO_ALL_TOGETHER if all_together else TRIP_PHOTO_TOGETHER).format(
-                        names="、".join(with_names)
-                    ) if together else ""
-                ),
-            ),
-            "这是哪里、在干什么、有什么想跟他分享的。",
-            place=f"，要看得出是{place}",
-            others=TRIP_PHOTO_OTHERS if together else "",
-            nobody="照片里只有你，或者你和一起来的她们，没有别的人。" if together else ALONE,
+        sending the producer a photo from there: its segments and the planned photo tag, or
+        None where this trip sends no photo. The photo is planned apart from her words, as a
+        turn's is, and only told to her as already sent; she writes no photo tag herself."""
+        character = self._characters[conversation.character_id]
+        profile = await self._store.get_profile(conversation.user_id)
+        timezone = effective_timezone(profile, None)
+        plan = await self._plan_photo(
+            character, [], "", self._clock(), timezone, None, None, None, False, llm,
+            place=place, companions=companions, all_together=all_together,
         )
-        said, tag = await self._reaching_out(conversation, llm, rules, WANTS_TO_SEND_TRIP_PHOTO)
-        if tag is None:
-            raise EmptyReply("对话模型没有写照片标签")
-        return said, tag
+        if plan is None or not plan.send:
+            rules = (
+                "# 外景的照片\n"
+                "这次外景不拍照片。用你自己的话跟制作人说一句这里的事，"
+                "不要提照片，不要写 <photo> 标签。"
+            )
+        else:
+            rules = (
+                sent_prompt(plan)
+                + "\n\n这是外景空下来的一会儿。用你的口吻说这是哪里、在做什么、"
+                "有什么想跟制作人分享的；照片由系统发送，不要写 <photo> 标签。"
+            )
+        said, _ = await self._reaching_out(
+            conversation, llm, rules, WANTS_TO_SEND_TRIP_PHOTO
+        )
+        return said, plan.tag if plan is not None and plan.send else None
 
     def _before_turn(
         self,
@@ -2988,9 +2998,15 @@ class ConversationEngine:
         tier: str | None,
         adult: bool,
         llm: ChatLLM,
+        *,
+        place: str | None = None,
+        companions: Sequence[Character] = (),
+        all_together: bool = False,
     ) -> PhotoPlan | None:
         """Ask a small planning prompt, apart from her roleplay prompt, whether she sends a
-        photo and what it is; None if it cannot say twice."""
+        photo and what it is; None if it cannot say twice. `place`, `companions` and
+        `all_together` make it a trip photo: solo or group, as she chooses, unless the trip
+        says all together."""
         context = planner_context(
             name=character.name,
             intro=character.intro,
@@ -3002,11 +3018,14 @@ class ConversationEngine:
             said=said_text,
             tier=tier,
             adult=adult,
+            place=place,
+            companions=[f"{each.name}（{each.id}）" for each in companions],
+            all_together=all_together,
         )
         messages = [
-            ChatMessage("system", PLANNER),
+            ChatMessage("system", TRIP_PLANNER if place else PLANNER),
             ChatMessage("system", context),
-            ChatMessage("user", FINAL_ASK),
+            ChatMessage("user", TRIP_FINAL_ASK if place else FINAL_ASK),
         ]
         last = ""
         for attempt in range(2):
@@ -3025,7 +3044,17 @@ class ConversationEngine:
             last = "".join(parts)
             plan = parse_plan(last, adult)
             if plan is not None:
-                return plan
+                if not plan.send:
+                    return plan
+                grouped = "group: yes" in plan.tag
+                if (not companions and grouped) or (all_together and not grouped):
+                    log.warning(
+                        "photo planning chose the wrong composition for the trip: %r",
+                        last[:1000],
+                    )
+                    plan = None
+                else:
+                    return plan
             log.warning(
                 "photo planning returned no usable plan (attempt %s): %r",
                 attempt + 1, last[:1000],
