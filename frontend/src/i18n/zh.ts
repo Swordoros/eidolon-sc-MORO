@@ -2834,9 +2834,11 @@ export const zh = {
     /** 三个筛选栏。 */
     filters: {
       character: "角色",
+      scope: "范围",
       kind: "类型",
       status: "状态",
       allCharacters: "全部角色",
+      allScopes: "全部范围",
       allKinds: "全部类型",
     },
     /** 距自然遗忘的剩余时间。 */

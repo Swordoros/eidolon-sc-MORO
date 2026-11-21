@@ -101,11 +101,13 @@ export function MemoriesSettings() {
   const canEdit = !!directory.account?.dev && !!directory.account?.memory_debug;
   // 按角色查看：只看她现在能想起来的记忆；「全部」是默认。
   const [viewerId, setViewerId] = useState(ALL_VIEWERS);
+  const [scopeFilter, setScopeFilter] = useState<"all" | MemoryScope>("all");
   const [kindFilter, setKindFilter] = useState<"all" | MemoryKind>("all");
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive">("active");
   const viewer = characters.find((c) => c.id === viewerId) ?? null;
   const shown = memories
     ?.filter((m) => !viewer || visibleTo(m, viewer, characters))
+    .filter((m) => scopeFilter === "all" || m.scope === scopeFilter)
     .filter((m) => kindFilter === "all" || m.kind === kindFilter)
     .filter((m) => statusFilter === "active"
       ? m.status === "active" && !m.superseded
@@ -120,6 +122,12 @@ export function MemoriesSettings() {
     { value: "short", label: t.kindName.short },
     { value: "mid", label: t.kindName.mid },
     { value: "long", label: t.kindName.long },
+  ];
+  const scopes = [
+    { value: "all", label: t.filters.allScopes },
+    { value: "private", label: t.scopeName("private") },
+    { value: "unit", label: t.scopeName("unit") },
+    { value: "shared", label: t.scopeName("shared") },
   ];
 
   useEffect(() => {
@@ -217,6 +225,10 @@ export function MemoriesSettings() {
     setKindFilter(next as "all" | MemoryKind);
   }
 
+  function chooseScope(next: string) {
+    setScopeFilter(next as "all" | MemoryScope);
+  }
+
   function chooseStatus(next: string) {
     setStatusFilter(next as "active" | "inactive");
   }
@@ -236,7 +248,7 @@ export function MemoriesSettings() {
         <p className={cn(PROSE_WIDTH, "text-body text-muted-foreground")}>{t.intro}</p>
 
         {hasMemories && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="flex flex-col gap-1">
               <span className="text-subtitle text-muted-foreground">{t.filters.character}</span>
               <Select
@@ -249,6 +261,25 @@ export function MemoriesSettings() {
                 </SelectTrigger>
                 <SelectContent>
                   {viewers.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-subtitle text-muted-foreground">{t.filters.scope}</span>
+              <Select
+                items={scopes}
+                value={scopeFilter}
+                onValueChange={(next) => chooseScope(String(next ?? "all"))}
+              >
+                <SelectTrigger aria-label={t.filters.scope} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {scopes.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}
                     </SelectItem>
@@ -401,7 +432,7 @@ export function MemoriesSettings() {
               <EmptyTitle>{t.empty}</EmptyTitle>
             </EmptyHeader>
           </Empty>
-        ) : viewer && kindFilter === "all" && statusFilter === "active" ? (
+        ) : viewer && scopeFilter === "all" && kindFilter === "all" && statusFilter === "active" ? (
           <p className="text-body text-muted-foreground">{t.viewer.empty(viewer.name)}</p>
         ) : statusFilter === "inactive" ? (
           <p className="text-body text-muted-foreground">{t.emptyInactive}</p>
