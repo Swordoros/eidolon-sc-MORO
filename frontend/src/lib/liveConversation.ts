@@ -476,12 +476,11 @@ export class LiveConversation {
     this.update({ draft: draft.slice(0, MAX_INPUT_LENGTH) });
   }
 
-  /** Withdraw a whole turn and put its words back in the composer for editing. */
+  /** Withdraw a whole turn. Its words go back only when the placeholder's edit is clicked. */
   async withdraw(messageId: number): Promise<void> {
     const conversationId = this.openConversationId();
     if (conversationId === null) return;
-    const withdrawn = await withdrawTurn(conversationId, messageId);
-    this.setDraft(withdrawn.text);
+    await withdrawTurn(conversationId, messageId);
     const messages = await this.ports.listMessages(conversationId);
     this.apply({ type: "loaded", messages }, {});
   }
