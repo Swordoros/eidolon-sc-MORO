@@ -42,6 +42,7 @@ from eidolon.schedules import (
     TRIP_WITH_TWIST,
     TWISTS,
     UNIT_TRIP_ODDS,
+    UNIT_TRIP_WITH_TWIST,
     Bath,
     Schedule,
     Schedules,
@@ -100,6 +101,34 @@ def test_what_the_model_writes_is_checked_slot_by_slot():
     assert slots[-1].end == time(23, 59) and slots[-1].with_ == ("kogane",)
     assert parse_schedule("没有 JSON", CHARACTERS) == []
     assert parse_schedule('{"slots": "x"}', CHARACTERS) == []
+
+
+def test_a_long_what_is_kept_whole_up_to_forty_characters():
+    def answer(text: str) -> str:
+        return json.dumps({"slots": [{
+            "start": "13:30", "end": "15:30", "what": text,
+            "where": "东京站附近的餐馆", "kind": "private",
+        }]})
+
+    thirty_one = "和SHHis及IlluminationSTARS成员一起吃午饭"
+    assert len(thirty_one) == 31
+    assert parse_schedule(answer(thirty_one), CHARACTERS)[0].what == thirty_one
+    forty = "长" * 40
+    assert parse_schedule(answer(forty), CHARACTERS)[0].what == forty
+    assert parse_schedule(answer("长" * 41), CHARACTERS)[0].what == "长" * 40
+
+
+def test_a_schedule_shows_the_units_on_its_trip():
+    schedule = Schedule(
+        date(2026, 11, 20),
+        (Slot(time(16), time(18, 30), "在神户进行外景拍摄", "神户市内的拍摄地点", "work"),),
+        (),
+        trip="神户",
+        trip_with=("mano", "hiori"),
+        trip_units=("SHHis", "illumination STARS"),
+    )
+
+    assert schedule.shown()["trip_units"] == ["SHHis", "illumination STARS"]
 
 
 def test_where_she_is_now_says_how_far_through_the_slot_she_is():
@@ -498,12 +527,15 @@ async def test_a_source_slot_is_marked_as_escorted_and_the_note_is_clipped(setti
 
 def test_a_unit_trip_picks_one_member_to_hold_the_trip_and_the_others_go_with_her():
     names = {"mano": "真乃", "kogane": "恋鐘"}
-    twists, trips = _plan_trips(["mano", "kogane"], names, FakeRandom(0, 0, 1))
+    unit_names = {"mano": "illumination STARS", "kogane": "illumination STARS"}
+    twists, trips = _plan_trips(
+        ["mano", "kogane"], names, FakeRandom(0, 0, 1), unit_names
+    )
 
     place = TRIP_PLACES[0]
     assert trips == {"mano": (None, ()), "kogane": (place, ("mano",))}
-    assert TRIP_WITH_TWIST.format(names="恋鐘", place=place) in twists["mano"]
-    assert TRIP_WITH_TWIST.format(names="真乃", place=place) in twists["kogane"]
+    assert UNIT_TRIP_WITH_TWIST.format(unit="illumination STARS", place=place) in twists["mano"]
+    assert UNIT_TRIP_WITH_TWIST.format(unit="illumination STARS", place=place) in twists["kogane"]
 
 
 def test_without_a_unit_trip_only_one_member_can_have_a_solo_trip():
@@ -527,9 +559,13 @@ def test_a_unit_of_one_draws_once_for_her_trip_without_an_owner_index():
 def test_two_tripping_units_can_go_together_with_one_owner():
     units = [["mano", "hiori"], ["kogane", "mamimi"]]
     names = {"mano": "真乃", "hiori": "灯織", "kogane": "恋鐘", "mamimi": "摩美美"}
+    unit_names = {
+        "mano": "illumination STARS", "hiori": "illumination STARS",
+        "kogane": "SHHis", "mamimi": "SHHis",
+    }
 
     plans, joint, joint_plan = _plan_day_trips(
-        units, names, FakeRandom(0, 0, 0, 0, 0, 0, 1),
+        units, names, FakeRandom(0, 0, 0, 0, 0, 0, 1), unit_names,
     )
 
     place = TRIP_PLACES[0]
@@ -539,7 +575,7 @@ def test_two_tripping_units_can_go_together_with_one_owner():
     assert joint_plan[1][owner] == (place, ("mano", "kogane", "mamimi"))
     assert [cid for cid, (trip, _) in joint_plan[1].items() if trip is not None] == [owner]
     assert plans == [({}, {cid: (None, ()) for cid in unit}) for unit in units]
-    assert TRIP_WITH_TWIST.format(names="真乃、恋鐘、摩美美", place=place) in joint_plan[0][owner]
+    assert TRIP_WITH_TWIST.format(units="illumination STARS、SHHis", place=place) in joint_plan[0][owner]
 
 
 def test_only_one_pair_joins_when_three_units_trip():

@@ -52,6 +52,7 @@ from eidolon.schedules import (
     TRIP_PLACES,
     TRIP_TWIST,
     TRIP_WITH_TWIST,
+    UNIT_TRIP_WITH_TWIST,
     DATE_TWIST,
     UNIT_TRIP_ODDS,
     TWISTS,
@@ -260,21 +261,33 @@ def staff_slots(slots: Sequence[Slot], escort: EscortOffer | None) -> list[Slot]
 
 
 def _plan_group(
-    members: list[str], names: Mapping[str, str], random: Random
+    members: list[str], names: Mapping[str, str], random: Random,
+    unit_names: Mapping[str, str] | None = None,
 ) -> tuple[str, TripPlan]:
     """One trip for `members`, all of them away together: a place, a chosen member to hold
     the trip's content, and the group twist for everyone else. Only the owner has `trip`;
-    the others' schedules still say they went, but they send no content."""
+    the others' schedules still say they went, but they send no content. `unit_names` names
+    the units the members belong to, so the prompt says "with SHHis" rather than listing
+    every member."""
     place = TRIP_PLACES[random(len(TRIP_PLACES))]
     owner = members[0] if len(members) == 1 else members[random(len(members))]
     others = tuple(cid for cid in members if cid != owner)
     twists: dict[str, list[str]] = {}
     if others:
+        groups = tuple(
+            dict.fromkeys(
+                unit_names.get(cid, "") if unit_names else names.get(cid, cid)
+                for cid in members
+            )
+        )
+        units = "、".join(group for group in groups if group) or "同组合的伙伴"
         for cid in members:
-            going = [c for c in members if c != cid]
-            twists.setdefault(cid, []).append(TRIP_WITH_TWIST.format(
-                names="、".join(names.get(c, c) for c in going), place=place
-            ))
+            twist = (
+                TRIP_WITH_TWIST.format(units=units, place=place)
+                if len(groups) > 1
+                else UNIT_TRIP_WITH_TWIST.format(unit=units, place=place)
+            )
+            twists.setdefault(cid, []).append(twist)
     else:
         twists.setdefault(owner, []).append(TRIP_TWIST.format(place=place))
     if transport := _trip_transport(place, members, names, random):
@@ -288,7 +301,8 @@ def _plan_group(
 
 
 def _plan_day_trips(
-    units: list[list[str]], names: Mapping[str, str], random: Random
+    units: list[list[str]], names: Mapping[str, str], random: Random,
+    unit_names: Mapping[str, str] | None = None,
 ) -> tuple[list[TripPlan], tuple[int, int] | None, TripPlan | None]:
     """Draw one day's trips for all units due together. Every unit draws a unit trip; when
     at least two different units of two or more have one, two of them are picked and one
@@ -314,23 +328,26 @@ def _plan_day_trips(
     joint_plan: TripPlan | None = None
     if joint is not None:
         members = [*units[joint[0]], *units[joint[1]]]
-        _, joint_plan = _plan_group(members, names, random)
+        _, joint_plan = _plan_group(members, names, random, unit_names)
     for index, unit in enumerate(units):
         if joint is not None and index in joint:
             continue
         if group[index]:
-            _, plans[index] = _plan_group(unit, names, random)
+            _, plans[index] = _plan_group(unit, names, random, unit_names)
         elif random(SOLO_TRIP_ODDS) == 0:
             owner = unit[0] if len(unit) == 1 else unit[random(len(unit))]
-            _, solo = _plan_group([owner], names, random)
+            _, solo = _plan_group([owner], names, random, unit_names)
             plans[index][0].setdefault(owner, []).extend(solo[0].get(owner, []))
             plans[index][1][owner] = solo[1][owner]
     return plans, joint, joint_plan
 
 
-def _plan_trips(unit: list[str], names: Mapping[str, str], random: Random) -> TripPlan:
+def _plan_trips(
+    unit: list[str], names: Mapping[str, str], random: Random,
+    unit_names: Mapping[str, str] | None = None,
+) -> TripPlan:
     """One unit's trip plan, the same draw a day of one due unit gets."""
-    plans, _, _ = _plan_day_trips([unit], names, random)
+    plans, _, _ = _plan_day_trips([unit], names, random, unit_names)
     return plans[0]
 
 
@@ -394,7 +411,9 @@ class ScheduleWriter:
             units.sort(
                 key=lambda unit: len(unit) == 1 and self._engine.is_staff(unit[0])
             )
-            plans, joint, joint_plan = _plan_day_trips(units, names, self._random)
+            plans, joint, joint_plan = _plan_day_trips(
+                units, names, self._random, self._unit_names()
+            )
             lives = [await self._live_for(user_id, unit, day) for unit in units]
             if joint is not None:
                 members = [*units[joint[0]], *units[joint[1]]]
@@ -447,6 +466,13 @@ class ScheduleWriter:
     async def _today(self, user_id: str, now: datetime) -> date:
         zone = ZoneInfo(effective_timezone(await self._store.get_profile(user_id), None))
         return now.astimezone(zone).date()
+
+    def _unit_names(self) -> dict[str, str]:
+        """Each character's unit name, by id, where the world setting names one."""
+        return {
+            cid: self._engine.unit_name(cid) or ""
+            for cid in self._characters
+        }
 
     async def _due(self, now: datetime) -> list[tuple[str, list[str], date]]:
         """The units whose day's schedule is not written yet, for each user with the feature
@@ -726,8 +752,24 @@ class ScheduleWriter:
         if staff:
             plan = ({}, {cid: (None, ()) for cid in unit})
         elif plan is None:
-            plan = _plan_trips(unit, names, self._random)
+            plan = _plan_trips(unit, names, self._random, self._unit_names())
         trip_twists, trips = plan
+        trip_units: dict[str, tuple[str, ...]] = {}
+        if not staff:
+            owner = next(
+                (cid for cid in unit if trips[cid][0] is not None and trips[cid][1]),
+                None,
+            )
+            if owner is not None:
+                names_by_id = self._unit_names()
+                groups = tuple(
+                    dict.fromkeys(
+                        names_by_id.get(cid, "") for cid in unit
+                    )
+                )
+                groups = tuple(group for group in groups if group)
+                if groups:
+                    trip_units = {cid: groups for cid in unit}
         for cid, additions in trip_twists.items():
             twists[cid].extend(additions)
         for cid in unit:
@@ -812,7 +854,7 @@ class ScheduleWriter:
                 await self._schedules.forget(user_id, cid, day)
                 await self._schedules.keep(
                     user_id, cid, day, slots, twists[cid], wake, sleep, bath,
-                    trip if slots else None, trip_with,
+                    trip if slots else None, trip_with, trip_units.get(cid, ()),
                 )
                 if staff and cid == unit[0]:
                     character = self._characters[cid]

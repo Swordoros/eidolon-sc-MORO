@@ -326,7 +326,7 @@ async def test_her_unit_mates_days_do_not_get_her_trip_content(
     mine = await backend.daily.of(me, "mano", TODAY)
 
     assert mine is not None and (mine.trip, mine.trip_with) == (None, ())
-    assert TRIP_WITH_TWIST.format(names="月岡恋鐘", place="京都") not in str(llm.prompts[-1])
+    assert TRIP_WITH_TWIST.format(units="SHHis", place="京都") not in str(llm.prompts[-1])
 
 
 def test_a_group_prompt_takes_each_one_her_own_and_openai_gets_them_after():

@@ -83,10 +83,15 @@ export function SchedulePanel({
       <p className="p-6 text-sm text-muted-foreground">{t.empty}</p>
     ) : (
       <div className="flex flex-col">
-        {agenda.trip && (
-          <p className="mb-2 rounded-md bg-muted px-3 py-2 text-meta text-muted-foreground">
-            {t.trip(agenda.trip)}
-          </p>
+        {(agenda.trip || (agenda.trip_units && agenda.trip_units.length > 0)) && (
+          <div className="mb-2 rounded-md bg-muted px-3 py-2 text-meta text-muted-foreground">
+            {agenda.trip && <p>{t.trip(agenda.trip)}</p>}
+            {agenda.trip_units && agenda.trip_units.length > 0 && (
+              <p className={agenda.trip ? "mt-0.5" : undefined}>
+                {t.tripWith(agenda.trip_units)}
+              </p>
+            )}
+          </div>
         )}
         {agendaRows(agenda).length === 0 ? (
           <p className="py-6 text-sm text-muted-foreground">{t.empty}</p>

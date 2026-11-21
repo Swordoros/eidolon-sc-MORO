@@ -38,8 +38,8 @@ KEPT_DAYS = 14
 """How many days a schedule is kept."""
 
 MAX_SLOTS = 8
-MAX_WHAT = 30
-MAX_WHERE = 30
+MAX_WHAT = 40
+MAX_WHERE = 40
 DAY_STARTS = time(6)
 """The earliest a slot may begin; the latest it may end is midnight."""
 
@@ -75,8 +75,11 @@ JOINT_TRIP_ODDS = 5
 TRIP_TWIST = "今天你要去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
 """The twist a trip is to the model writing the day."""
 
-TRIP_WITH_TWIST = "今天你要和{names}一起去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
-"""The twist a trip with others of her unit is (GLOSSARY.md「外景照片」)."""
+TRIP_WITH_TWIST = "今天你要和{units}一起（联合外景）去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
+"""The twist a joint trip with another unit is (GLOSSARY.md「外景照片」)."""
+
+UNIT_TRIP_WITH_TWIST = "今天你要和同组合的{unit}成员一起去{place}出外景（离开东京），当天来回，必须排进当天的行程，回程排在睡觉之前"
+"""The twist a trip with the rest of her own unit is."""
 
 DATE_TWIST = "下午两点到五点和制作人约好了一起{what}"
 """The twist a day out with the producer is (GLOSSARY.md「邀约」)."""
@@ -102,6 +105,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     bath_minutes INTEGER,
     trip TEXT,
     trip_with TEXT,
+    trip_units TEXT,
     PRIMARY KEY (user_id, character_id, day)
 );
 -- A group's drawn live for a day (`name` NULL: the day was checked and none drawn),
@@ -254,6 +258,8 @@ class Schedule:
     """Where she went that day, away from Tokyo, if she did (GLOSSARY.md「纪念品」)."""
     trip_with: tuple[str, ...] = ()
     """The others of her unit who went with her, by id (GLOSSARY.md「外景照片」)."""
+    trip_units: tuple[str, ...] = ()
+    """The units on the trip, by their names, for showing `trip_with` as groups."""
 
     def shown(self) -> dict:
         return {
@@ -266,6 +272,7 @@ class Schedule:
                 "at": _clock(self.bath.at), "minutes": self.bath.minutes,
             },
             "trip": self.trip,
+            "trip_units": list(self.trip_units),
         }
 
     @property
@@ -487,7 +494,8 @@ class Schedules:
 
     def _of_body(self, db: sqlite3.Connection, user_id: str, character_id: str, day: date) -> Schedule | None:
         row = db.execute(
-            "SELECT slots, twists, wake, sleep, bath_at, bath_minutes, trip, trip_with"
+            "SELECT slots, twists, wake, sleep, bath_at, bath_minutes, trip, trip_with,"
+            " trip_units"
             " FROM schedules"
             " WHERE user_id = ? AND character_id = ?"
             " AND day = ?",
@@ -504,6 +512,7 @@ class Schedules:
             time.fromisoformat(row[3]) if row[3] else None,
             Bath(time.fromisoformat(row[4]), row[5]) if row[4] and row[5] else None,
             row[6], tuple(json.loads(row[7])) if row[7] else (),
+            tuple(json.loads(row[8])) if row[8] else (),
         )
 
     async def joining(self, user_id: str, character_id: str, day: date) -> tuple[str, tuple[str, ...]] | None:
@@ -537,21 +546,27 @@ class Schedules:
         self, user_id: str, character_id: str, day: date, slots: Sequence[Slot],
         twists: Sequence[str], wake: time | None = None, sleep: time | None = None,
         bath: Bath | None = None, trip: str | None = None, trip_with: Sequence[str] = (),
+        trip_units: Sequence[str] = (),
     ) -> None:
         """Keep her schedule for `day`; none (`slots` empty) keeps the day from being tried
         again. One kept already is left as it is."""
-        return await self._db.write(self._keep_body, user_id, character_id, day, slots, twists, wake, sleep, bath, trip, trip_with)
+        return await self._db.write(
+            self._keep_body, user_id, character_id, day, slots, twists, wake, sleep, bath,
+            trip, trip_with, trip_units,
+        )
 
     def _keep_body(
         self,
         db: sqlite3.Connection, user_id: str, character_id: str, day: date, slots: Sequence[Slot],
         twists: Sequence[str], wake: time | None = None, sleep: time | None = None,
         bath: Bath | None = None, trip: str | None = None, trip_with: Sequence[str] = (),
+        trip_units: Sequence[str] = (),
     ) -> None:
         db.execute(
             "INSERT OR IGNORE INTO schedules"
             " (user_id, character_id, day, slots, twists, created_at, wake, sleep, bath_at,"
-            " bath_minutes, trip, trip_with) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " bath_minutes, trip, trip_with, trip_units)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id, character_id, day.isoformat(),
                 json.dumps([s.shown() for s in slots], ensure_ascii=False),
@@ -559,6 +574,7 @@ class Schedules:
                 self._clock().isoformat(), _clock(wake), _clock(sleep),
                 _clock(bath.at) if bath else None, bath.minutes if bath else None, trip,
                 json.dumps(list(trip_with)) if trip and trip_with else None,
+                json.dumps(list(trip_units)) if trip_units else None,
             ),
         )
 
@@ -703,7 +719,7 @@ def _open(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(schedules)")}
     for column, kind in (
         ("wake", "TEXT"), ("sleep", "TEXT"), ("bath_at", "TEXT"), ("bath_minutes", "INTEGER"),
-        ("trip", "TEXT"), ("trip_with", "TEXT"),
+        ("trip", "TEXT"), ("trip_with", "TEXT"), ("trip_units", "TEXT"),
     ):
         if column not in columns:
             db.execute(f"ALTER TABLE schedules ADD COLUMN {column} {kind}")

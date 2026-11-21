@@ -23,6 +23,7 @@ export type DayAgenda = {
   sleep: string | null;
   bath: { at: string; minutes: number } | null;
   trip: string | null;
+  trip_units?: string[];
 };
 
 export type AgendaRow = {

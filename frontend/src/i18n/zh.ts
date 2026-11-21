@@ -409,6 +409,7 @@ export const zh = {
       bath: "洗澡",
       sleep: "睡觉",
       trip: (place: string) => `外景：${place}`,
+      tripWith: (units: string[]) => `和${units.join("、")}一起`,
     },
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
