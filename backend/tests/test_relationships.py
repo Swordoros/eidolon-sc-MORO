@@ -153,8 +153,9 @@ def test_old_summaries_migrate_their_opinion_and_leave_habits_empty():
     assert relationship == ""
     assert opinion == "一个温柔的人。"
     assert habits == "[]"
-    assert "长期关系：" not in generated
+    assert generated.startswith("长期关系：\n")
     assert "对制作人的评价：一个温柔的人。" in generated
+    assert "和制作人相处时的习惯：" in generated
 
     _open(db)
     [count] = db.execute("SELECT COUNT(*) FROM relationship_baselines").fetchone()

@@ -183,7 +183,9 @@ class RelationshipBaseline:
 
     @property
     def text(self) -> str:
-        return self.edited_text or self.generated_text
+        return self.edited_text or _render_baseline(
+            self.relationship, self.opinion, self.habits
+        )
 
     @property
     def edited(self) -> bool:
@@ -221,14 +223,11 @@ def _render(state: State, recent: str, opinion: str, tone: str, threads: Sequenc
 
 
 def _render_baseline(relationship: str, opinion: str, habits: Sequence[str]) -> str:
-    lines = []
-    if relationship:
-        lines.append(f"长期关系：{relationship}")
-    if opinion:
-        lines.append(f"对制作人的评价：{opinion}")
-    if habits:
-        lines.append(f"和制作人相处时的习惯：{'；'.join(habits)}")
-    return "\n".join(lines)
+    return "\n".join([
+        f"长期关系：{relationship}",
+        f"对制作人的评价：{opinion}",
+        f"和制作人相处时的习惯：{'；'.join(habits)}",
+    ])
 
 
 def _parse_baseline(text: str) -> dict[str, object]:
