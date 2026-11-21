@@ -139,7 +139,7 @@ async def test_without_a_limit_the_whole_history_is_carried(
 
 
 
-TYPING = "制作人正在用文字和你聊天"
+TYPING = "制作人正在和你交流"
 IN_A_CALL = "制作人正在和你打电话"
 
 
@@ -158,6 +158,7 @@ async def test_she_is_told_whether_the_turn_is_typed_or_in_a_call_after_what_is_
 
     [typed], [in_call] = typed_llm.prompts, call_llm.prompts
     assert TYPING in context_of(typed) and IN_A_CALL not in context_of(typed)
+    assert "当面相处" in context_of(typed) and "只能线上发送" in context_of(typed)
     assert IN_A_CALL in context_of(in_call) and TYPING not in context_of(in_call)
     assert LAST_TALKED not in context_of(in_call)  # a call's turns are not told when
     assert in_call[:2] == typed[:2]
