@@ -445,6 +445,8 @@ async def test_her_later_turns_carry_her_tag_where_the_judge_model_never_reads_i
     replies = [m.content for m in llm.prompts[-1] if m.role == "assistant"]
     assert len(replies) == 1
     assert SELFIE.strip() in replies[0] and WORDS in replies[0]
+    systems = [m.content for m in llm.prompts[-1] if m.role == "system"]
+    assert any("照片内容：在咖啡店给他拍的自拍。" == content for content in systems)
     told = clients.judge.states[-1]["上文"]
     assert not any("<photo>" in line or "selfie" in line for line in told)
 

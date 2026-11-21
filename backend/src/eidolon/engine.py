@@ -152,7 +152,7 @@ from eidolon.llm import ChatLLM, ChatMessage, Finish, Reasoning, Tool, ToolCall,
 from eidolon.memory import Memories, last_turn_query
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
-from eidolon.photo_prompt import SCENE_MARK, keepsake_words
+from eidolon.photo_prompt import SCENE_MARK, keepsake_words, tag_fields
 from eidolon.photo_plan import (
     FINAL_ASK,
     PLANNER,
@@ -714,6 +714,26 @@ class HistoryNote:
     kind: Literal["event", "reachout"]
     text: str = ""
     segments: tuple[Segment, ...] = ()
+    photo: Photo | None = None
+
+
+PHOTO_NOTE_CHARS = 120
+"""The most of a photo's own description the history keeps."""
+
+
+def photo_caption(photo: Photo | None) -> str | None:
+    """What a sent photo shows, from its tag's `note`, or None for a photo not sent or
+    without a description."""
+    if photo is None or photo.status != "ready":
+        return None
+    note = " ".join(tag_fields(photo.tag).get("note", "").split())[:PHOTO_NOTE_CHARS]
+    return note or None
+
+
+def photo_history_note(photo: Photo | None) -> str | None:
+    """The line under a photo's message in the history block."""
+    note = photo_caption(photo)
+    return f"旁白：你当时向制作人发送了一张照片：{note}。" if note else None
 
 
 def history_notes(
@@ -738,7 +758,9 @@ def history_notes(
                 notes[entry.id], pending = pending, []
             continue
         if isinstance(entry, ReachOut):
-            pending.append(HistoryNote(entry.created_at, "reachout", segments=tuple(entry.segments)))
+            pending.append(HistoryNote(
+                entry.created_at, "reachout", segments=tuple(entry.segments), photo=entry.photo,
+            ))
         elif entry.kind in ("gift", "keepsake"):
             pending.append(HistoryNote(
                 entry.created_at, "event", _event_note(entry, gift_catalog, "history"),
@@ -918,6 +940,8 @@ def history_block(
             else:
                 said = "\n".join(s.zh.strip() for s in note.segments if s.zh.strip()) or "……"
             lines.append(f"角色：{said}")
+            if photo_line := photo_history_note(note.photo):
+                lines.append(photo_line)
         else:
             lines.append(note.text if note.text.startswith("旁白：") else f"旁白：{note.text}")
 
@@ -936,6 +960,8 @@ def history_block(
             for note in (assistant_notes or {}).get(message.id, ()):
                 lines.append(note)
             lines.append(f"角色：{said}")
+            if photo_line := photo_history_note(message.photo):
+                lines.append(photo_line)
     # An event between the last shown turn and the user's current words is keyed to that
     # current user message, which is passed separately and so is not in `messages`; show it
     # at the end of the history, immediately before the current turn.
@@ -2348,6 +2374,7 @@ class ConversationEngine:
             skip_reach_outs={last.id} if recent and isinstance(last, ReachOut) else set(),
         )
         last_utterance = _utterance_text(last, now, timezone) if recent and last else None
+        last_photo = last.photo if recent and last and hasattr(last, "photo") else None
         anchor: Message | None = None
         compact_history = history_block(
             prompt_history, notes, now, timezone,
@@ -2385,7 +2412,7 @@ class ConversationEngine:
             voiced_by, stamp_user=True, now=now, timezone=timezone,
             history_block=compact_history, last_utterance=last_utterance,
             now_state=schedule_state, tail_notes=tail_notes, scene=scene_text,
-            photo=None,
+            photo=None, last_photo=last_photo,
         )
 
         planned_photo = False
@@ -3283,6 +3310,7 @@ class ConversationEngine:
         tail_notes: Sequence[str] = (),
         scene: str | None = None,
         photo: str | None = None,
+        last_photo: Photo | None = None,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -3332,6 +3360,8 @@ class ConversationEngine:
             prompt.append(ChatMessage("system", photo))
         if last_utterance is not None:
             prompt.append(ChatMessage("assistant", last_utterance))
+            if caption := photo_caption(last_photo):
+                prompt.append(ChatMessage("system", f"照片内容：{caption}。"))
         elif anchor is not None and history_block is not None:
             note = anchor_note(anchor, now)
             if note is not None:

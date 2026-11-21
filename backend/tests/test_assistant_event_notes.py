@@ -1,15 +1,18 @@
 from datetime import UTC, datetime
+from dataclasses import replace
 
 from eidolon.engine import (
+    HistoryNote,
     anchor_event_notes,
     assistant_event_notes,
     history_block,
     history_notes,
+    photo_caption,
     tail_event_notes,
 )
 from eidolon.gift_catalog import Gift
 from eidolon.reply_format import Segment
-from eidolon.store import ConversationEvent, Message
+from eidolon.store import ConversationEvent, Message, Photo
 
 NOW = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
 
@@ -23,6 +26,51 @@ def her(id: int, at: str) -> Message:
 
 def user(id: int, at: str) -> Message:
     return Message(id, "user", "送你", None, None, at)
+
+
+def sent_photo(note: str = "练习后刚歇下来，脸上有点汗但笑得很满足的自拍") -> Photo:
+    return Photo("p", "ready", None, f"shot: selfie\nnote: {note}\n")
+
+
+def test_a_sent_photo_is_described_under_its_message_in_the_history():
+    message = replace(her(1, "2026-11-17T19:50:00+00:00"), photo=sent_photo())
+
+    block = history_block([message], {}, NOW, "UTC")
+
+    assert block is not None
+    assert "角色：" in block
+    assert "旁白：你当时向制作人发送了一张照片：练习后刚歇下来，脸上有点汗但笑得很满足的自拍。" in block
+    assert block.index("角色：") < block.index("旁白：你当时向制作人发送了一张照片")
+
+
+def test_a_failed_photo_keeps_its_marker_and_gets_no_description():
+    failed = Photo("p", "failed", "timeout", "shot: selfie\nnote: 不该出现\n")
+    message = replace(her(1, "2026-11-17T19:50:00+00:00"), photo=failed)
+
+    block = history_block([message], {}, NOW, "UTC")
+
+    assert block is not None and "（照片没有送到）" in block
+    assert "你当时向制作人发送了一张照片" not in block
+
+
+def test_a_reachout_photo_is_described_in_its_history_note():
+    note = HistoryNote(
+        "2026-11-17T19:50:00+00:00",
+        "reachout",
+        segments=(Segment("はい", "嗯"),),
+        photo=sent_photo("在窗边拍的一张照片"),
+    )
+
+    block = history_block([], {None: [note]}, NOW, "UTC")
+
+    assert block is not None
+    assert "旁白：你当时向制作人发送了一张照片：在窗边拍的一张照片。" in block
+
+
+def test_photo_caption_needs_a_sent_photo_and_a_note():
+    assert photo_caption(sent_photo()) == "练习后刚歇下来，脸上有点汗但笑得很满足的自拍"
+    assert photo_caption(Photo("p", "failed", "timeout", "note: 没有发出去")) is None
+    assert photo_caption(Photo("p", "ready", None, "shot: selfie")) is None
 
 
 def test_a_gift_is_attached_once_to_the_next_assistant_message():
