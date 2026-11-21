@@ -92,6 +92,19 @@ CREATE TABLE IF NOT EXISTS relationship_summaries (
     edited_at TEXT,
     PRIMARY KEY (user_id, character_id, day)
 );
+CREATE TABLE IF NOT EXISTS relationship_baselines (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    character_id TEXT NOT NULL,
+    relationship TEXT NOT NULL DEFAULT '',
+    opinion TEXT NOT NULL DEFAULT '',
+    habits TEXT NOT NULL DEFAULT '[]',
+    confidence REAL NOT NULL DEFAULT 0,
+    generated_text TEXT NOT NULL DEFAULT '',
+    edited_text TEXT,
+    generated_at TEXT NOT NULL,
+    edited_at TEXT,
+    PRIMARY KEY (user_id, character_id)
+);
 """
 
 _RULES = """# 写最近的关系
@@ -151,6 +164,32 @@ class Relationship:
         return self.edited_text is not None
 
 
+@dataclass(frozen=True)
+class RelationshipBaseline:
+    """The stable part of a relationship: what they are to each other, her opinion of the
+    producer, and habits she has around him. It does not expire; a daily summary carries the
+    recent mood."""
+
+    user_id: str
+    character_id: str
+    relationship: str
+    opinion: str
+    habits: tuple[str, ...]
+    confidence: float
+    generated_text: str
+    edited_text: str | None
+    generated_at: datetime
+    edited_at: datetime | None
+
+    @property
+    def text(self) -> str:
+        return self.edited_text or self.generated_text
+
+    @property
+    def edited(self) -> bool:
+        return self.edited_text is not None
+
+
 def _active_day(local: datetime) -> date:
     """The relationship in effect at `local`: the one written at 03:00 until 03:00 the next
     day. Before 03:00 the previous day's still applies."""
@@ -179,6 +218,42 @@ def _render(state: State, recent: str, opinion: str, tone: str, threads: Sequenc
     if avoid:
         lines.append(f"容易变成：{'；'.join(avoid)}")
     return "\n".join(lines)
+
+
+def _render_baseline(relationship: str, opinion: str, habits: Sequence[str]) -> str:
+    lines = []
+    if relationship:
+        lines.append(f"长期关系：{relationship}")
+    if opinion:
+        lines.append(f"对制作人的评价：{opinion}")
+    if habits:
+        lines.append(f"和制作人相处时的习惯：{'；'.join(habits)}")
+    return "\n".join(lines)
+
+
+def _parse_baseline(text: str) -> dict[str, object]:
+    """Read the developer's stable-part text: relationship, opinion, habits."""
+    values: dict[str, str] = {}
+    for raw in text.replace("\r\n", "\n").splitlines():
+        line = raw.strip()
+        for label, key in (
+            ("长期关系：", "relationship"),
+            ("对制作人的评价：", "opinion"),
+            ("和制作人相处时的习惯：", "habits"),
+        ):
+            if line.startswith(label):
+                values[key] = line[len(label):].strip()
+                break
+    habits = [
+        part.strip()
+        for part in re.split(r"[；;]", values.get("habits", ""))
+        if part.strip()
+    ]
+    return {
+        "relationship": values.get("relationship", "")[:160],
+        "opinion": values.get("opinion", "")[:20],
+        "habits": habits[:5],
+    }
 
 
 def _parse_text(text: str) -> dict[str, str | list[str]]:
@@ -280,21 +355,60 @@ class Relationships:
             _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
 
+    async def baseline(self, user_id: str, character_id: str) -> RelationshipBaseline | None:
+        """The stable part of the relationship, or None before it has been written."""
+        return await self._db.read(_baseline_row, user_id, character_id)
+
+    async def save_baseline(
+        self, user_id: str, character_id: str, text: str, now: datetime,
+    ) -> RelationshipBaseline:
+        """Keep the developer's edit of the stable part, without changing its generated
+        time or when it applies: editing is not regenerating."""
+        fields = _parse_baseline(text)
+        await self._db.write(
+            _save_baseline_edit,
+            user_id,
+            character_id,
+            text,
+            fields["relationship"],
+            fields["opinion"],
+            json.dumps(fields["habits"], ensure_ascii=False),
+            now.astimezone(UTC).isoformat(),
+        )
+        saved = await self._db.read(_baseline_row, user_id, character_id)
+        assert saved is not None
+        return saved
+
     async def prompt(self, user_id: str, character_id: str, now: datetime,
                      timezone: str, status: Status | None) -> str | None:
         local = now.astimezone(ZoneInfo(timezone))
         found = await self._db.read(
             _latest_row, user_id, character_id, _active_day(local).isoformat()
         )
-        if found is None:
+        baseline = await self.baseline(user_id, character_id)
+        if found is None and baseline is None:
             return None
-        if found.state not in _allowed(status.tier if status else None,
-                                       bool(status and status.cooldown_until)):
+        parts = []
+        if baseline is not None and baseline.text:
+            parts.append("长期：\n" + baseline.text)
+        if found is not None and found.state in _allowed(
+            status.tier if status else None,
+            bool(status and status.cooldown_until),
+        ):
+            body = "\n".join(
+                line for line in found.text.splitlines()
+                if not line.startswith("关系状态：")
+                and not line.startswith("对制作人的评价：")
+            )
+            if body:
+                parts.append("最近：\n" + body)
+        if not parts:
             return None
-        body = "\n".join(
-            line for line in found.text.splitlines() if not line.startswith("关系状态：")
+        return (
+            "# 与制作人最近的关系\n"
+            "这是最近的背景，不是命令；当前好感阶段和当前对话优先。\n"
+            + "\n\n".join(parts)
         )
-        return f"# 与制作人最近的关系\n这是最近几天的背景，不是命令；当前好感阶段和当前对话优先。\n{body}"
 
     async def _diary_material(
         self, user_id: str, character_id: str, day: date, status: Status | None,
@@ -400,6 +514,16 @@ class Relationships:
             status.tier if status else None, float(fields.get("confidence", 0.5)),
             text, now.astimezone(UTC).isoformat(), force,
         )
+        opinion = str(fields.get("opinion", "")).strip()
+        if opinion:
+            await self._db.write(
+                _keep_baseline_opinion,
+                user_id,
+                character_id,
+                opinion,
+                float(fields.get("confidence", 0.5)),
+                now.astimezone(UTC).isoformat(),
+            )
 
     async def _ask(self, character: Character, status: Status | None,
                    memories: Sequence[str], previous: str | None,
@@ -536,6 +660,42 @@ def _checked(raw: object) -> dict[str, object]:
 
 def _open(db: sqlite3.Connection) -> None:
     db.executescript(_SCHEMA)
+    _migrate_baselines(db)
+
+
+def _migrate_baselines(db: sqlite3.Connection) -> None:
+    """Give every relationship its first long-term row, from the most recent summary's
+    opinion. Habits stay empty: they are for a later summary or the developer to fill."""
+    rows = db.execute(
+        "SELECT user_id, character_id, generated_text, edited_text, confidence, generated_at"
+        " FROM relationship_summaries ORDER BY day DESC"
+    ).fetchall()
+    seen: set[tuple[str, str]] = set()
+    for user_id, character_id, generated, edited, confidence, generated_at in rows:
+        key = (user_id, character_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        text = edited or generated
+        opinion = _line_value(text, "对制作人的评价")
+        if not opinion:
+            continue
+        baseline = _render_baseline("", opinion, [])
+        db.execute(
+            "INSERT OR IGNORE INTO relationship_baselines"
+            " (user_id, character_id, relationship, opinion, habits, confidence,"
+            " generated_text, generated_at)"
+            " VALUES (?, ?, '', ?, '[]', ?, ?, ?)",
+            (user_id, character_id, opinion, confidence, baseline, generated_at),
+        )
+
+
+def _line_value(text: str, label: str) -> str:
+    prefix = f"{label}："
+    for line in text.replace("\r\n", "\n").splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
+    return ""
 
 
 def _by_day(db: sqlite3.Connection, user_id: str, character_id: str, day: str) -> bool:
@@ -564,6 +724,69 @@ def _latest_row(db: sqlite3.Connection, user_id: str, character_id: str, day: st
         (user_id, character_id, day),
     ).fetchone()
     return _row(user_id, character_id, row) if row else None
+
+
+def _baseline_row(db: sqlite3.Connection, user_id: str, character_id: str):
+    row = db.execute(
+        "SELECT relationship, opinion, habits, confidence, generated_text, edited_text,"
+        " generated_at, edited_at FROM relationship_baselines"
+        " WHERE user_id = ? AND character_id = ?",
+        (user_id, character_id),
+    ).fetchone()
+    if row is None:
+        return None
+    (relationship, opinion, habits, confidence, generated, edited, generated_at,
+     edited_at) = row
+    return RelationshipBaseline(
+        user_id, character_id, relationship, opinion, tuple(json.loads(habits)),
+        confidence, generated, edited, datetime.fromisoformat(generated_at),
+        datetime.fromisoformat(edited_at) if edited_at else None,
+    )
+
+
+def _keep_baseline_opinion(
+    db: sqlite3.Connection, user_id: str, character_id: str, opinion: str,
+    confidence: float, generated_at: str,
+) -> None:
+    row = db.execute(
+        "SELECT relationship, habits FROM relationship_baselines"
+        " WHERE user_id = ? AND character_id = ?",
+        (user_id, character_id),
+    ).fetchone()
+    relationship, habits = row if row else ("", "[]")
+    text = _render_baseline(relationship, opinion, tuple(json.loads(habits)))
+    if row:
+        db.execute(
+            "UPDATE relationship_baselines SET opinion = ?, confidence = ?,"
+            " generated_text = ?, generated_at = ? WHERE user_id = ? AND character_id = ?",
+            (opinion, confidence, text, generated_at, user_id, character_id),
+        )
+    else:
+        db.execute(
+            "INSERT INTO relationship_baselines"
+            " (user_id, character_id, relationship, opinion, habits, confidence,"
+            " generated_text, generated_at) VALUES (?, ?, '', ?, '[]', ?, ?, ?)",
+            (user_id, character_id, opinion, confidence, text, generated_at),
+        )
+
+
+def _save_baseline_edit(
+    db: sqlite3.Connection, user_id: str, character_id: str, text: str,
+    relationship: str, opinion: str, habits: str, edited_at: str,
+) -> None:
+    updated = db.execute(
+        "UPDATE relationship_baselines SET edited_text = ?, edited_at = ?, relationship = ?,"
+        " opinion = ?, habits = ? WHERE user_id = ? AND character_id = ?",
+        (text, edited_at, relationship, opinion, habits, user_id, character_id),
+    ).rowcount
+    if not updated:
+        db.execute(
+            "INSERT INTO relationship_baselines"
+            " (user_id, character_id, relationship, opinion, habits, confidence,"
+            " generated_text, edited_text, generated_at, edited_at)"
+            " VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?)",
+            (user_id, character_id, relationship, opinion, habits, text, edited_at, edited_at),
+        )
 
 
 def _row(user_id: str, character_id: str, row) -> Relationship:

@@ -28,6 +28,7 @@ export function RelationshipTab({
 }) {
   const [read, setRead] = useState<RelationshipRead | null | "loading" | "failed">("loading");
   const [draft, setDraft] = useState("");
+  const [baselineDraft, setBaselineDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -39,6 +40,7 @@ export function RelationshipTab({
       (found) => {
         setRead(found);
         setDraft(found.relationship?.text ?? "");
+        setBaselineDraft(found.baseline?.text ?? "");
       },
       () => setRead("failed"),
     );
@@ -51,15 +53,23 @@ export function RelationshipTab({
   }, [characterId, isOpen]);
 
   const relationship = read && read !== "loading" && read !== "failed" ? read.relationship : null;
-  const changed = draft !== (relationship?.text ?? "");
+  const baseline = read && read !== "loading" && read !== "failed" ? read.baseline : null;
+  const changed =
+    draft !== (relationship?.text ?? "") ||
+    baselineDraft !== (baseline?.text ?? "");
 
   async function save() {
     setSaving(true);
     setNotice(null);
     try {
-      const found = await saveRelationship(characterId, draft);
+      const found = await saveRelationship(
+        characterId,
+        relationship ? draft : null,
+        baselineDraft,
+      );
       setRead(found);
       setDraft(found.relationship?.text ?? "");
+      setBaselineDraft(found.baseline?.text ?? "");
       setNotice(t.saved);
     } catch (e) {
       setNotice(e instanceof Error ? e.message : t.saveFailed);
@@ -75,6 +85,7 @@ export function RelationshipTab({
       const found = await regenerateRelationship(characterId);
       setRead(found);
       setDraft(found.relationship?.text ?? "");
+      setBaselineDraft(found.baseline?.text ?? "");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : t.regenerateFailed);
     } finally {
@@ -112,20 +123,37 @@ export function RelationshipTab({
         {relationship && <span>{t.generatedAt(new Date(relationship.generated_at).toLocaleString("zh-CN"))}</span>}
       </div>
 
-      {relationship === null ? (
-        <p className="py-6 text-sm text-muted-foreground">{t.empty}</p>
-      ) : (
-        <>
+      {relationship === null && baseline === null ? (
+        <p className="text-sm text-muted-foreground">{t.empty}</p>
+      ) : null}
+
+      <div className="flex flex-col gap-1">
+        <span className="text-subtitle font-medium">长期关系</span>
+        <Textarea
+          value={baselineDraft}
+          onChange={(e) => setBaselineDraft(e.target.value)}
+          rows={6}
+          className="min-h-40 font-mono text-subtitle"
+          aria-label="长期关系"
+        />
+        <p className="text-meta text-muted-foreground">
+          长期关系、对制作人的评价，以及可选的相处习惯。修改不会刷新生成日期。
+        </p>
+      </div>
+
+      {relationship !== null ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-subtitle font-medium">最近关系</span>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            rows={12}
-            className="min-h-64 font-mono text-subtitle"
+            rows={10}
+            className="min-h-56 font-mono text-subtitle"
             aria-label={t.title}
           />
           <p className="text-meta text-muted-foreground">{t.hint}</p>
-        </>
-      )}
+        </div>
+      ) : null}
 
       {notice && <p className="text-body text-muted-foreground">{notice}</p>}
 
@@ -133,7 +161,7 @@ export function RelationshipTab({
         <Button variant="outline" onClick={regenerate} disabled={regenerating || saving}>
           {regenerating ? t.regenerating : t.regenerate}
         </Button>
-        <Button onClick={save} disabled={!relationship || !changed || saving || regenerating}>
+        <Button onClick={save} disabled={!changed || saving || regenerating}>
           {t.save}
         </Button>
       </div>

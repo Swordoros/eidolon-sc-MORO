@@ -12,8 +12,18 @@ export type Relationship = {
   generated_at: string;
 };
 
+export type RelationshipBaseline = {
+  text: string;
+  relationship: string;
+  opinion: string;
+  habits: string[];
+  edited: boolean;
+  generated_at: string;
+};
+
 export type RelationshipRead = {
   relationship: Relationship | null;
+  baseline: RelationshipBaseline | null;
   current_affinity: { tier: string; cooldown_until: string | null } | null;
 };
 
@@ -21,12 +31,16 @@ export async function getRelationship(characterId: string): Promise<Relationship
   return json(await api(`/api/dev/relationship/${encodeURIComponent(characterId)}`));
 }
 
-export async function saveRelationship(characterId: string, text: string): Promise<RelationshipRead> {
+export async function saveRelationship(
+  characterId: string,
+  text: string | null,
+  baseline: string | null,
+): Promise<RelationshipRead> {
   return json(
     await api(`/api/dev/relationship/${encodeURIComponent(characterId)}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, baseline }),
     }),
   );
 }

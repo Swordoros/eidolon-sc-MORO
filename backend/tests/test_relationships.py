@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from datetime import datetime
@@ -11,6 +13,7 @@ from eidolon.relationships import (
     _allowed,
     _checked,
     _from_text,
+    _open,
     _parse_text,
     _render,
 )
@@ -103,16 +106,56 @@ async def test_the_dev_relationship_route_returns_today_or_nothing(make_client):
 
     assert res.status_code == 200
     assert res.json()["relationship"] is None
-
-    generated = await client.post("/api/dev/relationship/mano/regenerate")
-    assert generated.status_code == 200
-    relationship = generated.json()["relationship"]
-    assert relationship["state"] == "neutral"
-    assert "最近没有新的交流" in relationship["text"]
+    assert res.json()["baseline"] is None
 
     saved = await client.put(
         "/api/dev/relationship/mano",
-        json={"text": "关系状态：neutral\n最近气氛：最近没有新的交流"},
+        json={"baseline": "长期关系：会互相照顾。\n对制作人的评价：温柔的人。"},
     )
     assert saved.status_code == 200
-    assert saved.json()["relationship"]["edited"] is True
+    baseline = saved.json()["baseline"]
+    assert baseline["relationship"] == "会互相照顾。"
+    assert baseline["opinion"] == "温柔的人。"
+    first_generated_at = baseline["generated_at"]
+
+    edited = await client.put(
+        "/api/dev/relationship/mano",
+        json={"baseline": "长期关系：会互相照顾，也会拌嘴。\n对制作人的评价：温柔的人。"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["baseline"]["relationship"] == "会互相照顾，也会拌嘴。"
+    assert edited.json()["baseline"]["generated_at"] == first_generated_at
+
+
+def test_old_summaries_migrate_their_opinion_and_leave_habits_empty():
+    db = sqlite3.connect(":memory:")
+    _open(db)
+    db.execute(
+        "INSERT INTO relationship_summaries"
+        " (user_id, character_id, day, state, recent, tone, confidence, generated_text,"
+        " generated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "u", "mano", "2026-11-20", "warm", "昨天聊得很好。", "想靠近。", 0.8,
+            "关系状态：warm\n最近气氛：昨天聊得很好。\n"
+            "对制作人的评价：一个温柔的人。\n你现在的倾向：想靠近。",
+            "2026-11-21T03:00:00+00:00",
+        ),
+    )
+
+    _open(db)
+
+    row = db.execute(
+        "SELECT relationship, opinion, habits, generated_text FROM relationship_baselines"
+        " WHERE user_id = 'u' AND character_id = 'mano'"
+    ).fetchone()
+    assert row is not None
+    relationship, opinion, habits, generated = row
+    assert relationship == ""
+    assert opinion == "一个温柔的人。"
+    assert habits == "[]"
+    assert "长期关系：" not in generated
+    assert "对制作人的评价：一个温柔的人。" in generated
+
+    _open(db)
+    [count] = db.execute("SELECT COUNT(*) FROM relationship_baselines").fetchone()
+    assert count == 1
