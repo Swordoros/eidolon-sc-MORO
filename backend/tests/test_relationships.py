@@ -63,7 +63,7 @@ def test_each_line_is_cut_to_its_length_and_count():
     })
 
     assert len(checked["recent"]) == 60
-    assert len(checked["opinion"]) == 20
+    assert len(checked["opinion"]) == 30
     assert len(checked["tone"]) == 40
     assert [len(item) for item in checked["open_threads"]] == [50, 50]
     assert [len(item) for item in checked["recent_warmth"]] == [40]

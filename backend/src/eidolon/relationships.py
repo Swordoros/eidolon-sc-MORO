@@ -250,7 +250,7 @@ def _parse_baseline(text: str) -> dict[str, object]:
     ]
     return {
         "relationship": values.get("relationship", "")[:160],
-        "opinion": values.get("opinion", "")[:20],
+        "opinion": values.get("opinion", "")[:30],
         "habits": habits[:5],
     }
 
@@ -648,7 +648,7 @@ def _checked(raw: object) -> dict[str, object]:
     return {
         "state": state,
         "recent": clip(raw.get("recent"), 60) or _NO_NEW,
-        "opinion": clip(raw.get("opinion"), 20),
+        "opinion": clip(raw.get("opinion"), 30),
         "tone": clip(raw.get("tone"), 40),
         "open_threads": strings("open_threads", 50, 2),
         "recent_warmth": strings("recent_warmth", 40, 1),
