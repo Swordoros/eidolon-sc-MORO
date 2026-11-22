@@ -787,25 +787,26 @@ def _event_note(
     entry: ConversationEvent, gift_catalog: Mapping[str, Gift], when: str,
 ) -> str:
     """A gift or keepsake as one note, in the history's, the current reply's or the previous
-    reply's words (`when`): 旁白：（背景事件：……）."""
+    reply's words (`when`): 旁白：（刚刚发生/之前发生/背景事件：……）."""
     if entry.kind == "keepsake":
         name = entry.note or "纪念品"
         if when == "current":
-            said = f"刚刚你送给了制作人「{name}」"
+            said = f"你送给了制作人「{name}」"
         elif when == "previous":
             said = f"你送给了制作人「{name}」，他已经收下了"
         else:
-            said = f"你送给了制作人「{name}」"
+            said = f"你曾送给制作人「{name}」"
     else:
         assert entry.gift_id is not None
         name = gift_catalog[entry.gift_id].name
         if when == "current":
-            said = f"刚刚制作人送了你一份{name}" + ("，你很喜欢" if entry.liked else "")
+            said = f"制作人送了你一份{name}" + ("，你很喜欢" if entry.liked else "")
         elif when == "previous":
             said = f"制作人送了你一份{name}，你已经收下了"
         else:
-            said = f"制作人送了你一份{name}"
-    return f"旁白：（背景事件：{said}）"
+            said = f"制作人送过你一份{name}"
+    label = "刚刚发生" if when == "current" else "之前发生" if when == "previous" else "背景事件"
+    return f"旁白：（{label}：{said}）"
 
 
 def assistant_event_notes(

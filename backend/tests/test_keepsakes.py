@@ -197,7 +197,7 @@ async def test_given_now_it_comes_in_the_conversation_and_the_cabinet_and_she_kn
     system = "\n".join(
         m.content for m in llm.prompts[-1] if m.role == "system"
     )
-    assert "旁白：（背景事件：你送给了制作人「手作的四叶草书签」）" in system
+    assert "旁白：（背景事件：你曾送给制作人「手作的四叶草书签」）" in system
     assert (await client.get(f"/api/keepsakes/{given['id']}/image")).status_code == 404
     await client.post("/api/keepsakes/seen")
     assert (await client.get("/api/keepsakes/unseen")).json() == {"unseen": 0}

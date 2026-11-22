@@ -92,7 +92,7 @@ def test_a_gift_is_attached_once_to_the_next_assistant_message():
     )
 
     assert handled == {100}
-    assert notes[2] == ["旁白：（背景事件：制作人送了你一份蛋糕）"]
+    assert notes[2] == ["旁白：（背景事件：制作人送过你一份蛋糕）"]
     assert 4 not in notes
     assert 5 not in notes
 
@@ -101,8 +101,8 @@ def test_a_gift_is_attached_once_to_the_next_assistant_message():
         assistant_notes=notes,
     )
     assert block is not None
-    assert block.count("（背景事件：制作人送了你一份蛋糕）") == 1
-    assert block.index("（背景事件：制作人送了你一份蛋糕）") < block.index("角色：嗯")
+    assert block.count("（背景事件：制作人送过你一份蛋糕）") == 1
+    assert block.index("（背景事件：制作人送过你一份蛋糕）") < block.index("角色：嗯")
 
 
 def test_a_gift_before_the_current_user_becomes_a_tail_note_not_history():
@@ -122,12 +122,12 @@ def test_a_gift_before_the_current_user_becomes_a_tail_note_not_history():
 
     assert handled == {100}
     assert tail == [
-        "[今天 晚上 19:52]\n旁白：（背景事件：刚刚制作人送了你一份蛋糕）"
+        "[今天 晚上 19:52]\n旁白：（刚刚发生：制作人送了你一份蛋糕）"
     ]
     assert notes.get(3, []) == []
     block = history_block(history, notes, NOW, "UTC")
     assert block is not None
-    assert "（背景事件：制作人送了你一份蛋糕）" not in block
+    assert "（背景事件：制作人送过你一份蛋糕）" not in block
 
 
 def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
@@ -145,8 +145,8 @@ def test_the_repeated_last_line_gets_the_current_or_previous_gift_note():
     current = anchor_event_notes(record, her(2, "2026-11-17T19:52:00+00:00"), catalog)
     previous = anchor_event_notes(record, her(4, "2026-11-17T19:54:00+00:00"), catalog)
 
-    assert current == ["旁白：（背景事件：刚刚制作人送了你一份蛋糕，你很喜欢）"]
-    assert previous == ["旁白：（背景事件：制作人送了你一份蛋糕，你已经收下了）"]
+    assert current == ["旁白：（刚刚发生：制作人送了你一份蛋糕，你很喜欢）"]
+    assert previous == ["旁白：（之前发生：制作人送了你一份蛋糕，你已经收下了）"]
 
 
 def test_an_event_after_the_last_assistant_becomes_a_tail_note():
