@@ -144,6 +144,8 @@ async def test_only_todays_recent_promise_shows_a_part_of_the_day():
                 RecentPromise("今天约定", date(2026, 10, 21), "meeting", "afternoon", False),
                 RecentPromise("明天约定", date(2026, 10, 22), "meeting", "afternoon", False),
                 RecentPromise("后天约定", date(2026, 10, 23), "meeting", "evening", False),
+                RecentPromise("今天礼物", date(2026, 10, 21), "gift", "morning", False),
+                RecentPromise("明天礼物", date(2026, 10, 22), "gift", "morning", False),
             ]
 
     engine = object.__new__(ConversationEngine)
@@ -155,8 +157,11 @@ async def test_only_todays_recent_promise_shows_a_part_of_the_day():
     assert "- 今天约定（今天 下午）（待完成）" in lines
     assert "- 明天约定（明天）（待完成）" in lines
     assert "- 后天约定（后天）（待完成）" in lines
+    assert "- 今天礼物（今天）（待完成）" in lines
+    assert "- 明天礼物（明天）（待完成）" in lines
     assert "明天约定（明天 下午）" not in "\n".join(lines)
     assert "后天约定（后天 晚上）" not in "\n".join(lines)
+    assert "礼物（今天 上午）" not in "\n".join(lines)
 
 
 async def test_a_promise_for_a_day_already_gone_is_dropped_and_kept_once(promises: Promises):
