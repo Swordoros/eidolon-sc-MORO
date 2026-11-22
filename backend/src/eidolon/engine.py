@@ -973,13 +973,9 @@ def history_block(
                 lines.append(photo_line)
     # An event between the last shown turn and the user's current words is keyed to that
     # current user message, which is passed separately and so is not in `messages`; show it
-    # at the end of the history, immediately before the current turn.
-    shown = {message.id for message in messages}
-    for message_id, pending in notes.items():
-        if message_id is None or message_id in shown:
-            continue
-        for note in pending:
-            add_note(note)
+    # at the end of the history, immediately before the current turn. Notes keyed to older
+    # messages outside the shown window are not brought back: their own date is not this
+    # turn's.
     for note in notes.get(None, ()):
         add_note(note)
     return "\n".join(lines)

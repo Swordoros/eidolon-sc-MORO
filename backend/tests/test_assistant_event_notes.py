@@ -53,6 +53,20 @@ def test_a_failed_photo_keeps_its_marker_and_gets_no_description():
     assert "你当时向制作人发送了一张照片" not in block
 
 
+def test_an_old_note_outside_the_shown_history_is_not_brought_back():
+    old = HistoryNote(
+        "2026-11-07T05:22:04+00:00", "event",
+        "旁白：（背景事件：制作人送过你一份布丁）",
+    )
+    recent = her(2, "2026-11-17T19:52:00+00:00")
+
+    block = history_block([recent], {1: [old]}, NOW, "UTC")
+
+    assert block is not None
+    assert "制作人送过你一份布丁" not in block
+    assert "11月7日" not in block
+
+
 def test_a_reachout_photo_is_described_in_its_history_note():
     note = HistoryNote(
         "2026-11-17T19:50:00+00:00",
