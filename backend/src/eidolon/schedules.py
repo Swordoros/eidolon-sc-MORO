@@ -351,6 +351,12 @@ def _slot(entry: object, characters: Mapping[str, object]) -> Slot | None:
     ) else ()
     raw_promise = entry.get("promise_id")
     promise_id = raw_promise if isinstance(raw_promise, int) and not isinstance(raw_promise, bool) else None
+    # The model sometimes writes the id into `what` instead of the field; take it out.
+    marker = re.search(r"\s*[（(]?promise_id\s*=\s*(\d+)[）)]?", what)
+    if marker is not None:
+        what = (what[:marker.start()] + what[marker.end():]).strip()
+        if promise_id is None:
+            promise_id = int(marker.group(1))
     return Slot(
         start, time(23, 59) if midnight else end, what.strip()[:MAX_WHAT],
         where.strip()[:MAX_WHERE], cast(SlotKind, kind), with_, promise_id,

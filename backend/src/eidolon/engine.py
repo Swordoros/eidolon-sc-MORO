@@ -1992,6 +1992,7 @@ class ConversationEngine:
                     "# 今天的约定\n"
                     "这些是制作人和你的约定，只属于你，不要写到其他成员的日程里。"
                     "请各自排成 private 的一段，what 写约定内容，并填上 promise_id：\n"
+                    "promise_id 必须是 JSON 里的独立数字字段，不要写进 what 文本。\n"
                     + "\n".join(
                         f"- promise_id={promise.id}；{_promise_period(promise.period)}；"
                         f"{promise.text}（预计 {_promise_minutes(promise.kind)} 分钟）"
