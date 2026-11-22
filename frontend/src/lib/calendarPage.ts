@@ -14,7 +14,16 @@ export type CalendarHoliday = { name: string; note: string; icon: string; start:
 export type CalendarAnniversary = { character_id: string; month: number; day: number; label: string };
 
 /** 一个约定（GLOSSARY.md「约定」）：答应在某天为她做的一件事，还没做到。 */
-export type CalendarPromise = { id: number; character_id: string; month: number; day: number; text: string };
+export type PromiseKind = "call" | "gift" | "meeting" | "work" | "other";
+
+export type CalendarPromise = {
+  id: number;
+  character_id: string;
+  month: number;
+  day: number;
+  text: string;
+  kind: PromiseKind;
+};
 
 /** 日历接口给的一年：每位偶像的生日、这一年有的节日、这个用户自己的纪念日，和他还没做到的约定。 */
 export type CalendarYear = {
@@ -30,7 +39,7 @@ export type DayEvent =
   | { kind: "producer" }
   | { kind: "holiday"; holiday: CalendarHoliday }
   | { kind: "anniversary"; characterId: string; label: string }
-  | { kind: "promise"; characterId: string; promiseId: number; text: string };
+  | { kind: "promise"; characterId: string; promiseId: number; text: string; promiseKind: PromiseKind };
 
 /** 这个月里有事的一天，和那天的事（偶像的生日、制作人的生日、节日，依次）。 */
 export type MarkedDay = { day: number; events: DayEvent[] };
@@ -110,7 +119,7 @@ export function monthEvents(
   }
   // 约定（答应在某天为她做的事）也排在这天，和偶像的事一起。
   for (const p of calendar.promises) {
-    if (p.month === month) add(p.day, { kind: "promise", characterId: p.character_id, promiseId: p.id, text: p.text });
+    if (p.month === month) add(p.day, { kind: "promise", characterId: p.character_id, promiseId: p.id, text: p.text, promiseKind: p.kind });
   }
   if (producerBirthday) {
     const on = birthdayIn(year, producerBirthday);

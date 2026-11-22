@@ -125,7 +125,14 @@ export const zh = {
     birthdayOf: (name: string) => `${name}的生日`,
     producerBirthday: "你的生日",
     anniversaryOf: (name: string) => `和${name}的纪念日`,
-    promiseNote: "答应她的事",
+    promiseNote: (kind: "call" | "gift" | "meeting" | "work" | "other") =>
+      ({
+        call: "答应联系她",
+        gift: "答应带给她",
+        meeting: "为她空出时间",
+        work: "答应帮她",
+        other: "答应她的事",
+      })[kind],
     promiseDone: "已经做到了",
     lasting: (from: string, to: string) => `${from} 至 ${to}`,
     goChat: "去找她",

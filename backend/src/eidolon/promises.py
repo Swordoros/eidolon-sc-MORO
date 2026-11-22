@@ -35,7 +35,7 @@ import sqlite3
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal
+from typing import Literal, get_args
 from zoneinfo import ZoneInfo
 
 from eidolon.clock import Clock
@@ -87,20 +87,29 @@ CREATE TABLE IF NOT EXISTS promises (
     complained_on TEXT,
     from_on TEXT,
     put_off INTEGER NOT NULL DEFAULT 0,
-    reminded_on TEXT
+    reminded_on TEXT,
+    kind TEXT NOT NULL DEFAULT 'other'
 );
 CREATE INDEX IF NOT EXISTS promises_by_due ON promises(user_id, character_id, due_on);
 """
 
 
+PromiseKind = Literal["call", "gift", "meeting", "work", "other"]
+"""What a promise asks of the producer: a call, a gift, meeting her, work for her, or other."""
+
+PROMISE_KINDS: frozenset[str] = frozenset(get_args(PromiseKind))
+"""The kinds the background model may write."""
+
+
 @dataclass(frozen=True)
 class NewPromise:
-    """A promise the background model wrote down: what, and the day it is for; for a stretch
-    of days, its last, and its first (`starts`)."""
+    """A promise the background model wrote down: what, the day it is for, and what kind
+    of thing it is; for a stretch of days, its last, and its first (`starts`)."""
 
     text: str
     due: date
     starts: date | None = None
+    kind: PromiseKind = "other"
 
 
 @dataclass(frozen=True)
@@ -118,6 +127,8 @@ class Promise:
     """The first of its days, for one for a stretch of them; None for one for a day."""
     put_off: int = 0
     """How many times it was put off."""
+    kind: PromiseKind = "other"
+    """What the promise asks of the producer."""
 
     @property
     def first_day(self) -> date:
@@ -131,6 +142,7 @@ class Promise:
             "month": self.due.month,
             "day": self.due.day,
             "text": self.text,
+            "kind": self.kind,
         }
 
 
@@ -158,8 +170,13 @@ def parse_promises(answer: str) -> list[NewPromise]:
             continue
         first = entry.get("from")
         starts = _a_day(first) if isinstance(first, str) else None
+        raw_kind = entry.get("kind")
+        kind = raw_kind if isinstance(raw_kind, str) and raw_kind in PROMISE_KINDS else "other"
         found.setdefault(
-            (text, day), NewPromise(text, day, starts if starts is not None and starts < day else None)
+            (text, day),
+            NewPromise(
+                text, day, starts if starts is not None and starts < day else None, kind
+            ),
         )
     return list(found.values())
 
@@ -309,6 +326,7 @@ class Promises:
         for promise in made:
             if promise.due < today:
                 continue
+            kind = promise.kind if promise.kind in PROMISE_KINDS else "other"
             if by_name(db).execute(
                 "SELECT 1 FROM promises WHERE user_id = ? AND character_id = ?"
                 " AND text = ? AND due_on = ?",
@@ -318,8 +336,8 @@ class Promises:
             starts = promise.starts if promise.starts and promise.starts > today else None
             by_name(db).execute(
                 "INSERT INTO promises"
-                " (user_id, character_id, text, due_on, made_at, ask_at, from_on)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " (user_id, character_id, text, due_on, made_at, ask_at, from_on, kind)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     character_id,
@@ -328,6 +346,7 @@ class Promises:
                     now.astimezone(UTC).isoformat(),
                     self._ask_at(promise.due, now).isoformat(),
                     starts.isoformat() if starts else None,
+                    kind,
                 ),
             )
 
@@ -667,7 +686,7 @@ def _open(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(promises)")}
     for column, kind in (
         ("from_on", "TEXT"), ("put_off", "INTEGER NOT NULL DEFAULT 0"),
-        ("reminded_on", "TEXT"),
+        ("reminded_on", "TEXT"), ("kind", "TEXT NOT NULL DEFAULT 'other'"),
     ):
         if column not in columns:
             db.execute(f"ALTER TABLE promises ADD COLUMN {column} {kind}")
@@ -684,6 +703,7 @@ def _promise(row: sqlite3.Row) -> Promise:
         complained_at=_at(row["complained_at"]),
         starts=date.fromisoformat(row["from_on"]) if row["from_on"] else None,
         put_off=row["put_off"],
+        kind=row["kind"] if row["kind"] in PROMISE_KINDS else "other",
     )
 
 

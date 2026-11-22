@@ -5,7 +5,7 @@ import { monthEvents, monthWeeks, shiftMonth, todayIn, type CalendarYear } from 
 const SAKURA = { name: "樱花季", note: "", icon: "🌸", start: { month: 3, day: 25 }, end: { month: 4, day: 10 } };
 const VALENTINE = { name: "情人节", note: "", icon: "", start: { month: 2, day: 14 }, end: null };
 const ANNIVERSARY = { character_id: "mano", month: 2, day: 24, label: "认识第 100 天" };
-const PROMISE = { id: 7, character_id: "chiyoko", month: 2, day: 24, text: "给她一块布丁" };
+const PROMISE = { id: 7, character_id: "chiyoko", month: 2, day: 24, text: "给她一块布丁", kind: "gift" as const };
 
 const YEAR: CalendarYear = {
   birthdays: [
@@ -44,7 +44,7 @@ describe("这个月有事的日子", () => {
         events: [
           { kind: "birthday", characterId: "chiyoko" },
           { kind: "anniversary", characterId: "mano", label: "认识第 100 天" },
-          { kind: "promise", characterId: "chiyoko", promiseId: 7, text: "给她一块布丁" },
+          { kind: "promise", characterId: "chiyoko", promiseId: 7, text: "给她一块布丁", promiseKind: "gift" },
         ],
       },
       { day: 28, events: [{ kind: "birthday", characterId: "leap" }] },

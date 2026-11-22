@@ -2097,7 +2097,9 @@ _INSTRUCTIONS = """\
 「下周六」和今天算出来的日子；「以后」「有机会再说」这种没有日子的不算。text 写制作人答应做什么，说明白是什么事，\
 像「给她一块布丁」「带她去吃拉面」这样，不要以「制作人」开头；due 写那一天，格式 YYYY-MM-DD。\
 「这周末」「月底前」这种在一段日子里做的，due 写最后那天，from 写最早那天（从今天起就写今天）；只有一天的不写 from。\
-一件已经过去的日子上的约定不写。
+一件已经过去的日子上的约定不写。每条约定还要写 kind，只能是 call、gift、meeting、work、other：\
+call 是打电话、语音或视频通话；gift 是给她、送她、买给她一样具体的东西；meeting 是和她见面、一起外出、一起吃饭、\
+一起看电影、来接她；work 是在工作上帮她，但不一定见面；拿不准就写 other。见面即使是为了工作，也写 meeting。
 「# 已经记着的约定」按编号列着已经记下的约定：同一件事不要再写进 promises，换个说法也是同一件。\
 制作人明确说其中哪一件改到别的日子，写进 promise_changes：{"id": 编号, "due": "YYYY-MM-DD"}；\
 明确说不做了、取消了，写 {"id": 编号, "cancel": true}。只是没提起、还没做，都不算改期或取消。
@@ -2134,7 +2136,8 @@ subject 是 producer 时：
 
 只输出 JSON，格式为 {"memories": [{"text": "……", "subject": "producer|self|both", "evidence": "原话……", \
 "supersedes": [编号], "scope": "shared|unit|private", "emotion": "开心", "tier": "strong|medium|weak"}], \
-"promises": [], "promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 unit；\
+"promises": [{"text": "……", "due": "YYYY-MM-DD", "kind": "call|gift|meeting|work|other"}], \
+"promise_changes": [], "moment": null}，不取代任何记忆时 supersedes 写 []，拿不准 scope 时写 unit；\
 没有约定时 promises 写 []；没有改期或取消的约定时 promise_changes 写 []；没有值得写进日记的事时 moment 写 null；\
 都没有就输出 {"memories": [], "promises": [], "promise_changes": [], "moment": null}。
 
@@ -2174,7 +2177,7 @@ def _extraction_prompt(
         f"{n}. [{m.subject}] {m.text}" for n, m in enumerate(shown, 1)
     ] or ["（还没有）"]
     lines += ["", "# 已经记着的约定"]
-    lines += [f"{n}. {p.due.isoformat()}：{p.text}" for n, p in enumerate(promised, 1)] or ["（还没有）"]
+    lines += [f"{n}. [{p.kind}] {p.due.isoformat()}：{p.text}" for n, p in enumerate(promised, 1)] or ["（还没有）"]
     lines += ["", "# 最近的对话（只用于理解指代，不是记忆来源）"]
     earlier = 0
     for message in history[-EXCHANGE_HISTORY:]:

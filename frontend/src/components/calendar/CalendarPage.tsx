@@ -352,7 +352,7 @@ function EventRow({
     t.lasting(t.day(holiday.start.month, holiday.start.day), t.day(holiday.end.month, holiday.end.day));
   const note = [
     event.kind === "anniversary" ? event.label : null,
-    event.kind === "promise" ? t.promiseNote : null,
+    event.kind === "promise" ? t.promiseNote(event.promiseKind) : null,
     lasting,
     holiday?.note,
   ]

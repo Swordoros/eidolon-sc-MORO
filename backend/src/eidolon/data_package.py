@@ -590,19 +590,22 @@ class PackagedPromise(_Strict):
     """The day it is for, as `YYYY-MM-DD`; for a stretch of days, the last."""
     from_day: str | None = None
     """For a stretch of days, the first, as `YYYY-MM-DD`; None for one day."""
+    kind: str = "other"
+    """What the promise asks of the producer: call, gift, meeting, work, other."""
 
     @classmethod
     def of(cls, promise: Promise) -> "PackagedPromise":
         return cls(
             character_id=promise.character_id, text=promise.text, due=promise.due.isoformat(),
             from_day=promise.starts.isoformat() if promise.starts else None,
+            kind=promise.kind,
         )
 
     def new(self) -> NewPromise | None:
         """The promise to write down again here; None where its days cannot be read."""
         try:
             starts = date.fromisoformat(self.from_day) if self.from_day else None
-            return NewPromise(self.text, date.fromisoformat(self.due), starts)
+            return NewPromise(self.text, date.fromisoformat(self.due), starts, self.kind)
         except ValueError:
             return None
 
