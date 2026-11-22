@@ -24,7 +24,7 @@
 ---
 
 > [!NOTE]
-> 这是 Eidolon-SC 的 MORO 分支，包含 NSFW、群聊、ASMR 通话、记忆范围和自动日程等差异化功能。这个分支的功能介绍见 **[README.MORO.md](README.MORO.md)**。
+> 这是 Eidolon-SC 的 MORO 分支，包含 NSFW、允许PLove、群聊、ASMR 通话、记忆范围和自动日程等差异化功能。这个分支的功能介绍见 **[README.md](README.md)**。
 > 上游原有的安装、模型配置和部署说明仍然适用。
 > 本 fork 中借鉴和拷贝了大量别的 fork 的优秀设计，自己仅进行了一些微小的调整，十分惭愧。
 
