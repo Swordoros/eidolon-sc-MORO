@@ -16,6 +16,8 @@ export type CalendarAnniversary = { character_id: string; month: number; day: nu
 /** 一个约定（GLOSSARY.md「约定」）：答应在某天为她做的一件事，还没做到。 */
 export type PromiseKind = "call" | "gift" | "meeting" | "work" | "other";
 
+export type PromisePeriod = "morning" | "afternoon" | "evening" | "anytime";
+
 export type CalendarPromise = {
   id: number;
   character_id: string;
@@ -23,6 +25,8 @@ export type CalendarPromise = {
   day: number;
   text: string;
   kind: PromiseKind;
+  period: PromisePeriod;
+  locked: boolean;
 };
 
 /** 日历接口给的一年：每位偶像的生日、这一年有的节日、这个用户自己的纪念日，和他还没做到的约定。 */
@@ -39,7 +43,15 @@ export type DayEvent =
   | { kind: "producer" }
   | { kind: "holiday"; holiday: CalendarHoliday }
   | { kind: "anniversary"; characterId: string; label: string }
-  | { kind: "promise"; characterId: string; promiseId: number; text: string; promiseKind: PromiseKind };
+  | {
+      kind: "promise";
+      characterId: string;
+      promiseId: number;
+      text: string;
+      promiseKind: PromiseKind;
+      promisePeriod: PromisePeriod;
+      promiseLocked: boolean;
+    };
 
 /** 这个月里有事的一天，和那天的事（偶像的生日、制作人的生日、节日，依次）。 */
 export type MarkedDay = { day: number; events: DayEvent[] };
@@ -52,6 +64,17 @@ export async function getCalendar(year: number): Promise<CalendarYear> {
 /** 说这个约定已经做到了：它也就像送到了礼物一样消失。 */
 export async function fulfilPromise(id: number): Promise<void> {
   await json(await api(`/api/promises/${id}/fulfil`, { method: "POST" }));
+}
+
+/** 设置 meeting/call 的时段；日程生成后接口会拒绝。 */
+export async function setPromisePeriod(id: number, period: PromisePeriod): Promise<void> {
+  await json(
+    await api(`/api/promises/${id}/period`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ period }),
+    }),
+  );
 }
 
 /** 某个时区现在是几年几月几日。 */
@@ -119,7 +142,15 @@ export function monthEvents(
   }
   // 约定（答应在某天为她做的事）也排在这天，和偶像的事一起。
   for (const p of calendar.promises) {
-    if (p.month === month) add(p.day, { kind: "promise", characterId: p.character_id, promiseId: p.id, text: p.text, promiseKind: p.kind });
+    if (p.month === month) add(p.day, {
+      kind: "promise",
+      characterId: p.character_id,
+      promiseId: p.id,
+      text: p.text,
+      promiseKind: p.kind,
+      promisePeriod: p.period,
+      promiseLocked: p.locked,
+    });
   }
   if (producerBirthday) {
     const on = birthdayIn(year, producerBirthday);

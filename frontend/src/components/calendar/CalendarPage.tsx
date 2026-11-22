@@ -8,6 +8,7 @@ import { PageShell } from "@/components/app/PageShell";
 import { SectionHeading } from "@/components/app/SubpageHeader";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { copy } from "@/i18n";
 import { getProfile, type Birthday, type Character } from "@/lib/api";
 import {
@@ -15,11 +16,13 @@ import {
   getCalendar,
   monthEvents,
   monthWeeks,
+  setPromisePeriod,
   shiftMonth,
   todayIn,
   type CalendarYear,
   type DayEvent,
   type MarkedDay,
+  type PromisePeriod,
 } from "@/lib/calendarPage";
 import { toFailure, type Failure } from "@/lib/failure";
 import { detectTimezone, producerTimezone } from "@/lib/timezone";
@@ -28,6 +31,11 @@ import { herVars } from "@/theme/herVars";
 import { AnniversaryIcon, BackIcon, CakeIcon, CalendarIcon, ForwardIcon, PromiseIcon } from "@/theme/icons";
 
 const t = copy.calendar;
+
+const PERIODS = (["morning", "afternoon", "evening", "anytime"] as const).map((value) => ({
+  value,
+  label: t.promisePeriod[value],
+}));
 
 /** 一格里最多放几位偶像的头像，多的写成「+n」。 */
 const MAX_FACES = 2;
@@ -107,6 +115,18 @@ export function CalendarPage() {
     );
   }
 
+  function changePeriod(promiseId: number, period: PromisePeriod) {
+    void setPromisePeriod(promiseId, period).then(
+      () =>
+        setYears((m) => {
+          const next = new Map(m);
+          next.delete(year);
+          return next;
+        }),
+      (e) => setFailure(toFailure(e)),
+    );
+  }
+
   return (
     <PageShell width="full" isInShell header={<h1 className="text-list-title">{t.title}</h1>}>
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-4 py-6">
@@ -148,6 +168,7 @@ export function CalendarPage() {
                       characters={byId}
                       onGo={(id) => go(`/conversation/${encodeURIComponent(id)}`)}
                       onFulfil={fulfil}
+                      onPeriod={changePeriod}
                     />
                   )),
                 )}
@@ -330,6 +351,7 @@ function EventRow({
   characters,
   onGo,
   onFulfil,
+  onPeriod,
 }: {
   year: number;
   month: number;
@@ -339,6 +361,7 @@ function EventRow({
   characters: Characters;
   onGo: (characterId: string) => void;
   onFulfil: (promiseId: number) => void;
+  onPeriod: (promiseId: number, period: PromisePeriod) => void;
 }) {
   const title = eventTitle(event, characters);
   if (title === null) return null;
@@ -384,6 +407,33 @@ function EventRow({
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="break-words text-body">{title}</span>
         {note && <span className="text-subtitle text-muted-foreground">{note}</span>}
+        {event.kind === "promise" &&
+          (event.promiseKind === "meeting" || event.promiseKind === "call") && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Select
+                items={PERIODS}
+                value={event.promisePeriod}
+                onValueChange={(next) =>
+                  next && onPeriod(event.promiseId, String(next) as PromisePeriod)
+                }
+                disabled={event.promiseLocked}
+              >
+                <SelectTrigger size="sm" aria-label={t.promisePeriodLabel}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PERIODS.map((period) => (
+                    <SelectItem key={period.value} value={period.value}>
+                      {period.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {event.promiseLocked && (
+                <span className="text-meta text-muted-foreground">{t.promisePeriodLocked}</span>
+              )}
+            </div>
+          )}
       </div>
       {character && event.kind === "promise" && (
         <Button variant="outline" size="sm" onClick={() => onFulfil(event.promiseId)}>

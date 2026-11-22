@@ -160,6 +160,8 @@ class Slot:
     kind: SlotKind
     with_: tuple[str, ...] = ()
     """The characters with her, by identifier."""
+    promise_id: int | None = None
+    """The promise this slot carries out, for a meeting or call; None otherwise."""
 
     def shown(self) -> dict:
         return {
@@ -169,6 +171,7 @@ class Slot:
             "where": self.where,
             "kind": self.kind,
             "with": list(self.with_),
+            "promise_id": self.promise_id,
         }
 
 
@@ -346,9 +349,11 @@ def _slot(entry: object, characters: Mapping[str, object]) -> Slot | None:
     with_ = tuple(p for p in people if isinstance(p, str) and p in characters) if isinstance(
         people, list
     ) else ()
+    raw_promise = entry.get("promise_id")
+    promise_id = raw_promise if isinstance(raw_promise, int) and not isinstance(raw_promise, bool) else None
     return Slot(
         start, time(23, 59) if midnight else end, what.strip()[:MAX_WHAT],
-        where.strip()[:MAX_WHERE], cast(SlotKind, kind), with_,
+        where.strip()[:MAX_WHERE], cast(SlotKind, kind), with_, promise_id,
     )
 
 
@@ -915,4 +920,5 @@ def _stored_slot(stored: dict) -> Slot:
     return Slot(
         time.fromisoformat(stored["start"]), time.fromisoformat(stored["end"]), stored["what"],
         stored["where"], stored["kind"], tuple(stored.get("with", [])),
+        stored.get("promise_id"),
     )

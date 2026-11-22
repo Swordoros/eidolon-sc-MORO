@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS promises (
     from_on TEXT,
     put_off INTEGER NOT NULL DEFAULT 0,
     reminded_on TEXT,
-    kind TEXT NOT NULL DEFAULT 'other'
+    kind TEXT NOT NULL DEFAULT 'other',
+    period TEXT NOT NULL DEFAULT 'anytime'
 );
 CREATE INDEX IF NOT EXISTS promises_by_due ON promises(user_id, character_id, due_on);
 """
@@ -100,6 +101,12 @@ PromiseKind = Literal["call", "gift", "meeting", "work", "other"]
 PROMISE_KINDS: frozenset[str] = frozenset(get_args(PromiseKind))
 """The kinds the background model may write."""
 
+PromisePeriod = Literal["morning", "afternoon", "evening", "anytime"]
+"""When on its day a promise is for; anytime means it has no time to put in a schedule."""
+
+PROMISE_PERIODS: frozenset[str] = frozenset(get_args(PromisePeriod))
+"""The periods the background model or the calendar may write."""
+
 
 @dataclass(frozen=True)
 class NewPromise:
@@ -110,6 +117,7 @@ class NewPromise:
     due: date
     starts: date | None = None
     kind: PromiseKind = "other"
+    period: PromisePeriod = "anytime"
 
 
 @dataclass(frozen=True)
@@ -129,6 +137,8 @@ class Promise:
     """How many times it was put off."""
     kind: PromiseKind = "other"
     """What the promise asks of the producer."""
+    period: PromisePeriod = "anytime"
+    """When on its day it is for; anytime is not put in a schedule."""
 
     @property
     def first_day(self) -> date:
@@ -143,6 +153,7 @@ class Promise:
             "day": self.due.day,
             "text": self.text,
             "kind": self.kind,
+            "period": self.period,
         }
 
 
@@ -172,10 +183,20 @@ def parse_promises(answer: str) -> list[NewPromise]:
         starts = _a_day(first) if isinstance(first, str) else None
         raw_kind = entry.get("kind")
         kind = raw_kind if isinstance(raw_kind, str) and raw_kind in PROMISE_KINDS else "other"
+        raw_period = entry.get("period")
+        period = (
+            raw_period
+            if isinstance(raw_period, str) and raw_period in PROMISE_PERIODS
+            else "anytime"
+        )
         found.setdefault(
             (text, day),
             NewPromise(
-                text, day, starts if starts is not None and starts < day else None, kind
+                text,
+                day,
+                starts if starts is not None and starts < day else None,
+                kind,
+                period,
             ),
         )
     return list(found.values())
@@ -327,6 +348,7 @@ class Promises:
             if promise.due < today:
                 continue
             kind = promise.kind if promise.kind in PROMISE_KINDS else "other"
+            period = promise.period if promise.period in PROMISE_PERIODS else "anytime"
             if by_name(db).execute(
                 "SELECT 1 FROM promises WHERE user_id = ? AND character_id = ?"
                 " AND text = ? AND due_on = ?",
@@ -336,8 +358,8 @@ class Promises:
             starts = promise.starts if promise.starts and promise.starts > today else None
             by_name(db).execute(
                 "INSERT INTO promises"
-                " (user_id, character_id, text, due_on, made_at, ask_at, from_on, kind)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " (user_id, character_id, text, due_on, made_at, ask_at, from_on, kind, period)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     character_id,
@@ -347,6 +369,7 @@ class Promises:
                     self._ask_at(promise.due, now).isoformat(),
                     starts.isoformat() if starts else None,
                     kind,
+                    period,
                 ),
             )
 
@@ -643,6 +666,47 @@ class Promises:
         """Every promise still standing with any idol: for the calendar."""
         return await self._db.read(self.read_open_for, user_id)
 
+    async def for_day(self, user_id: str, character_id: str, day: date) -> list[Promise]:
+        """The meeting and call promises due on `day`, with a period a schedule can use."""
+        return [
+            promise
+            for promise in await self.open_for(user_id)
+            if promise.character_id == character_id
+            and promise.kind in ("meeting", "call")
+            and promise.period != "anytime"
+            and promise.first_day <= day <= promise.due
+        ]
+
+    async def one(self, user_id: str, promise_id: int) -> Promise | None:
+        """The promise `promise_id` of `user_id`, if it is still open."""
+        return next(
+            (promise for promise in await self.open_for(user_id) if promise.id == promise_id),
+            None,
+        )
+
+    async def set_period(
+        self, user_id: str, promise_id: int, period: PromisePeriod, now: datetime
+    ) -> Promise | None:
+        """Set when a meeting or call is for; a later schedule reads this period."""
+        if period not in PROMISE_PERIODS:
+            return None
+        promise = await self.one(user_id, promise_id)
+        if promise is None or promise.kind not in ("meeting", "call"):
+            return None
+        await self._db.write(
+            self._set_period_body, user_id, promise_id, period, now.astimezone(UTC).isoformat()
+        )
+        return await self.one(user_id, promise_id)
+
+    def _set_period_body(
+        self, db: sqlite3.Connection, user_id: str, promise_id: int, period: str, at: str
+    ) -> None:
+        db.execute(
+            "UPDATE promises SET period = ? WHERE id = ? AND user_id = ?"
+            " AND kind IN ('meeting', 'call')",
+            (period, promise_id, user_id),
+        )
+
     def read_open_for(self, db: sqlite3.Connection, user_id: str) -> list[Promise]:
         rows = by_name(db).execute(
             "SELECT * FROM promises WHERE user_id = ? ORDER BY due_on, id", (user_id,)
@@ -687,6 +751,7 @@ def _open(db: sqlite3.Connection) -> None:
     for column, kind in (
         ("from_on", "TEXT"), ("put_off", "INTEGER NOT NULL DEFAULT 0"),
         ("reminded_on", "TEXT"), ("kind", "TEXT NOT NULL DEFAULT 'other'"),
+        ("period", "TEXT NOT NULL DEFAULT 'anytime'"),
     ):
         if column not in columns:
             db.execute(f"ALTER TABLE promises ADD COLUMN {column} {kind}")
@@ -704,6 +769,7 @@ def _promise(row: sqlite3.Row) -> Promise:
         starts=date.fromisoformat(row["from_on"]) if row["from_on"] else None,
         put_off=row["put_off"],
         kind=row["kind"] if row["kind"] in PROMISE_KINDS else "other",
+        period=row["period"] if row["period"] in PROMISE_PERIODS else "anytime",
     )
 
 

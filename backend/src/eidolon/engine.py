@@ -1130,6 +1130,18 @@ def _topic_waiting(line: str) -> str:
     )
 
 
+def _promise_period(period: str) -> str:
+    return {
+        "morning": "上午，06:00–12:00",
+        "afternoon": "下午，12:00–18:00",
+        "evening": "晚上，18:00–24:00",
+    }.get(period, "当天")
+
+
+def _promise_minutes(kind: str) -> str:
+    return "60–180" if kind == "meeting" else "15–60"
+
+
 def _schedule_state(lines: Sequence[str]) -> str | None:
     """Today's schedule as one line about what she is doing now, or what just ended
     and what starts within half an hour; None without a schedule or a state."""
@@ -1938,6 +1950,7 @@ class ConversationEngine:
         lives: Mapping[str, str | None] | None = None,
         households: Mapping[str, str] | None = None,
         weathers: Mapping[str, str] | None = None,
+        promises: Mapping[str, Sequence[Promise]] | None = None,
     ) -> str:
         """The schedules of the `unit`'s members for `day`, written together on `llm` so
         that they do not conflict: from each member's sheet and the world setting, the day,
@@ -1974,6 +1987,17 @@ class ConversationEngine:
                 own.append(household)
             if weather := (weathers or {}).get(character_id):
                 own.append(weather)
+            if planned := (promises or {}).get(character_id):
+                own.append(
+                    "# 今天的约定\n"
+                    "这些是制作人和你的约定，只属于你，不要写到其他成员的日程里。"
+                    "请各自排成 private 的一段，what 写约定内容，并填上 promise_id：\n"
+                    + "\n".join(
+                        f"- promise_id={promise.id}；{_promise_period(promise.period)}；"
+                        f"{promise.text}（预计 {_promise_minutes(promise.kind)} 分钟）"
+                        for promise in planned
+                    )
+                )
             own_twists = twists.get(character_id, ())
             own.append(
                 "今天的小变数（要真的影响当天的安排）："

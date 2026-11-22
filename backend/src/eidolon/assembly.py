@@ -621,6 +621,7 @@ def build(
         daily, store, engine, characters, config, activity, clock,
         random or secure_random, settings.schedules,
         weathers=weathers,
+        promise_on=promises.for_day,
     )
     moments = Moments(
         database, characters, config, affinities, activity, memories, her_now, clock,

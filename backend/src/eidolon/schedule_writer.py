@@ -38,6 +38,7 @@ from eidolon.activity import ActivityLog
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.engine import ConversationEngine
+from eidolon.promises import Promise
 from eidolon.features import AllOn, Switches
 from eidolon.her_weather import WAIT as WEATHER_WAIT
 from eidolon.live_config import LiveConfig
@@ -138,6 +139,10 @@ async def _no_date(*_: object) -> str | None:
 
 
 async def _no_favors(*_: object) -> list[str]:
+    return []
+
+
+async def _no_promises(*_: object) -> list[Promise]:
     return []
 
 
@@ -369,12 +374,15 @@ class ScheduleWriter:
         date_on: Callable[[str, str, date], Awaitable[str | None]] = _no_date,
         favors_on: Callable[[str, str, date], Awaitable[list[str]]] = _no_favors,
         weathers: Weathers | None = None,
+        promise_on: Callable[[str, str, date], Awaitable[list[Promise]]] = _no_promises,
     ) -> None:
         """`date_on` says what she is to do with the producer on a day, if anything
         (GLOSSARY.md「邀约」); `favors_on`, what the producer's favors have her do that day
-        (GLOSSARY.md「拜托」), as twists of their own."""
+        (GLOSSARY.md「拜托」), as twists of their own; `promise_on`, the meeting and call
+        promises that day, for schedule slots of their own."""
         self._date_on = date_on
         self._favors_on = favors_on
+        self._promise_on = promise_on
         self._features = features
         self._schedules = schedules
         self._store = store
@@ -751,6 +759,9 @@ class ScheduleWriter:
             else dict(live)
         )
         twists: dict[str, list[str]] = {cid: self._twists(day) for cid in unit}
+        promises: dict[str, list[Promise]] = {
+            cid: await self._promise_on(user_id, cid, day) for cid in unit
+        }
         if staff and escort is not None:
             twists[unit[0]].append(self._escort_twist(escort))
         if staff:
@@ -818,7 +829,7 @@ class ScheduleWriter:
                 else:
                     answer = await self._engine.write_schedules(
                         unit, lease.keys.chat_llm, day, twists, yesterday, live_by,
-                        households, weather_by,
+                        households, weather_by, promises,
                     )
             if staff:
                 slots = parse_schedule(answer, self._characters)

@@ -26,17 +26,22 @@ def add_calendar_routes(app: FastAPI, backend: Backend) -> None:
         """The calendar of `year` (GLOSSARY.md「日历」), for the calendar page."""
         days = backend.special_days
         profile = await backend.store.get_profile(user_id)
+        promises = []
+        for promise in await backend.promises.open_for(user_id):
+            if promise.due.year != year:
+                continue
+            locked = (
+                promise.kind in ("meeting", "call")
+                and await backend.daily.of(user_id, promise.character_id, promise.due) is not None
+            )
+            promises.append(promise.shown() | {"locked": locked})
         return {
             **(days.described(year) if days is not None else {"birthdays": [], "holidays": []}),
             "anniversaries": anniversaries.described(
                 await backend.store.first_records(user_id), year,
                 effective_timezone(profile, None),
             ),
-            "promises": [
-                promise.shown()
-                for promise in await backend.promises.open_for(user_id)
-                if promise.due.year == year
-            ],
+            "promises": promises,
         }
 
     @app.get("/api/calendar/holidays")

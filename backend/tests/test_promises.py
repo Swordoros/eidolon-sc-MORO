@@ -239,7 +239,7 @@ async def test_promises_travel_with_the_memories_in_a_data_package(
 
     assert manifest["categories"] == ["memories"]
     assert data["promises"] == [
-        {"character_id": "mano", "text": "给她一块布丁", "due": "2027-03-01", "from_day": None, "kind": "other"}
+        {"character_id": "mano", "text": "给她一块布丁", "due": "2027-03-01", "from_day": None, "kind": "other", "period": "anytime"}
     ]
 
     there = make_client(FakeLLM(), "friend")
@@ -409,7 +409,7 @@ async def test_the_background_model_is_shown_the_promises_already_kept_numbered(
 
     told = prompt[-1].content
     instructions = prompt[0].content
-    assert "# 已经记着的约定\n1. [other] 2026-10-21：给她一块布丁" in told
+    assert "# 已经记着的约定\n1. [other/anytime] 2026-10-21：给她一块布丁" in told
     assert "同一件事不要再写进 promises" in instructions and "promise_changes" in instructions
 
 
