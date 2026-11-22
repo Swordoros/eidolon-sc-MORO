@@ -113,7 +113,7 @@ from eidolon.activity import detached
 from eidolon.affinity import (
     FED_UP_TURNS,
     SEVERE_WINDOW,
-    NSFW_ADULT,
+    age_NSFW,
     NSFW_TIER,
     SCENE_INVITATION,
     Affinities,
@@ -1286,7 +1286,7 @@ WANTS_TO_GIVE = "（制作人这会儿没在和你说话。你想送制作人一
 
 def keepsake_rules(occasion: str, about: str, adult: bool, before: Sequence[str]) -> str:
     """How she is to give a keepsake for `occasion`, `about` saying the rest; an idol under
-    `hearts.ADULT` (or not known to be one) gives nothing with romance in it; told what she
+    `hearts.age_romance` (or not known to be one) gives nothing with romance in it; told what she
     gave before (`before`), not to give the same again."""
     limits = (
         "不送酒、烟，也不送内衣之类贴身的东西。"
@@ -2428,7 +2428,7 @@ class ConversationEngine:
         nsfw_settings = await self._store.get_nsfw(conversation.user_id)
         nsfw = (
             nsfw_settings.conversation and affinity is not None and not affinity.cooling
-            and affinity.tier == NSFW_TIER and character.age >= NSFW_ADULT
+            and affinity.tier == NSFW_TIER and character.age >= age_NSFW
         )
         if nsfw and judged is not None and judged.beyond:
             judged = replace(judged, out_of_line=False)
@@ -2478,7 +2478,7 @@ class ConversationEngine:
             photo_turn(
                 asked_photo, affinity and affinity.tier, eligibility,
                 adult=nsfw_settings.photo and affinity is not None
-                and affinity.tier == NSFW_TIER and character.age >= NSFW_ADULT,
+                and affinity.tier == NSFW_TIER and character.age >= age_NSFW,
             )
             if eligibility is not None else None
         )

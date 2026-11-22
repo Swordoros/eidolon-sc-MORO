@@ -255,9 +255,9 @@ NSFW_TIER: Tier = "intimate"
 """The tier an explicit scene may open in, and only there, for an adult character (18+) when
 the deployment has it on (`Settings.nsfw`)."""
 
-NSFW_ADULT = 18
+age_NSFW = 18
 """The age from which a character may have explicit scenes; never for an idol under it. Told
-apart from `ADULT` (romance, 15), which is about closeness, not sex."""
+apart from `age_romance` (romance, 15), which is about closeness, not sex."""
 
 BEYOND_THRESHOLD = 0.5
 """The judge model's probability at or above which a turn counts as asking to cross the
@@ -626,8 +626,8 @@ class Judged:
 
 def nsfw_open(tier: Tier, cooling: bool, age: int | None) -> bool:
     """Whether an explicit scene may open with her now: only in `NSFW_TIER`, never in a
-    cooldown, and only for a character of `age` `NSFW_ADULT` or older (None never)."""
-    return tier == NSFW_TIER and not cooling and age is not None and age >= NSFW_ADULT
+    cooldown, and only for a character of `age` `age_NSFW` or older (None never)."""
+    return tier == NSFW_TIER and not cooling and age is not None and age >= age_NSFW
 
 
 def nsfw_line(open: bool, judged: Judged | None, in_call: bool = False) -> list[str] | None:

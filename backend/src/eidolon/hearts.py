@@ -7,7 +7,7 @@ daily habits: when she sleeps (GLOSSARY.md「行程」) and how she bathes (GLOS
 Each is a file of its own in the `hearts` directory beside the character configuration, named
 by her identifier (`mano.toml`). Like the calendar it is configuration, not data. An idol
 without one goes by the generic wording of `affinity`. Anything wrong in one keeps the backend
-from starting (`HeartsError`), and so does romance written for an idol under `ADULT`: for her,
+from starting (`HeartsError`), and so does romance written for an idol under `age_romance`: for her,
 however close, closeness is trust and reliance, never romance.
 """
 
@@ -23,7 +23,7 @@ from eidolon.characters import Character
 HEARTS_DIR = "hearts"
 """The directory's name, beside the character configuration."""
 
-ADULT = 15
+age_romance = 15
 """The age from which an idol's closer tiers may be romance."""
 
 RomanceTier = Literal["close", "intimate"]
@@ -63,11 +63,11 @@ class Heart:
 
     @property
     def adult(self) -> bool:
-        return self.age >= ADULT
+        return self.age >= age_romance
 
     def romance_in(self, tier: Tier, female_producer: bool) -> str | None:
         """How she shows romance in `tier` to a producer who is a woman or not; None in a tier
-        that is none, or for an idol under `ADULT`, whatever her file says."""
+        that is none, or for an idol under `age_romance`, whatever her file says."""
         if not self.adult or tier not in get_args(RomanceTier):
             return None
         return self.romance.get(f"{tier}_{'female' if female_producer else 'male'}")
@@ -81,7 +81,7 @@ def hearts_path(characters_path: Path) -> Path:
 def load_hearts(path: Path, characters: Iterable[Character]) -> dict[str, Heart]:
     """The hearts in the directory at `path`, by character identifier; none without it.
     Raises HeartsError if one is broken, is not one of `characters`', or writes romance
-    for an idol under `ADULT`."""
+    for an idol under `age_romance`."""
     known = {c.id for c in characters}
     if not path.is_dir():
         return {}
@@ -110,8 +110,8 @@ def _parse(file: Path, data: dict) -> Heart:
     if unknown:
         raise HeartsError(f"{file}：[tiers] 里没有这些档位：{'、'.join(sorted(unknown))}")
     romance = data.get("romance", {})
-    if romance and age < ADULT:
-        raise HeartsError(f"{file}：她 {age} 岁，未满 {ADULT} 岁的偶像不能写 [romance]")
+    if romance and age < age_romance:
+        raise HeartsError(f"{file}：她 {age} 岁，未满 {age_romance} 岁的偶像不能写 [romance]")
     if not isinstance(romance, dict) or not all(isinstance(v, str) and v.strip() for v in romance.values()):
         raise HeartsError(f"{file}：[romance] 里每一项都要是一段文字")
     unknown = set(romance) - _ROMANCE_KEYS
