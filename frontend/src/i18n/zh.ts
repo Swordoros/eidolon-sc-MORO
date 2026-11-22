@@ -393,6 +393,7 @@ export const zh = {
     placeholder: "用中文或日语说点什么",
     send: "发送",
     /** 消息区跨小时的时间条：今天只写时刻 `09:12`，昨天、今年、往年按下面拼；月日不补零，时分补零。 */
+    stampToday: (time: string) => `今天 ${time}`,
     stampYesterday: (time: string) => `昨天 ${time}`,
     stampMonthDay: (month: string, day: string, time: string) => `${month}月${day}日 ${time}`,
     stampFullDate: (year: string, month: string, day: string, time: string) =>

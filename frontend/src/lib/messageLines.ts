@@ -30,8 +30,13 @@ export function linesOf(entries: Entry[], now: Date, affinityOn: boolean): Line[
   const lines: Line[] = [];
   entries.forEach((entry, i) => {
     const newStamp = i === 0 || hours[i] !== hours[i - 1];
+    const firstOfDay =
+      i === 0 || dayOf(new Date(entry.at), now) !== dayOf(new Date(entries[i - 1].at), now);
     if (newStamp) {
-      lines.push({ kind: "stamp", key: `stamp-${i}`, at: entry.at, label: stampLabel(entry.at, now) });
+      lines.push({
+        kind: "stamp", key: `stamp-${i}`, at: entry.at,
+        label: stampLabel(entry.at, now, firstOfDay),
+      });
     }
     const previous = entries[i - 1];
     const next = entries[i + 1];
@@ -59,14 +64,14 @@ export function hourOf(at: Date): string {
   return `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}-${at.getHours()}`;
 }
 
-/** 时间条上的字：今天只写时刻，昨天写「昨天」，今年写月日，更早写年月日，月和日跟着本机的写法不补零。 */
-export function stampLabel(at: string, now: Date): string {
+/** 时间条上的字：今天的首条写「今天」，其余今天只写时刻；昨天写「昨天」，今年写月日，更早写年月日，月和日跟着本机的写法不补零。 */
+export function stampLabel(at: string, now: Date, firstOfDay = false): string {
   const date = new Date(at);
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   const conversation = copy.conversation;
   switch (dayOf(date, now)) {
     case "today":
-      return time;
+      return firstOfDay ? conversation.stampToday(time) : time;
     case "yesterday":
       return conversation.stampYesterday(time);
     case "thisYear":

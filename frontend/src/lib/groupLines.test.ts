@@ -32,7 +32,7 @@ describe("groupStamps", () => {
     const stamps = groupStamps(history, NOW);
 
     expect([...stamps.keys()].map((each) => each.speaker)).toEqual(["a", "c"]);
-    expect(stamps.get(first)).toBe("09:10");
+    expect(stamps.get(first)).toBe("今天 09:10");
     expect(stamps.get(third)).toBe("10:05");
   });
 
@@ -44,6 +44,6 @@ describe("groupStamps", () => {
 
     const stamps = groupStamps(history, NOW);
 
-    expect([...stamps.values()]).toEqual(["9月26日 21:10", "09:05"]);
+    expect([...stamps.values()]).toEqual(["9月26日 21:10", "今天 09:05"]);
   });
 });
