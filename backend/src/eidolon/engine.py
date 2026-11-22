@@ -147,6 +147,7 @@ from eidolon.her_cycle import HerDay, Period, Premenstrual
 from eidolon.her_now import HerNow, KnownNow, Occasion
 from eidolon.her_weather import KnownWeather
 from eidolon.judge import JudgeError
+from eidolon.japan_holidays import day_kind, holiday_hint, holiday_name
 from eidolon.letter_prompt import Earlier, letters_section, read_earlier
 from eidolon.llm import ChatLLM, ChatMessage, Finish, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories, last_turn_query
@@ -1423,7 +1424,8 @@ SCHEDULE_RULES = """# 写今天的行程
 - wake 是你今天几点起床（07:00 到 09:00），sleep 是你今天晚上几点睡（23:00 以后；过了午夜就写 00:30 这样，最晚 03:00）。照你的作息习惯排，每天可以有一点出入；第二天要早起就早点睡，今天有 live 或者累了的话也可以早点睡或者睡得晚一些。
 - 一天排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
 - 所有 slots 都要在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；今天有外景行程时，回程排完再睡，回程晚就把 sleep 往后排。
-- kind 只能是 work（工作、拍摄）、lesson（课程、练习）、school（上学）、live、rest（在家休息）、private（自己的安排）之一。
+- kind 只能是 work（工作、拍摄）、lesson（有人安排的课程、训练）、school（上学）、live、rest（在家休息）、private（自己的安排、自己加练）之一。
+- 自己主动加练、自己一个人练习的，写 private，不要写成 lesson；不要用 private 假装有老师或组合安排的课程。
 - with 写和你一起的偶像的标识（只写下面世界设定里有的同伴），没有就写 []。
 - 今天有外景时，外景拍摄和回程的 with 要写所有同行成员的标识；what 里写同行的组合名（例如「和SHHis、illumination STARS一起」），不要逐个写成员名字。
 - what 和 where 都尽量控制在 30 个字以内；不要为了压字数把词写到一半，完整表达优先，最多 40 个字。
@@ -1436,6 +1438,47 @@ SCHEDULE_RULES = """# 写今天的行程
 - 不要编原作里的大事：组合的变动、和别的偶像起冲突、家里的变故都不写。
 - 写到制作人时称「制作人」。"""
 
+WORKDAY_RULES = """# 今天是工作日
+- 按平常的节奏安排工作、课程和训练。
+- 学生周一到周五白天优先排 school，不能因为要练习或工作就默认请假。
+- 工作、课程、训练都可以正常排，但不要排满一整天。"""
+
+WEEKEND_RULES = """# 今天是周末
+- 今天是周六或周日，课程和训练要明显少于工作日。
+- lesson 最多 1 段（组合课也算），每段不超过 90 分钟。
+- 不要把周末排成补课日。
+- 优先排 rest、private、work、live。
+- 自己主动加练、自己一个人练习的，写 private，不要写成 lesson。
+- 是否自主加练由角色人设决定：把练习看得比什么都重的角色，可以写一段 private 自主练习。
+- 学生今天周末放假，不排 school。
+- 当天有 LIVE 时，可以排一段 60 分钟以内的排练，但不要再加别的课程。"""
+
+HOLIDAY_RULES = """# 今天是法定节假日：{holiday}
+- 今天是{holiday}，可以安排和这个节日相关的特殊活动。
+- 节日活动参考：{hint}。
+- 最多安排 1 段节日相关的特殊活动，不要因此排满一整天。
+- 法定节假日原则上不安排课程；工作、live 和节日活动仍然可以安排。
+- lesson 最多 1 段（组合课也算），每段不超过 90 分钟。
+- 自己主动加练、自己一个人练习的，写 private，不要写成 lesson。
+- 学生今天放假，不排 school。
+- 仍然要保证 sleep 和洗澡时间，不要因为节日活动排到深夜。"""
+
+
+def day_schedule_rules(day: date) -> str:
+    """The schedule rules that change with the day: workday, weekend, or a Japanese holiday."""
+    kind = day_kind(day)
+    if kind == "holiday":
+        name = holiday_name(day)
+        hint = holiday_hint(day)
+        return HOLIDAY_RULES.format(
+            holiday=name,
+            hint=hint or "轻松休息或外出，不要编原作里的大事",
+        )
+    if kind == "weekend":
+        return WEEKEND_RULES
+    return WORKDAY_RULES
+
+
 BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不冲突）
 你要给下面这几位偶像各排一份今天的大致安排。她们是同一个组合的成员，安排要互相一致：
 谁和谁一起做某事，两边要写一样的「一起」；不要出现一个人写着和另一个人一起、那个人却写着自己单独行动这种冲突。
@@ -1445,12 +1488,13 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 - 每位都排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
 - 每位都：所有 slots 在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟；今天有外景行程时，回程排完再睡，回程晚就把 sleep 往后排。
 - wake 是几点起床（07:00 到 09:00），sleep 是晚上几点睡（23:00 以后；过了午夜写 00:30 这样，最晚 03:00）。照各自作息习惯排。
-- kind 只能是 work、lesson、school、live、rest、private 之一。
+- kind 只能是 work、lesson（有人安排的课程、个人学习课程、组合训练）、school、live、rest、private（自己的安排、自己加练）之一。
+- 自己主动加练、自己一个人练习的，写 private，不要写成 lesson；不要用 private 假装有老师或组合安排的课程。
 - with 写和她一起的偶像的标识（只写世界设定里有的同伴），没有就写 []。
 - 今天有外景时，外景拍摄和回程的 with 要写所有同行成员的标识；what 里写同行的组合名（例如「和SHHis、illumination STARS一起」），不要逐个写成员名字。
 - what 和 where 都尽量控制在 30 个字以内；不要为了压字数把词写到一半，完整表达优先，最多 40 个字。
 - **what 和 where 一律用简体中文写。** 即使人设、世界设定或昨天的安排是日语，也要把内容译成中文再写；不要写假名、日语词或整句日语。地点、车站、店名也写中文，例如「東京駅」写「东京站」。LIVE 和组合名可以保留原文。
-- 人设里明确是学生、或在读的成员：周一到周五白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
+- 人设里明确是学生、或在读的成员：工作日白天优先排学校，kind 写 school，通常是 08:00–15:30；只有当天世界设定里的 LIVE，或者明确必须参加的工作与学校时间冲突时，才可以调整，不能因为要练习或工作就默认请假。周末和节假日不排学校；大学生按实际课程排。
 - 当天有外景/出差时：学校可以保留，但必须是在东京的学校，并在出发前结束；放学后到出发之间要留出足够的交通时间。如果外景/交通出发早于放学，或者当天来回的时间接不上，就不要排学校。学校、外景和交通不能重叠；外景和回程都排在学校之后。
 - 洗澡只排在当天最后一项外出安排之后；如果晚上还有学校、工作、外景或回程，就不能先洗澡再出门。每天都会有洗澡安排，但不要把它写进 slots，也不要单独排「洗澡」这一段：系统会根据 sleep 自动安排洗澡。你只需要保证最后一项安排和 sleep 之间留出洗澡时间。
 - 今天没有抽到外景行程时，不要写「外景」「出外景」「外景拍摄」，也不要因为天气改学校、课程、室内练习或在家安排。
@@ -1458,7 +1502,10 @@ BATCH_SCHEDULE_RULES = """# 写今天的行程（同组合一起写，保证不�
 - 不要编原作里的大事。
 - 写到制作人时称「制作人」。"""
 
-WANTS_TO_PLAN = "（排今天的安排。只输出 JSON。所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。学生成员周一到周五白天先排学校；有外景时，学校必须在出发前结束并留出交通时间，出发早于放学或时间接不上就不排学校；洗澡由系统根据 sleep 自动安排，不要写进 slots，只要给最后一项和 sleep 之间留出洗澡时间。没有外景行程时不要写外景。）"
+WANTS_TO_PLAN = """（排今天的安排。只输出 JSON，不要解释，不要代码块。
+所有 what 和 where 都用简体中文写，即使人设或世界设定是日语也译成中文。
+严格按系统给出的当天类型规则排：工作日、周末、法定节假日各自不同；当天规则优先于任何笼统的学校、课程或外景说明。）"""
+
 
 STAFF_SCHEDULE_RULES = """# 写今天的事务员日程
 你是 283 事务所的事务员，不是偶像。你要给自己排一份今天大概的安排，只输出 JSON，格式为
@@ -1466,7 +1513,7 @@ STAFF_SCHEDULE_RULES = """# 写今天的事务员日程
 - wake 是你今天几点起床（07:00 到 09:00），sleep 是你今天晚上几点睡（23:00 以后；过了午夜就写 00:30 这样，最晚 03:00）。照你的作息习惯排。
 - 一天排 3 到 6 段，留出空白，不要排满；每段不重叠，都在 06:00 到 24:00 之间。
 - 所有 slots 都要在 sleep 之前结束，sleep 至少比最后一段结束晚 30 分钟。
-- kind 只能是 work（事务工作、陪同、打工）、rest（在家休息）、private（自己的安排）之一；不要排 lesson、school 或 live。
+- kind 只能是 work（事务所工作、陪同、花店打工）、rest（在家休息）、private（自己的安排）之一；不要排 lesson、school 或 live。
 - 你的工作是事务所的事务员：经费、备品、点心、文件、联络、打扫、帮偶像准备东西、陪同偶像的课程/外景/LIVE，以及你自己的打工。
 - 陪同偶像时，kind 仍然写 work，what 写成「陪同{组合}进行{事情}」；但只有今天的小变数里明确给出的陪同才可以写，时间和内容照变数，不要自己编别的陪同、拍摄或外景。
 - 没有变数给出陪同的日子，不要写任何「陪同…」的安排。
@@ -1820,7 +1867,10 @@ class ConversationEngine:
         world_prompt = self._world.prompt(character.name, day) if self._world else None
         prompt = [
             ChatMessage("system", "\n\n".join(p for p in (character.sheet, world_prompt) if p)),
-            ChatMessage("system", SCHEDULE_RULES + "\n\n" + "\n".join(told)),
+            ChatMessage(
+                "system",
+                SCHEDULE_RULES + "\n\n" + day_schedule_rules(day) + "\n\n" + "\n".join(told),
+            ),
             ChatMessage("user", WANTS_TO_PLAN),
         ]
         answer = "".join([item async for item in llm.stream(prompt) if isinstance(item, str)])
@@ -1935,7 +1985,11 @@ class ConversationEngine:
                 + "\n\n" + "\n".join(own)
             )
         prompt = [
-            ChatMessage("system", BATCH_SCHEDULE_RULES + "\n\n" + "\n\n".join(told)),
+            ChatMessage(
+                "system",
+                BATCH_SCHEDULE_RULES + "\n\n" + day_schedule_rules(day) + "\n\n"
+                + "\n\n".join(told),
+            ),
             ChatMessage("user", WANTS_TO_PLAN),
         ]
         answer = "".join([item async for item in llm.stream(prompt) if isinstance(item, str)])

@@ -44,6 +44,7 @@ from eidolon.live_config import LiveConfig
 from eidolon.producer import effective_timezone
 from eidolon.randomness import Random
 from eidolon.weather import NAMES as WEATHER_NAMES, TOKYO, Weathers
+from eidolon.japan_holidays import day_kind
 from eidolon.schedules import (
     JOINT_TRIP_ODDS,
     MAX_SLOTS,
@@ -65,6 +66,7 @@ from eidolon.schedules import (
     parse_schedule,
     parse_schedules_batched,
     reconciled,
+    trim_lessons,
 )
 from eidolon.schedules import said as schedule_said
 from eidolon.store import Store
@@ -499,8 +501,10 @@ class ScheduleWriter:
                     found.append((user.id, group, day))
         return found
 
-    def _twists(self) -> list[str]:
+    def _twists(self, day: date) -> list[str]:
         left = [t for t in TWISTS if "原本在外面" not in t]
+        if day_kind(day) != "workday":
+            left = [t for t in left if "临时加练" not in t]
         drawn = []
         for _ in range(self._random(MAX_TWISTS + 1)):
             drawn.append(left.pop(self._random(len(left))))
@@ -746,7 +750,7 @@ class ScheduleWriter:
             {cid: live for cid in unit} if isinstance(live, str) or live is None
             else dict(live)
         )
-        twists: dict[str, list[str]] = {cid: self._twists() for cid in unit}
+        twists: dict[str, list[str]] = {cid: self._twists(day) for cid in unit}
         if staff and escort is not None:
             twists[unit[0]].append(self._escort_twist(escort))
         if staff:
@@ -829,6 +833,7 @@ class ScheduleWriter:
                 if cid not in parsed:
                     continue
                 slots, wake, sleep = parsed[cid]
+                slots = trim_lessons(slots, day)
                 if staff and escort is not None and cid == unit[0]:
                     slots = staff_slots(slots, escort)
                 elif staff:

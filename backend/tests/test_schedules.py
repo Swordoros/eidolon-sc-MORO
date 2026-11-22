@@ -25,6 +25,7 @@ from eidolon.engine import (
     _student_line,
 )
 from eidolon.llm import LLMError
+from eidolon.japan_holidays import day_kind
 from eidolon.schedule_writer import (
     ESCORT_ODDS,
     EscortOffer,
@@ -300,7 +301,7 @@ def test_schedule_prompts_have_students_go_to_school_on_weekdays():
     for prompt in (SCHEDULE_RULES, BATCH_SCHEDULE_RULES):
         assert "学生" in prompt
         assert "学校" in prompt
-        assert "周一到周五" in prompt
+        assert "周一到周五" in prompt or "工作日" in prompt
 
 
 def test_staff_schedule_prompt_is_not_an_idol_prompt():
@@ -623,7 +624,11 @@ async def test_hers_for_today_is_written_once_from_the_early_morning(
     assert len(llm.prompts) == 3  # the turn's, then each unit's once
     prompt = llm.prompts[-1]
     told = "\n".join(m.content for m in prompt if m.role == "system")
-    assert BATCH_SCHEDULE_RULES in told and TWISTS[0] in told
+    available_twists = (
+        TWISTS if day_kind(today_at(6).date()) == "workday"
+        else [twist for twist in TWISTS if "临时加练" not in twist]
+    )
+    assert BATCH_SCHEDULE_RULES in told and available_twists[0] in told
     assert f"星期{'一二三四五六日'[today_at(6).weekday()]}" in told
     assert "你是成年人。" in told
     assert prompt[-1].content == WANTS_TO_PLAN
@@ -632,7 +637,7 @@ async def test_hers_for_today_is_written_once_from_the_early_morning(
     assert [(s["what"], s["with"]) for s in written["slots"]] == [
         ("舞蹈课", []), ("逛文具店", ["kogane"]),
     ]
-    assert written["twists"] == [TWISTS[0]]
+    assert written["twists"] == [available_twists[0]]
 
 
 async def test_a_day_the_model_fails_is_none_and_not_tried_again(

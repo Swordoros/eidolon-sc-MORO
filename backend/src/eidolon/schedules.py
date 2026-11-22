@@ -29,6 +29,7 @@ from typing import Literal, cast, get_args
 from eidolon.clock import Clock
 from eidolon.data_access import Database
 from eidolon.hearts import BathKind
+from eidolon.japan_holidays import day_kind
 from eidolon.randomness import Random
 
 SlotKind = Literal["work", "lesson", "school", "live", "rest", "private"]
@@ -282,6 +283,22 @@ class Schedule:
     def now(self, at: time) -> Slot | None:
         """The slot she is in at `at`; None between them."""
         return next((s for s in self.slots if s.start <= at < s.end), None)
+
+
+def trim_lessons(slots: Sequence[Slot], day: date) -> list[Slot]:
+    """On a weekend or holiday, keep at most one lesson, group lessons included. The first
+    lesson is kept and later ones are dropped, so a day never runs from class to class."""
+    if day_kind(day) == "workday":
+        return list(slots)
+    kept: list[Slot] = []
+    lesson = False
+    for slot in slots:
+        if slot.kind == "lesson":
+            if lesson:
+                continue
+            lesson = True
+        kept.append(slot)
+    return kept
 
 
 def parse_schedule(answer: str, characters: Mapping[str, object]) -> list[Slot]:
