@@ -50,12 +50,29 @@ BOUNDARY = Heart(
 def test_nsfw_off_uses_the_all_ages_boundary():
     assert BOUNDARY.boundary_in("close") == "暧昧边界。"
     assert BOUNDARY.boundary_in("close", all_ages=True) == "全年龄暧昧边界。"
-    regular = "\n".join(affinity_prompt("close", None, heart=BOUNDARY, nsfw=True))
-    all_ages = "\n".join(affinity_prompt("close", None, heart=BOUNDARY, nsfw=False))
+    regular = "\n".join(
+        affinity_prompt("close", None, heart=BOUNDARY, nsfw=True, allow_plove=True)
+    )
+    all_ages = "\n".join(
+        affinity_prompt("close", None, heart=BOUNDARY, nsfw=False, allow_plove=False)
+    )
     assert "暧昧边界。" in regular and "全年龄" not in regular
     assert "全年龄暧昧边界。" in all_ages and "暧昧边界。" not in all_ages.replace(
         "全年龄暧昧边界。", ""
     )
+
+
+def test_plove_controls_romance_even_when_nsfw_is_on():
+    open_romance = "\n".join(
+        affinity_prompt("close", None, heart=BOUNDARY, nsfw=False, allow_plove=True)
+    )
+    closed_romance = "\n".join(
+        affinity_prompt("close", None, heart=BOUNDARY, nsfw=True, allow_plove=False)
+    )
+    assert "暧昧边界。" in open_romance
+    assert "全年龄暧昧边界。" in closed_romance
+    assert "全年龄暧昧边界。" not in open_romance
+    assert "可以明着撒娇" not in closed_romance
 
 
 def test_the_repositorys_hearts_load_and_only_adults_have_romance():

@@ -579,6 +579,8 @@ export type Account = {
   memory_debug: boolean;
   /** Whether group and private chat contexts may be shared with one another. Default off. */
   cross_chat: boolean;
+  /** Whether she may fall in love with the producer. Independent of the adult switches. */
+  allow_plove: boolean;
   /** The user's own switches for the adult scenes (GLOSSARY.md「成人内容」), each default off and
    * never for an under-age character: the conversation, her voiced lines in a call, the photos. */
   nsfw: boolean;
@@ -628,6 +630,16 @@ export async function switchReachOuts(on: boolean): Promise<void> {
 export async function switchCrossChat(on: boolean): Promise<void> {
   await expectNoContent(
     await api("/api/account/cross-chat", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on }),
+    }),
+  );
+}
+
+export async function switchPlove(on: boolean): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/plove", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ on }),

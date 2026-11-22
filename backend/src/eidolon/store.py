@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS users (
     cross_chat INTEGER NOT NULL DEFAULT 0,
     nsfw INTEGER NOT NULL DEFAULT 0,
     nsfw_voice INTEGER NOT NULL DEFAULT 0,
-    nsfw_photo INTEGER NOT NULL DEFAULT 0
+    nsfw_photo INTEGER NOT NULL DEFAULT 0,
+    allow_plove INTEGER NOT NULL DEFAULT 0
 );
 -- One row for each song the user has starred; the song itself is in the world setting.
 CREATE TABLE IF NOT EXISTS music_favorites (
@@ -682,6 +683,14 @@ class Store:
         default and never for an under-age character."""
         return await self._db.read(_nsfw, user_id)
 
+    async def get_allow_plove(self, user_id: str) -> bool:
+        """Whether the user lets her characters fall in love with them."""
+        return await self._db.read(_allow_plove, user_id)
+
+    async def set_allow_plove(self, user_id: str, on: bool) -> None:
+        """Turn the user's own switch for romance on or off."""
+        await self._db.write(_set_allow_plove, user_id, on)
+
     async def music_favorites(self, user_id: str) -> list[tuple[str, str]]:
         """The songs the user has starred, newest first: their ids and when each was starred."""
         return await self._db.read(_music_favorites, user_id)
@@ -1101,6 +1110,12 @@ def _open(db: sqlite3.Connection) -> None:
     _add_missing_columns(
         db, "users", ("nsfw", "nsfw_voice", "nsfw_photo"), "INTEGER NOT NULL DEFAULT 0"
     )
+    had_allow_plove = "allow_plove" in columns
+    _add_missing_columns(db, "users", ("allow_plove",), "INTEGER NOT NULL DEFAULT 0")
+    if not had_allow_plove:
+        # Existing users keep the romance they had while it lived under NSFW; afterwards the
+        # two switches are independent.
+        db.execute("UPDATE users SET allow_plove = nsfw")
     _add_missing_columns(db, "producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
     _add_missing_columns(
         db, "producer_profiles", ("city_name", "city_adm2", "city_adm1", "city_country"), "TEXT"
@@ -1216,6 +1231,15 @@ def _nsfw(db: sqlite3.Connection, user_id: str) -> NsfwSettings:
         "SELECT nsfw, nsfw_voice, nsfw_photo FROM users WHERE id = ?", (user_id,)
     ).fetchone()
     return NsfwSettings(*(bool(v) for v in row)) if row else NsfwSettings(False, False, False)
+
+
+def _allow_plove(db: sqlite3.Connection, user_id: str) -> bool:
+    row = db.execute("SELECT allow_plove FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def _set_allow_plove(db: sqlite3.Connection, user_id: str, on: bool) -> None:
+    db.execute("UPDATE users SET allow_plove = ? WHERE id = ?", (1 if on else 0, user_id))
 
 
 def _set_nsfw(

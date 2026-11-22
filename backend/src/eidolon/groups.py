@@ -1097,9 +1097,13 @@ class Groups:
         if not member.sheet.lstrip().startswith("# 群聊摘要"):
             parts.insert(0, f"你叫{label}。")
         profile = None
+        allow_plove = None
+        nsfw = False
         if self._store is not None:
             try:
                 profile = await self._store.get_profile(user_id)
+                allow_plove = await self._store.get_allow_plove(user_id)
+                nsfw = (await self._store.get_nsfw(user_id)).conversation
             except Exception:
                 log.warning("reading the producer for the group failed", exc_info=True)
         if self._world is not None and profile is not None:
@@ -1116,10 +1120,16 @@ class Groups:
                     profile.gender == "female" if profile is not None else False
                 )
                 heart = character.heart if character is not None else None
-                lines = tier_prompt(status, heart, female_producer)
+                lines = tier_prompt(
+                    status, heart, female_producer, nsfw=nsfw, allow_plove=allow_plove,
+                )
                 if lines:
                     parts.extend(lines)
-                    if heart is not None and heart.romance_in(status.tier, female_producer):
+                    if (
+                        allow_plove
+                        and heart is not None
+                        and heart.romance_in(status.tier, female_producer)
+                    ):
                         parts.append(
                             "这只影响你直接对制作人说话时的态度。对群里其他人按你自己的关系说话；"
                             "不要提好感度，也不要替别人表态。"

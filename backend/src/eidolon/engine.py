@@ -2036,6 +2036,7 @@ class ConversationEngine:
         messages = [entry for entry in record if isinstance(entry, Message)]
         timezone = effective_timezone(profile, None)
         nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
+        allow_plove = await self._store.get_allow_plove(conversation.user_id)
         world_prompt = (
             self._world.prompt(character.name, local_date(at, timezone)) if self._world else None
         )
@@ -2043,7 +2044,10 @@ class ConversationEngine:
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, self._history_turns()), {},
             [f"现在是晚上，{at.astimezone(ZoneInfo(timezone)).strftime('%Y年%m月%d日')}。"]
-            + tier_prompt(affinity, character.heart, profile.gender == "female", nsfw=nsfw),
+            + tier_prompt(
+                affinity, character.heart, profile.gender == "female", nsfw=nsfw,
+                allow_plove=allow_plove,
+            ),
             [diary_rules(moments)],
             WANTS_TO_WRITE_DIARY, None,
         )
@@ -2083,11 +2087,15 @@ class ConversationEngine:
         )
         adult = character.heart is not None and character.heart.adult
         nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
+        allow_plove = await self._store.get_allow_plove(conversation.user_id)
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, self._history_turns()), {},
             [f"现在是{now.astimezone(ZoneInfo(timezone)).strftime('%Y年%m月%d日 %H:%M')}。"]
-            + tier_prompt(affinity, character.heart, profile.gender == "female", nsfw=nsfw),
+            + tier_prompt(
+                affinity, character.heart, profile.gender == "female", nsfw=nsfw,
+                allow_plove=allow_plove,
+            ),
             [*([memories] if memories else []), keepsake_rules(occasion, about, adult, before)],
             WANTS_TO_GIVE, None,
         )
@@ -2429,6 +2437,7 @@ class ConversationEngine:
         # a cooldown, with the user's own switch on; what a lover asks is not out of line
         # where one may open, so `beyond` turns there do not lower her affinity or end it.
         nsfw_settings = await self._store.get_nsfw(conversation.user_id)
+        allow_plove = await self._store.get_allow_plove(conversation.user_id)
         nsfw = (
             nsfw_settings.conversation and affinity is not None and not affinity.cooling
             and affinity.tier == NSFW_TIER and character.age >= age_NSFW
@@ -2470,6 +2479,7 @@ class ConversationEngine:
                 age=character.age,
                 nsfw=nsfw,
                 in_call=nsfw_settings.voice and in_call is not None,
+                allow_plove=allow_plove,
             )
             if affinity is not None
             else []
@@ -2877,6 +2887,7 @@ class ConversationEngine:
             character, conversation.user_id, now, timezone, promises_due
         )
         nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
+        allow_plove = await self._store.get_allow_plove(conversation.user_id)
         if rules is None:
             rules = REACH_OUT_RULES_WITH_MOMENTS if moments else REACH_OUT_RULES
         prompt = self._prompt(
@@ -2885,7 +2896,8 @@ class ConversationEngine:
             [
                 self._now_section(
                     known, "apart", now, timezone, profile, last_contact, tier_prompt(
-                        affinity, character.heart, profile.gender == "female", nsfw=nsfw
+                        affinity, character.heart, profile.gender == "female", nsfw=nsfw,
+                        allow_plove=allow_plove,
                     ),
                     known_weather,
                 ),

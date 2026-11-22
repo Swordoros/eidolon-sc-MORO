@@ -648,13 +648,15 @@ def tier_prompt(
     heart: "Heart | None" = None,
     female_producer: bool = False,
     nsfw: bool = False,
+    allow_plove: bool | None = None,
 ) -> list[str]:
     """What the prompt says of her affinity in `status`'s tier, nothing judged
     (`affinity_prompt`); nothing without a status, as while affinity is off."""
     if status is None:
         return []
     return affinity_prompt(
-        status.tier, None, heart=heart, female_producer=female_producer, nsfw=nsfw
+        status.tier, None, heart=heart, female_producer=female_producer, nsfw=nsfw,
+        allow_plove=allow_plove,
     )
 
 
@@ -669,6 +671,7 @@ def affinity_prompt(
     age: int | None = None,
     nsfw: bool = False,
     in_call: bool = False,
+    allow_plove: bool | None = None,
 ) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
@@ -676,34 +679,37 @@ def affinity_prompt(
     `parting` with the producer after replying, that she does, or else if she is `warning`
     the producer she will part that way should it go on (`warns`), that she does.
 
-    With her `heart` (`hearts`), she shows her tier as it says, trust too; an adult idol's
-    closer tiers are romance as it says, to a producer who is a woman (`female_producer`) or
-    not, and an under-age idol's closer tiers are told they are none. With `nsfw` on and her
-    `age` adult in `NSFW_TIER`, whether the turn is an explicit scene one (`nsfw_line`),
+    With `allow_plove` off, closer tiers stay at her all-ages boundary and no romance is
+    offered; None keeps romance, as it was before the switch was its own. With `nsfw` on and
+    her `age` adult in `NSFW_TIER`, whether the turn is an explicit scene one (`nsfw_line`),
     with its voice as `in_call`."""
+    if allow_plove is None:
+        allow_plove = True
     lines = []
     shown = heart.tiers.get(tier) if heart is not None else None
     if tier != "trust" or shown:
         lines.append((shown or _TIER_PROMPTS[tier]) + _IN_HER_OWN_WAY)
         romance = heart.romance_in(tier, female_producer) if heart is not None else None
-        boundary = heart.boundary_in(tier, all_ages=not nsfw) if heart is not None else None
-        if romance and nsfw:
+        boundary = (
+            heart.boundary_in(tier, all_ages=not allow_plove) if heart is not None else None
+        )
+        if romance and allow_plove:
             lines.append(romance)
         if boundary is not None:
-            # The heart now carries the boundary: NSFW off uses its all-ages set.
+            # The heart carries the boundary: no PLove uses its all-ages set.
             lines.append(boundary)
-        elif romance:
+        elif romance and allow_plove:
             allowance = _ROMANCE_INTIMATE if tier == "intimate" else _ROMANCE_ALLOWED
             lines.append(romance + allowance)
         elif heart is not None and not heart.adult and tier in ("close", "intimate"):
             lines.append(_NOT_ROMANCE)
-        if tier in _FONDNESS:
+        if tier in _FONDNESS and allow_plove:
             lines.append(_FONDNESS[tier] + _SWEET_WITHIN_BOUNDS)
         lines.append(
-            _WHATEVER_THE_TIER_BUT_ROMANCE if romance and (nsfw or boundary is None)
+            _WHATEVER_THE_TIER_BUT_ROMANCE if romance and allow_plove
             else _WHATEVER_THE_TIER
         )
-    if nsfw and nsfw_open(tier, cooling, age):
+    if nsfw and allow_plove and nsfw_open(tier, cooling, age):
         scene = nsfw_line(judged is None or judged.beyond or not judged.out_of_line, judged, in_call)
         if scene:
             lines += scene
