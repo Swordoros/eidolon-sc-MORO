@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS promises (
     period TEXT NOT NULL DEFAULT 'anytime'
 );
 CREATE INDEX IF NOT EXISTS promises_by_due ON promises(user_id, character_id, due_on);
+CREATE TABLE IF NOT EXISTS promise_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    promise_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    character_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    due_on TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'other',
+    period TEXT NOT NULL DEFAULT 'anytime',
+    completed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS promise_history_by_user ON promise_history(user_id, completed_at);
 """
 
 
@@ -118,6 +130,18 @@ class NewPromise:
     starts: date | None = None
     kind: PromiseKind = "other"
     period: PromisePeriod = "anytime"
+
+
+@dataclass(frozen=True)
+class RecentPromise:
+    """A promise worth showing in the schedule: completed today, or still to come."""
+
+    text: str
+    due: date
+    kind: PromiseKind
+    period: PromisePeriod
+    completed: bool
+    starts: date | None = None
 
 
 @dataclass(frozen=True)
@@ -326,8 +350,25 @@ class Promises:
 
     async def _kept_all(self, promises: "Sequence[Promise]") -> None:
         """Tell of `promises`, kept: whether only after she complained of each, too."""
+        now = self._clock()
+        for promise in promises:
+            await self._db.write(self._keep_history, promise, now)
         await self._tell(self._kept, promises)
         await self._settle([(p, "kept_late" if p.complained_at else "kept") for p in promises])
+
+    def _keep_history(
+        self, db: sqlite3.Connection, promise: Promise, now: datetime
+    ) -> None:
+        db.execute(
+            "INSERT INTO promise_history"
+            " (promise_id, user_id, character_id, text, due_on, kind, period, completed_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                promise.id, promise.user_id, promise.character_id, promise.text,
+                promise.due.isoformat(), promise.kind, promise.period,
+                now.astimezone(UTC).isoformat(),
+            ),
+        )
 
     async def record(
         self, user_id: str, character_id: str, made: Sequence[NewPromise], now: datetime
@@ -675,6 +716,48 @@ class Promises:
             and promise.kind in ("meeting", "call")
             and promise.period != "anytime"
             and promise.first_day <= day <= promise.due
+        ]
+
+    async def recent_for_schedule(
+        self, user_id: str, character_id: str, now: datetime, timezone: str
+    ) -> list[RecentPromise]:
+        """What the schedule shows as recent promises: kept today, and still to come in
+        today, tomorrow or the day after."""
+        zone = ZoneInfo(timezone)
+        local = now.astimezone(zone)
+        today = local.date()
+        horizon = today + timedelta(days=2)
+        pending = [
+            RecentPromise(p.text, p.due, p.kind, p.period, False, p.starts)
+            for p in await self.open_for(user_id)
+            if p.character_id == character_id
+            and p.first_day <= horizon
+            and p.due >= today
+        ]
+        start = datetime.combine(today, time(0), zone).astimezone(UTC)
+        end = datetime.combine(today + timedelta(days=1), time(0), zone).astimezone(UTC)
+        completed = await self._db.read(
+            self._history_for, user_id, character_id, start.isoformat(), end.isoformat()
+        )
+        return [*completed, *pending]
+
+    def _history_for(
+        self, db: sqlite3.Connection, user_id: str, character_id: str, start: str, end: str
+    ) -> list[RecentPromise]:
+        rows = by_name(db).execute(
+            "SELECT text, due_on, kind, period FROM promise_history"
+            " WHERE user_id = ? AND character_id = ?"
+            " AND completed_at >= ? AND completed_at < ? ORDER BY completed_at, id",
+            (user_id, character_id, start, end),
+        ).fetchall()
+        return [
+            RecentPromise(
+                row["text"], date.fromisoformat(row["due_on"]),
+                row["kind"] if row["kind"] in PROMISE_KINDS else "other",
+                row["period"] if row["period"] in PROMISE_PERIODS else "anytime",
+                True,
+            )
+            for row in rows
         ]
 
     async def one(self, user_id: str, promise_id: int) -> Promise | None:

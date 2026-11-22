@@ -46,6 +46,7 @@ USER_DATA = [
     ("affinity_scenes", "user_id = ?"),
     ("features_off", "user_id = ?"),
     ("promises", "user_id = ?"),
+    ("promise_history", "user_id = ?"),
     ("trip_photo_due", "user_id = ?"),
     ("diary_moments", "user_id = ?"),
     ("diary_entries", "user_id = ?"),

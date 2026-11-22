@@ -2116,7 +2116,42 @@ class ConversationEngine:
         resting = schedule_rest(today, yesterday, local)
         if resting == "bath" and not in_bath:
             resting = None
-        return schedule_lines(today, local, self._names(), resting, woken, in_call)
+        told = schedule_lines(today, local, self._names(), resting, woken, in_call)
+        return ["# 日程", *told] if told else []
+
+    async def _promise_schedule_lines(
+        self, character: Character, user_id: str, now: datetime, timezone: str,
+        due: "_PromisesDue",
+    ) -> list[str]:
+        """The recent promises, then the three reminders for this time."""
+        if self._promises is None:
+            return []
+        recent = await self._promises.recent_for_schedule(
+            user_id, character.id, now, timezone
+        )
+        if not recent and not due.lines:
+            return []
+        zone = ZoneInfo(timezone)
+        today = now.astimezone(zone).date()
+        day_names = {
+            today: "今天",
+            today + timedelta(days=1): "明天",
+            today + timedelta(days=2): "后天",
+        }
+        periods = {
+            "morning": "上午", "afternoon": "下午", "evening": "晚上", "anytime": "任意时刻",
+        }
+        lines = ["# 最近的约定"]
+        for promise in recent:
+            when = day_names.get(promise.due, promise.due.isoformat())
+            status = "已完成" if promise.completed else "待完成"
+            lines.append(
+                f"- {promise.text}（{when} {periods.get(promise.period, '任意时刻')}）"
+                f"（{status}）"
+            )
+        if due.lines:
+            lines += ["", "# 约定提醒", *due.lines]
+        return lines
 
     async def _slot_talk(
         self,
@@ -2457,6 +2492,9 @@ class ConversationEngine:
             character, conversation.user_id, now, timezone, last_contact, in_call is not None,
             in_bath,
         )
+        promise_section = await self._promise_schedule_lines(
+            character, conversation.user_id, now, timezone, promises_due
+        )
         schedule_state = _schedule_state(known_schedule)
         group_context = None
         if await self._store.get_cross_chat(conversation.user_id):
@@ -2513,6 +2551,7 @@ class ConversationEngine:
                     known_weather,
                 ),
                 *known_schedule,
+                *promise_section,
                 *([group_context] if group_context else []),
                 *(
                     [
@@ -2521,7 +2560,6 @@ class ConversationEngine:
                     ]
                     if listening and mentions_music(text) else []
                 ),
-                *promises_due.lines,
                 *_moments_told(known, now, timezone, affinity),
                 *_letters_told(read.letters),
                 *([about_photo] if about_photo else []),
@@ -2831,6 +2869,9 @@ class ConversationEngine:
         moments = _moments_told(known, now, timezone, affinity)
         scene = await self._scene(conversation)
         promises_due = await self._promises_due(character, conversation.user_id, now, timezone)
+        promise_section = await self._promise_schedule_lines(
+            character, conversation.user_id, now, timezone, promises_due
+        )
         if rules is None:
             rules = REACH_OUT_RULES_WITH_MOMENTS if moments else REACH_OUT_RULES
         prompt = self._prompt(
@@ -2842,10 +2883,10 @@ class ConversationEngine:
                     known_weather,
                 ),
                 *known_schedule,
+                *promise_section,
                 *([f"# 你现在\n{schedule_state}"] if schedule_state else []),
                 *([group_context] if group_context else []),
                 *moments,
-                *promises_due.lines,
                 *_letters_told(read.letters),
                 *([SCENE_INVITATION] if scene is not None and scene.turns == 0 else []),
                 *([CALLING_BACK] if _missed_since_last_turn(record) else []),

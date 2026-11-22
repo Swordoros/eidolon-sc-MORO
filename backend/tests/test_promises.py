@@ -96,21 +96,42 @@ def test_the_promises_written_beside_the_memories():
     [promise] = parse_promises(ANSWER)
     assert promise == NewPromise("给她一块布丁", date(2026, 10, 21))
     assert promise.kind == "other"
+    assert promise.period == "anytime"
 
     [meeting] = parse_promises(
-        '{"promises": [{"text": "带她去看海", "due": "2026-10-21", "kind": "meeting"}]}'
+        '{"promises": [{"text": "带她去看海", "due": "2026-10-21", "kind": "meeting", "period": "afternoon"}]}'
     )
     assert meeting.kind == "meeting"
+    assert meeting.period == "afternoon"
     [unknown] = parse_promises(
-        '{"promises": [{"text": "带她去看海", "due": "2026-10-21", "kind": "strange"}]}'
+        '{"promises": [{"text": "带她去看海", "due": "2026-10-21", "kind": "strange", "period": "late"}]}'
     )
     assert unknown.kind == "other"
+    assert unknown.period == "anytime"
 
     assert parse_promises('{"memories": []}') == []  # 没有约定的答案
     assert parse_promises('{"promises": [{"text": "带她去看海", "due": "明天"}]}') == []  # 不是具体日子
     assert parse_promises('{"promises": [{"text": "带她去看海", "due": "2026-02-30"}]}') == []
     assert parse_promises('{"promises": [{"text": "", "due": "2026-10-21"}]}') == []
     assert parse_promises("没有 JSON") == []
+
+
+async def test_a_today_promise_is_recent_then_completed_today(promises: Promises):
+    await promises.record(
+        "u", "mano",
+        [NewPromise("下午去杂货店", date(2026, 10, 21), kind="meeting", period="afternoon")],
+        NOON,
+    )
+    [open_promise] = await promises.open_for("u")
+    before = await promises.recent_for_schedule(
+        "u", "mano", NOON, "Asia/Shanghai"
+    )
+    assert [(p.text, p.completed) for p in before] == [("下午去杂货店", False)]
+
+    await promises.fulfil("u", open_promise.id)
+
+    after = await promises.recent_for_schedule("u", "mano", NOON, "Asia/Shanghai")
+    assert [(p.text, p.completed) for p in after] == [("下午去杂货店", True)]
 
 
 async def test_a_promise_for_a_day_already_gone_is_dropped_and_kept_once(promises: Promises):
