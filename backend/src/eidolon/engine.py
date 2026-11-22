@@ -2039,6 +2039,7 @@ class ConversationEngine:
         ]
         messages = [entry for entry in record if isinstance(entry, Message)]
         timezone = effective_timezone(profile, None)
+        nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
         world_prompt = (
             self._world.prompt(character.name, local_date(at, timezone)) if self._world else None
         )
@@ -2046,7 +2047,7 @@ class ConversationEngine:
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, self._history_turns()), {},
             [f"现在是晚上，{at.astimezone(ZoneInfo(timezone)).strftime('%Y年%m月%d日')}。"]
-            + tier_prompt(affinity, character.heart, profile.gender == "female"),
+            + tier_prompt(affinity, character.heart, profile.gender == "female", nsfw=nsfw),
             [diary_rules(moments)],
             WANTS_TO_WRITE_DIARY, None,
         )
@@ -2085,11 +2086,12 @@ class ConversationEngine:
             conversation, timezone, last_turn_query(messages)
         )
         adult = character.heart is not None and character.heart.adult
+        nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, self._history_turns()), {},
             [f"现在是{now.astimezone(ZoneInfo(timezone)).strftime('%Y年%m月%d日 %H:%M')}。"]
-            + tier_prompt(affinity, character.heart, profile.gender == "female"),
+            + tier_prompt(affinity, character.heart, profile.gender == "female", nsfw=nsfw),
             [*([memories] if memories else []), keepsake_rules(occasion, about, adult, before)],
             WANTS_TO_GIVE, None,
         )
@@ -2873,6 +2875,7 @@ class ConversationEngine:
         promise_section = await self._promise_schedule_lines(
             character, conversation.user_id, now, timezone, promises_due
         )
+        nsfw = (await self._store.get_nsfw(conversation.user_id)).conversation
         if rules is None:
             rules = REACH_OUT_RULES_WITH_MOMENTS if moments else REACH_OUT_RULES
         prompt = self._prompt(
@@ -2880,7 +2883,9 @@ class ConversationEngine:
             prompt_history, {},
             [
                 self._now_section(
-                    known, "apart", now, timezone, profile, last_contact, tier_prompt(affinity, character.heart, profile.gender == "female"),
+                    known, "apart", now, timezone, profile, last_contact, tier_prompt(
+                        affinity, character.heart, profile.gender == "female", nsfw=nsfw
+                    ),
                     known_weather,
                 ),
                 *known_schedule,

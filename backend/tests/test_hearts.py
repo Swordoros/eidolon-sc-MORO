@@ -35,6 +35,27 @@ ADULT = Heart(
     },
 )
 MINOR = Heart(14, tiers={"close": "撒娇要夸。", "intimate": "说出心事。"})
+BOUNDARY = Heart(
+    19,
+    boundary={
+        "before_trust": "普通边界。", "close": "暧昧边界。", "intimate": "亲密边界。",
+    },
+    boundary_all_ages={
+        "before_trust": "全年龄普通边界。", "close": "全年龄暧昧边界。",
+        "intimate": "全年龄亲密边界。",
+    },
+)
+
+
+def test_nsfw_off_uses_the_all_ages_boundary():
+    assert BOUNDARY.boundary_in("close") == "暧昧边界。"
+    assert BOUNDARY.boundary_in("close", all_ages=True) == "全年龄暧昧边界。"
+    regular = "\n".join(affinity_prompt("close", None, heart=BOUNDARY, nsfw=True))
+    all_ages = "\n".join(affinity_prompt("close", None, heart=BOUNDARY, nsfw=False))
+    assert "暧昧边界。" in regular and "全年龄" not in regular
+    assert "全年龄暧昧边界。" in all_ages and "暧昧边界。" not in all_ages.replace(
+        "全年龄暧昧边界。", ""
+    )
 
 
 def test_the_repositorys_hearts_load_and_only_adults_have_romance():
@@ -103,7 +124,7 @@ def test_an_adult_idols_closer_tiers_are_romance_by_the_producers_gender():
     assert "不再适用" in intimate_male and "已经是恋人" in intimate_male
     assert "性方面的要求仍然不接受" not in intimate_male
     for told in (close_female, intimate_male):
-        assert "除了恋爱这一处，人设里的硬性规则照旧" in told
+        assert "除了恋爱这一处，人设里的性格和关系设定照旧" in told
 
 
 def test_an_idol_under_age_is_never_romance_whatever_her_file_says():

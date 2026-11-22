@@ -488,12 +488,12 @@ _SWEET_WITHIN_BOUNDS = (
 )
 
 _WHATEVER_THE_TIER = (
-    "无论现在关系怎样，人设里的硬性规则照旧；一起经历过的事和你们在事务所里的关系都不会改变。"
+    "无论现在关系怎样，人设里的性格和关系设定照旧；一起经历过的事和你们在事务所里的关系都不会改变。"
     "如果想不起具体是因为什么，就不要编造原因。"
 )
 
 _WHATEVER_THE_TIER_BUT_ROMANCE = (
-    "除了恋爱这一处，人设里的硬性规则照旧；一起经历过的事和你们偶像与制作人的关系都不会改变。"
+    "除了恋爱这一处，人设里的性格和关系设定照旧；一起经历过的事和你们偶像与制作人的关系都不会改变。"
     "如果想不起具体是因为什么，就不要编造原因。"
 )
 
@@ -647,12 +647,15 @@ def tier_prompt(
     status: Status | None,
     heart: "Heart | None" = None,
     female_producer: bool = False,
+    nsfw: bool = False,
 ) -> list[str]:
     """What the prompt says of her affinity in `status`'s tier, nothing judged
     (`affinity_prompt`); nothing without a status, as while affinity is off."""
     if status is None:
         return []
-    return affinity_prompt(status.tier, None, heart=heart, female_producer=female_producer)
+    return affinity_prompt(
+        status.tier, None, heart=heart, female_producer=female_producer, nsfw=nsfw
+    )
 
 
 def affinity_prompt(
@@ -683,14 +686,23 @@ def affinity_prompt(
     if tier != "trust" or shown:
         lines.append((shown or _TIER_PROMPTS[tier]) + _IN_HER_OWN_WAY)
         romance = heart.romance_in(tier, female_producer) if heart is not None else None
-        if romance:
+        boundary = heart.boundary_in(tier, all_ages=not nsfw) if heart is not None else None
+        if romance and nsfw:
+            lines.append(romance)
+        if boundary is not None:
+            # The heart now carries the boundary: NSFW off uses its all-ages set.
+            lines.append(boundary)
+        elif romance:
             allowance = _ROMANCE_INTIMATE if tier == "intimate" else _ROMANCE_ALLOWED
             lines.append(romance + allowance)
         elif heart is not None and not heart.adult and tier in ("close", "intimate"):
             lines.append(_NOT_ROMANCE)
         if tier in _FONDNESS:
             lines.append(_FONDNESS[tier] + _SWEET_WITHIN_BOUNDS)
-        lines.append(_WHATEVER_THE_TIER_BUT_ROMANCE if romance else _WHATEVER_THE_TIER)
+        lines.append(
+            _WHATEVER_THE_TIER_BUT_ROMANCE if romance and (nsfw or boundary is None)
+            else _WHATEVER_THE_TIER
+        )
     if nsfw and nsfw_open(tier, cooling, age):
         scene = nsfw_line(judged is None or judged.beyond or not judged.out_of_line, judged, in_call)
         if scene:

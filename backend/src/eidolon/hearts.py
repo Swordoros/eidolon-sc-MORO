@@ -36,6 +36,11 @@ BATH_KINDS: dict[str, BathKind] = {"泡澡": "tub", "淋浴": "shower"}
 """How a heart file writes `bath`."""
 
 _ROMANCE_KEYS = {f"{t}_{g}" for t in get_args(RomanceTier) for g in ("male", "female")}
+_BOUNDARY_KEYS = ("before_trust", "close", "intimate")
+_TIER_BOUNDARY: dict[Tier, str] = {
+    "cold": "before_trust", "distant": "before_trust", "trust": "before_trust",
+    "close": "close", "intimate": "intimate",
+}
 
 
 class HeartsError(RuntimeError):
@@ -60,10 +65,19 @@ class Heart:
     """How she bathes (GLOSSARY.md「洗澡」); in the tub unless her file says otherwise."""
     bath_habit: str | None = None
     """Her habits in the bath, told her as part of her daily life."""
+    boundary: Mapping[str, str] = field(default_factory=dict)
+    """How close she lets the producer come in each stage, when NSFW is on."""
+    boundary_all_ages: Mapping[str, str] = field(default_factory=dict)
+    """The same, when NSFW is off."""
 
     @property
     def adult(self) -> bool:
         return self.age >= age_romance
+
+    def boundary_in(self, tier: Tier, all_ages: bool = False) -> str | None:
+        """How close she lets the producer come in `tier`; an all-ages set where `all_ages`."""
+        chosen = self.boundary_all_ages if all_ages else self.boundary
+        return chosen.get(_TIER_BOUNDARY[tier])
 
     def romance_in(self, tier: Tier, female_producer: bool) -> str | None:
         """How she shows romance in `tier` to a producer who is a woman or not; None in a tier
@@ -125,6 +139,12 @@ def _parse(file: Path, data: dict) -> Heart:
     unknown = set(scenes) - set(get_args(RomanceTier))
     if unknown:
         raise HeartsError(f"{file}：[scenes] 只能写 close、intimate，不认识 {'、'.join(sorted(unknown))}")
+    raw_boundary = data.get("boundary", {})
+    all_ages = raw_boundary.get("all_ages", {}) if isinstance(raw_boundary, dict) else {}
+    boundary = _boundary_texts(file, raw_boundary, "boundary")
+    if not isinstance(all_ages, dict):
+        raise HeartsError(f"{file}：[boundary.all_ages] 要写成一张表")
+    all_ages = _boundary_texts(file, all_ages, "boundary.all_ages")
     sleep = data.get("sleep")
     if sleep is not None and (not isinstance(sleep, str) or not sleep.strip()):
         raise HeartsError(f"{file}：sleep 要写一段文字（她的作息习惯）")
@@ -138,7 +158,25 @@ def _parse(file: Path, data: dict) -> Heart:
         age, pleased, hurt, {k: v.strip() for k, v in tiers.items()},
         {k: v.strip() for k, v in romance.items()}, {k: v.strip() for k, v in scenes.items()},
         sleep.strip() if sleep else None, BATH_KINDS[bath], habit.strip() if habit else None,
+        boundary=boundary, boundary_all_ages=all_ages,
     )
+
+
+def _boundary_texts(file: Path, data: object, where: str) -> dict[str, str]:
+    if not isinstance(data, dict):
+        raise HeartsError(f"{file}：[{where}] 要写成一张表")
+    if not data:
+        return {}
+    unknown = set(data) - set(_BOUNDARY_KEYS) - {"all_ages"}
+    if unknown:
+        raise HeartsError(
+            f"{file}：[{where}] 只能写 {'、'.join(_BOUNDARY_KEYS)}，不认识 {'、'.join(sorted(unknown))}"
+        )
+    texts = {k: v.strip() for k, v in data.items() if k != "all_ages" and isinstance(v, str) and v.strip()}
+    missing = set(_BOUNDARY_KEYS) - set(texts)
+    if missing:
+        raise HeartsError(f"{file}：[{where}] 缺了 {'、'.join(sorted(missing))}")
+    return {k: v for k, v in texts.items() if k != "all_ages"}
 
 
 def _texts(file: Path, data: dict, key: str) -> tuple[str, ...]:
