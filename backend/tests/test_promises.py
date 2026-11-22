@@ -8,12 +8,14 @@ import sqlite3
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 import httpx
 
 from eidolon.config import Settings
+from eidolon.engine import ConversationEngine
 from eidolon.judge import JudgeError
 from eidolon.llm import LLMError
 from eidolon.memory import _extraction_prompt  # pyright: ignore[reportPrivateUsage]
@@ -24,6 +26,7 @@ from eidolon.promises import (
     Promise,
     PromiseChange,
     Promises,
+    RecentPromise,
     parse_promise_changes,
     parse_promises,
 )
@@ -132,6 +135,28 @@ async def test_a_today_promise_is_recent_then_completed_today(promises: Promises
 
     after = await promises.recent_for_schedule("u", "mano", NOON, "Asia/Shanghai")
     assert [(p.text, p.completed) for p in after] == [("下午去杂货店", True)]
+
+
+async def test_only_todays_recent_promise_shows_a_part_of_the_day():
+    class Recent:
+        async def recent_for_schedule(self, *_):
+            return [
+                RecentPromise("今天约定", date(2026, 10, 21), "meeting", "afternoon", False),
+                RecentPromise("明天约定", date(2026, 10, 22), "meeting", "afternoon", False),
+                RecentPromise("后天约定", date(2026, 10, 23), "meeting", "evening", False),
+            ]
+
+    engine = object.__new__(ConversationEngine)
+    engine._promises = Recent()  # pyright: ignore[reportAttributeAccessIssue]
+    lines = await engine._promise_schedule_lines(  # pyright: ignore[reportPrivateUsage]
+        MANO, "u", NOON, "Asia/Shanghai", SimpleNamespace(lines=[])
+    )
+
+    assert "- 今天约定（今天 下午）（待完成）" in lines
+    assert "- 明天约定（明天）（待完成）" in lines
+    assert "- 后天约定（后天）（待完成）" in lines
+    assert "明天约定（明天 下午）" not in "\n".join(lines)
+    assert "后天约定（后天 晚上）" not in "\n".join(lines)
 
 
 async def test_a_promise_for_a_day_already_gone_is_dropped_and_kept_once(promises: Promises):

@@ -2143,11 +2143,14 @@ class ConversationEngine:
         lines = ["# 最近的约定"]
         for promise in recent:
             when = day_names.get(promise.due, promise.due.isoformat())
-            status = "已完成" if promise.completed else "待完成"
-            lines.append(
-                f"- {promise.text}（{when} {periods.get(promise.period, '任意时刻')}）"
-                f"（{status}）"
+            # Tomorrow's and the day after's periods are still editable, so the prompt does
+            # not present them as fixed times. Only today shows a part of the day.
+            label = (
+                f"{when} {periods.get(promise.period, '任意时刻')}"
+                if promise.due == today else when
             )
+            status = "已完成" if promise.completed else "待完成"
+            lines.append(f"- {promise.text}（{label}）（{status}）")
         if due.lines:
             lines += ["", "# 约定提醒", *due.lines]
         return lines
